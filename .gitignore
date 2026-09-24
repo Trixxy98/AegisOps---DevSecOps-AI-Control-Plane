@@ -1,0 +1,29 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+coverage/
+*.nupkg
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+*.pfx
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Runtime data
+backups/
+reports/
