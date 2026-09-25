@@ -9,6 +9,12 @@
   <ItemGroup>
     <ProjectReference Include="..\AegisOps.Application\AegisOps.Application.csproj" />
     <ProjectReference Include="..\AegisOps.Domain\AegisOps.Domain.csproj" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" /> 
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="EFCore.NamingConventions" />
   </ItemGroup>
 
 </Project>
