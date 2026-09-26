@@ -81,7 +81,7 @@ public static class Refresh {
         );
     }
 
-    private static async Task RevokeFamilyAsync(
+    internal static async Task RevokeFamilyAsync(
         AegisOpsDbContext db,
         Guid familyId,
         DateTimeOffset now,
@@ -96,3 +96,5 @@ public static class Refresh {
         await db.SaveChangesAsync(cancellationToken);
     }
 }
+
+
