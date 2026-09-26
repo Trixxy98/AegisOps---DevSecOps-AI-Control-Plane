@@ -2,6 +2,7 @@ using AegisOps.Domain.Identity;
 using AegisOps.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
+using AegisOps.Infrastructure.Persistence;
 
 namespace AegisOps.Api.Identity;
 
@@ -13,7 +14,9 @@ public static class Login {
         LoginRequest request,
         UserManager<User> users,
         IOptions<JwtOptions> jwtOptions,
-        TimeProvider time
+        TimeProvider time,
+        AegisOpsDbContext db,
+        HttpContext http
     ) {
         if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password)) {
             return Results.Problem(
@@ -35,6 +38,8 @@ public static class Login {
         var options = jwtOptions.Value;
         var now = time.GetUtcNow();
         var token = JwtAccessTokenFactory.Create(user, [], options, now);
+
+        await RefreshCookie.IssueAsync(http, db, user, options, now, http.RequestAborted);
 
         return Results.Ok(new LoginResponse(token, now.AddMinutes(options.AccessTokenMinutes)));
     }
