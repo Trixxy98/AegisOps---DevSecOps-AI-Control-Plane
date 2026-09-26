@@ -15,6 +15,7 @@ app.Urls.Add("http://localhost:8080");
 app.MapHealthChecks("/health/live");
 app.MapHealthChecks("/health/ready");
 app.MapPost("/api/v1/auth/login", Login.Handle);
+app.MapPost("/api/v1/auth/refresh", Refresh.Handle);
 
 if (app.Environment.IsDevelopment()) {
     await DevelopmentUserSeed.SeedAsync(app.Services);
