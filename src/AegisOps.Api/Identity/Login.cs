@@ -37,7 +37,8 @@ public static class Login {
 
         var options = jwtOptions.Value;
         var now = time.GetUtcNow();
-        var token = JwtAccessTokenFactory.Create(user, [], options, now);
+        var roles = await users.GetRolesAsync(user);
+        var token = JwtAccessTokenFactory.Create(user, roles, options, now);
 
         await RefreshCookie.IssueAsync(http, db, user, options, now, http.RequestAborted);
 

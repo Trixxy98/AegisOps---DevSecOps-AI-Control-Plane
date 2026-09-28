@@ -70,7 +70,8 @@ public static class Refresh {
         await db.SaveChangesAsync(cancellationToken);
         RefreshCookie.Append(http, nextRaw, next.ExpiresAt);
 
-        var accessToken = JwtAccessTokenFactory.Create(user, [], options, now);
+        var roles = await users.GetRolesAsync(user);
+        var accessToken = JwtAccessTokenFactory.Create(user, roles, options, now);
         return Results.Ok(new LoginResponse(accessToken, now.AddMinutes(options.AccessTokenMinutes)));
     }
 

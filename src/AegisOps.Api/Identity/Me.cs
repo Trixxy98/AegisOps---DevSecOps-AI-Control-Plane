@@ -2,6 +2,7 @@ using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.JsonWebTokens;
+using AegisOps.Application.Authorization;
 
 namespace AegisOps.Api.Identity;
 
@@ -10,7 +11,8 @@ public sealed record MeResponse(
     string Email,
     string DisplayName,
     bool MustChangePassword,
-    IList<string> Roles
+    IList<string> Roles,
+    IReadOnlyList<string> Permissions
 );
 
 public static class CurrentUser {
@@ -37,7 +39,8 @@ public static class CurrentUser {
             user.Email,
             user.DisplayName,
             user.MustChangePassword,
-            roles
+            roles,
+            RolePermissions.For(roles)
         ));
     }
 }
