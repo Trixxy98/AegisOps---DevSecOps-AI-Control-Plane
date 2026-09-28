@@ -9,7 +9,7 @@ namespace AegisOps.Infrastructure.Identity;
 public static class JwtAccessTokenFactory {
     public static string Create(
         User user,
-        IReadOnlyCollection<string> roles,
+        IEnumerable<string> roles,
         JwtOptions options,
         DateTimeOffset now
     ) {
