@@ -18,6 +18,8 @@ app.MapPost("/api/v1/auth/login", Login.Handle);
 app.MapPost("/api/v1/auth/refresh", Refresh.Handle);
 app.MapPost("/api/v1/auth/logout", Logout.Handle).RequireAuthorization();
 app.MapGet("/api/v1/auth/me", CurrentUser.Handle).RequireAuthorization();
+app.MapPost("/api/v1/auth/change-password", ChangePassword.Handle).RequireAuthorization();
+
 
 
 if (app.Environment.IsDevelopment()) {
