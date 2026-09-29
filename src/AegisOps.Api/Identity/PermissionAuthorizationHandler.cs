@@ -8,7 +8,7 @@ public sealed class PermissionAuthorizationHandler : AuthorizationHandler<Permis
         AuthorizationHandlerContext context,
         PermissionRequirement requirement
     ) {
-        var roles = context.User.FindAll("roles").Select(claim => claim.Value);
+        var roles = context.User.FindAll("role").Select(claim => claim.Value);
         if (RolePermissions.Grants(roles, requirement.Permission)) {
             context.Succeed(requirement);
         }
