@@ -68,4 +68,8 @@ public static class RolePermissions {
 
         return granted.OrderBy(permission => permission, StringComparer.Ordinal).ToArray();
     }
+
+    public static bool Grants(IEnumerable<string> roles, string permission) {
+            return For(roles).Contains(permission, StringComparer.Ordinal);
+        }
 }

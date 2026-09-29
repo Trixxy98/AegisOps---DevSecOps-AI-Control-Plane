@@ -3,6 +3,8 @@ using AegisOps.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using AegisOps.Application.Authorization;
+using Microsoft.AspNetCore.Authorization;
 
 namespace AegisOps.Api.Identity;
 
@@ -37,7 +39,16 @@ public static class JwtAuthenticationExtensions {
                 };
             });
 
-        services.AddAuthorization();
+        services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+        services.AddAuthorization(authorization => {
+            foreach (var permission in Permissions.All) {
+                authorization.AddPolicy(
+                    permission,
+                    policy => policy.Requirements.Add(new PermissionRequirement(permission))
+                );
+            }
+        });
+
         return services;
     }
 }

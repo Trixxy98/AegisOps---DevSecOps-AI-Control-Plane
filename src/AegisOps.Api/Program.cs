@@ -1,5 +1,6 @@
 using AegisOps.Api.Identity;
 using AegisOps.Infrastructure.Identity;
+using AegisOps.Application.Authorization;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,6 +20,8 @@ app.MapPost("/api/v1/auth/refresh", Refresh.Handle);
 app.MapPost("/api/v1/auth/logout", Logout.Handle).RequireAuthorization();
 app.MapGet("/api/v1/auth/me", CurrentUser.Handle).RequireAuthorization();
 app.MapPost("/api/v1/auth/change-password", ChangePassword.Handle).RequireAuthorization();
+app.MapGet("/api/v1/admin/ping", () => Results.NoContent())
+    .RequireAuthorization(Permissions.UsersManage);
 
 
 
