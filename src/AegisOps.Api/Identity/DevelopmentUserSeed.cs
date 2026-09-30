@@ -1,6 +1,9 @@
 using System.Security.Cryptography;
 using AegisOps.Domain.Identity;
 using Microsoft.AspNetCore.Identity;
+using AegisOps.Domain.Organization;
+using AegisOps.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace AegisOps.Api.Identity;
 
@@ -40,15 +43,61 @@ public static partial class DevelopmentUserSeed {
                 }
             }
         }
+
+        var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
+        await EnsureDemoTeamAsync(db, users, now);
     }
 
     private sealed record DemoAccount(string Email, string DisplayName, string[] Roles);
     private static readonly DemoAccount[] Accounts = [
         new(Email, "AegisOps Admin", [AdminRole]),
         new("developer@aegisops.local", "AegisOps Developer", [DeveloperRole]),
+        new("rith@aegisops.local", "Rith", [DeveloperRole]),
         new("security@aegisops.local", "AegisOps Security", [SecurityRole, ApproverRole]),
         new("approver@aegisops.local", "AegisOps Approver", [ApproverRole]),
     ];
+
+    private static async Task EnsureDemoTeamAsync(
+        AegisOpsDbContext db,
+        UserManager<User> users,
+        DateTimeOffset now
+    ) {
+        const string slug = "network-platform";
+        var team = await db.Teams.SingleOrDefaultAsync(item => item.Slug == slug);
+        if (team is null) {
+            team = Team.Create(
+                "Network Platform",
+                slug,
+                now,
+                "Demo team for network services"
+            );
+            db.Teams.Add(team);
+            await db.SaveChangesAsync();
+        }
+
+        await EnsureMemberAsync(db, users, team.Id, "developer@aegisops.local", TeamRole.Owner, now);
+        await EnsureMemberAsync(db, users, team.Id, "rith@aegisops.local", TeamRole.Owner, now);
+    }
+
+    private static async Task EnsureMemberAsync(
+        AegisOpsDbContext db,
+        UserManager<User> users,
+        Guid teamId,
+        string email,
+        TeamRole role,
+        DateTimeOffset joinedAt
+    ) {
+        var user = await users.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException($"Seed user {email} is missing.");
+
+        var exists = await db.TeamMembers.AnyAsync(member => member.TeamId == teamId && member.UserId == user.Id);
+        if (exists) {
+            return;
+        }
+
+        db.TeamMembers.Add(TeamMember.Create(teamId, user.Id, role, joinedAt));
+        await db.SaveChangesAsync();
+    }
 
     private static async Task EnsureRoleAsync(RoleManager<IdentityRole<Guid>> roles, string name) {
         if (await roles.RoleExistsAsync(name)) {
