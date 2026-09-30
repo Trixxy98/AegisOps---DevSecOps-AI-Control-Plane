@@ -26,7 +26,7 @@ public static class ListTeams {
         if (!Guid.TryParse(subject, out var userId)) {
             return Results.Problem(
                 title: "Invalid credentials",
-                status: StatusCodes.Status401Unauthorized
+                statusCode: StatusCodes.Status401Unauthorized
             );
         }
 
@@ -34,12 +34,12 @@ public static class ListTeams {
         if (user is null || !user.IsActive) {
             return Results.Problem(
                 title: "Invalid credentials",
-                status: StatusCodes.Status401Unauthorized
+                statusCode: StatusCodes.Status401Unauthorized
             );
         }
 
         var isAdmin = await users.IsInRoleAsync(user, "Admin");
-        va cancellationToken = http.RequestAborted;
+        var cancellationToken = http.RequestAborted;
 
         if (isAdmin) {
             var teams = await db.Teams
@@ -70,7 +70,7 @@ public static class ListTeams {
                 member.Role.ToString()
             )
         ).ToListAsync(cancellationToken); 
-        
+
         return Results.Ok(visible);
     }
 }
