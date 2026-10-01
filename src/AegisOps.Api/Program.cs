@@ -28,7 +28,10 @@ app.MapGet("/api/v1/admin/ping", () => Results.NoContent())
     .RequireAuthorization(Permissions.UsersManage);
 app.MapGet("/api/v1/teams", ListTeams.Handle)
     .RequireAuthorization(Permissions.TeamsRead);
-
+app.MapPost("/api/v1/teams", CreateTeam.Handle)
+    .RequireAuthorization(Permissions.UsersManage);
+app.MapGet("/api/v1/teams/{slug}", GetTeam.Handle)
+    .RequireAuthorization(Permissions.TeamsRead);
 
 
 if (app.Environment.IsDevelopment()) {
