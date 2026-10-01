@@ -32,7 +32,8 @@ app.MapPost("/api/v1/teams", CreateTeam.Handle)
     .RequireAuthorization(Permissions.UsersManage);
 app.MapGet("/api/v1/teams/{slug}", GetTeam.Handle)
     .RequireAuthorization(Permissions.TeamsRead);
-
+app.MapPatch("/api/v1/teams/{slug}", UpdateTeam.Handle)
+    .RequireAuthorization(Permissions.TeamsWrite);
 
 if (app.Environment.IsDevelopment()) {
     await DevelopmentUserSeed.SeedAsync(app.Services);

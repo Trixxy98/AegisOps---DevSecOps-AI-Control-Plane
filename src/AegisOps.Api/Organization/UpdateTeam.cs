@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
+using AegisOps.Domain.Organization;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -7,30 +8,23 @@ using Microsoft.IdentityModel.JsonWebTokens;
 
 namespace AegisOps.Api.Organization;
 
-public sealed record TeamMemberItem(
-    Guid UserId,
-    string Email,
-    string DisplayName,
-    string Role
-);
-
-public sealed record TeamDetailResponse(
-    Guid Id,
-    string Name,
-    string Slug,
-    string? Description,
-    string? MyRole,
-    IReadOnlyList<TeamMemberItem> Members
-);
-
-public static class GetTeam {
+public sealed record UpdateTeamRequest(string? Name, string? Description);
+public static class UpdateTeam {
     public static async Task<IResult> Handle(
-        string slug,
+        string slug, 
+        UpdateTeamRequest request,
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
         HttpContext http
     ) {
+        if (request.Name is null && request.Description is null) {
+            return Results.Problem(
+                title: "Name or description is required.",
+                statusCode: StatusCodes.Status400BadRequest
+            );
+        }
+
         var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
         if (!Guid.TryParse(subject, out var userId)) {
             return Results.Problem(
@@ -49,9 +43,7 @@ public static class GetTeam {
 
         var cancellationToken = http.RequestAborted;
         var normalizedSlug = slug.Trim().ToLowerInvariant();
-        var team = await db.Teams
-            .AsNoTracking()
-            .SingleOrDefaultAsync(item => item.Slug == normalizedSlug, cancellationToken);
+        var team = await db.Teams.SingleOrDefaultAsync(item => item.Slug == normalizedSlug, cancellationToken);
 
         if (team is null) {
             return Results.Problem(
@@ -61,39 +53,49 @@ public static class GetTeam {
         }
 
         var isAdmin = await users.IsInRoleAsync(user, "Admin");
-        var membership = await db.TeamMembers
-            .AsNoTracking()
-            .SingleOrDefaultAsync(member => member.TeamId == team.Id && member.UserId == userId,
+        var isOwner = await db.TeamMembers.AnyAsync(
+            member => 
+                member.TeamId == team.Id
+                && member.UserId == userId
+                && member.Role == TeamRole.Owner,
             cancellationToken
-            );
+        );
 
-        if (!isAdmin && membership is null) {
+        if (!isAdmin && !isOwner) {
             return Results.Problem(
                 title: "Team was not found.",
                 statusCode: StatusCodes.Status404NotFound
             );
         }
 
-        var members = await (
-            from member in db.TeamMembers.AsNoTracking()
-            join account in db.Users.AsNoTracking() on member.UserId equals account.Id
-            where member.TeamId == team.Id
-            orderby member.Role, account.Email
-            select new TeamMemberItem(
-                account.Id,
-                account.Email ?? string.Empty,
-                account.DisplayName,
-                member.Role.ToString()
-            )
-        ).ToListAsync(cancellationToken);
+        try {
+            if (request.Name is not null) {
+                team.Rename(request.Name);
+            }
 
-        return Results.Ok(new TeamDetailResponse(
+            if (request.Description is not null) {
+                team.Describe(request.Description);
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+        } catch (ArgumentException exception) {
+            return Results.Problem(
+                title: exception.Message,
+                statusCode: StatusCodes.Status400BadRequest
+            );
+        }
+
+        var membership = await db.TeamMembers.AsNoTracking().SingleOrDefaultAsync(
+            member => member.TeamId == team.Id && member.UserId == userId,
+            cancellationToken
+        );
+
+        return Results.Ok(new TeamListItem(
             team.Id,
             team.Name,
             team.Slug,
             team.Description,
-            membership?.Role.ToString(),
-            members
+            membership?.Role.ToString()
         ));
     }
 }
