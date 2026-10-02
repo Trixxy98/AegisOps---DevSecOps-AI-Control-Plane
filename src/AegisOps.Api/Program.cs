@@ -34,6 +34,8 @@ app.MapGet("/api/v1/teams/{slug}", GetTeam.Handle)
     .RequireAuthorization(Permissions.TeamsRead);
 app.MapPatch("/api/v1/teams/{slug}", UpdateTeam.Handle)
     .RequireAuthorization(Permissions.TeamsWrite);
+app.MapPut("/api/v1/teams/{slug}/members/{userId:guid}", UpsertTeamMember.Handle)
+    .RequireAuthorization(Permissions.TeamsWrite);
 
 if (app.Environment.IsDevelopment()) {
     await DevelopmentUserSeed.SeedAsync(app.Services);
