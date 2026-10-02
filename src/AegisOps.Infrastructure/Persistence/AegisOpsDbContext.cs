@@ -12,6 +12,8 @@ public sealed class AegisOpsDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<TeamMember> TeamMembers => Set<TeamMember>();
+    public DbSet<Project> Projects => Set<Project>();
+    public DbSet<AegisOps.Domain.Organization.Environment> Environments => Set<AegisOps.Domain.Organization.Environment>();
 
     protected override void OnModelCreating(ModelBuilder builder) {
         base.OnModelCreating(builder);

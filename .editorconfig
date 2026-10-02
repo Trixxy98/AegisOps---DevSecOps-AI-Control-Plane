@@ -25,3 +25,6 @@ indent_size = 2
 
 [tests/**/*.cs]
 dotnet_diagnostic.CA1707.severity = none
+
+[src/AegisOps.Infrastructure/Persistence/Migrations/**.cs]
+dotnet_diagnostic.CA1861.severity = none
