@@ -40,6 +40,8 @@ app.MapDelete("/api/v1/teams/{slug}/members/{userId:guid}", RemoveTeamMember.Han
     .RequireAuthorization(Permissions.TeamsWrite);
 app.MapPost("/api/v1/projects", CreateProject.Handle)
     .RequireAuthorization(Permissions.ProjectsWrite);
+app.MapGet("/api/v1/projects", ListProjects.Handle)
+    .RequireAuthorization(Permissions.ProjectsRead);
 
 
 if (app.Environment.IsDevelopment()) {
