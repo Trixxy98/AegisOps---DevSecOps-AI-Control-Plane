@@ -38,6 +38,8 @@ app.MapPut("/api/v1/teams/{slug}/members/{userId:guid}", UpsertTeamMember.Handle
     .RequireAuthorization(Permissions.TeamsWrite);
 app.MapDelete("/api/v1/teams/{slug}/members/{userId:guid}", RemoveTeamMember.Handle)
     .RequireAuthorization(Permissions.TeamsWrite);
+app.MapPost("/api/v1/projects", CreateProject.Handle)
+    .RequireAuthorization(Permissions.ProjectsWrite);
 
 
 if (app.Environment.IsDevelopment()) {
