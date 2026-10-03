@@ -42,7 +42,8 @@ app.MapPost("/api/v1/projects", CreateProject.Handle)
     .RequireAuthorization(Permissions.ProjectsWrite);
 app.MapGet("/api/v1/projects", ListProjects.Handle)
     .RequireAuthorization(Permissions.ProjectsRead);
-
+app.MapGet("/api/v1/projects/{slug}", GetProject.Handle)
+    .RequireAuthorization(Permissions.ProjectsRead);
 
 if (app.Environment.IsDevelopment()) {
     await DevelopmentUserSeed.SeedAsync(app.Services);
