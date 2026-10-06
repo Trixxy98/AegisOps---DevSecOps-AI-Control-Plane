@@ -30,7 +30,8 @@ public sealed record ProjectResponse(
     string Slug,
     string? Description,
     bool IsArchived,
-    IReadOnlyList<EnvironmentListItem> Environments
+    IReadOnlyList<EnvironmentListItem> Environments,
+    RepositoryResponse? Repository
 );
 
 public static class CreateProject {
@@ -127,7 +128,8 @@ public static class CreateProject {
                             item.Tier.ToString(),
                             item.Order
                         ))
-                        .ToArray()
+                        .ToArray(),
+                    null
                 )
             );
         } catch (ArgumentException exception) {
