@@ -70,6 +70,19 @@ public static class GetProject {
             ))
             .ToListAsync(cancellationToken);
 
+        var repository = await db.Repositories
+            .AsNoTracking()
+            .Where(item => item.ProjectId == project.Id)
+            .Select(item => new RepositoryResponse(
+                item.Id,
+                item.ProjectId,
+                item.Provider.ToString(),
+                item.FullName,
+                item.DefaultBranch,
+                item.HtmlUrl
+            ))
+            .SingleOrDefaultAsync(cancellationToken);
+
         return Results.Ok(new ProjectResponse(
             project.Id,
             project.TeamId,
@@ -77,7 +90,8 @@ public static class GetProject {
             project.Slug,
             project.Description,
             project.IsArchived,
-            environments
+            environments,
+            repository
         ));
     }
 }
