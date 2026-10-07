@@ -48,6 +48,10 @@ app.MapPatch("/api/v1/projects/{slug}", UpdateProject.Handle)
     .RequireAuthorization(Permissions.ProjectsWrite);
 app.MapPut("/api/v1/projects/{slug}/repository", UpsertRepository.Handle)
     .RequireAuthorization(Permissions.ProjectsWrite);
+app.MapPatch("/api/v1/projects/{slug}/environments/{envId:guid}", UpdateEnvironment.Handle)
+    .RequireAuthorization(Permissions.EnvironmentsWrite);
+app.MapPost("/api/v1/projects/{slug}/api-keys", CreateApiKey.Handle)
+    .RequireAuthorization(Permissions.ApiKeysManage);
 
 if (app.Environment.IsDevelopment()) {
     await DevelopmentUserSeed.SeedAsync(app.Services);
