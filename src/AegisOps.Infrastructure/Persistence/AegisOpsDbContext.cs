@@ -27,5 +27,6 @@ public sealed class AegisOpsDbContext : IdentityDbContext<User, IdentityRole<Gui
             token.HasOne<User>().WithMany().HasForeignKey(item => item.UserId);
         });
     }
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
 
 }
