@@ -56,6 +56,8 @@ app.MapGet("/api/v1/projects/{slug}/api-keys", ListApiKeys.Handle)
     .RequireAuthorization(Permissions.ApiKeysManage);
 app.MapDelete("/api/v1/projects/{slug}/api-keys/{keyId:guid}", RevokeApiKey.Handle)
     .RequireAuthorization(Permissions.ApiKeysManage);
+app.MapPost("/api/v1/projects/{slug}/artifacts", CreateArtifact.Handle)
+    .RequireAuthorization(Permissions.ArtifactsWrite);
 
 if (app.Environment.IsDevelopment()) {
     await DevelopmentUserSeed.SeedAsync(app.Services);
