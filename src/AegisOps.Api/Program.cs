@@ -60,7 +60,11 @@ app.MapPost("/api/v1/projects/{slug}/artifacts", CreateArtifact.Handle)
     .RequireAuthorization(Permissions.ArtifactsWrite);
 app.MapGet("/api/v1/projects/{slug}/artifacts", ListArtifacts.Handle)
     .RequireAuthorization(Permissions.ArtifactsRead);
-
+app.MapGet("/api/v1/artifacts/{id:guid}", GetArtifact.Handle)
+    .RequireAuthorization(Permissions.ArtifactsRead);
+app.MapPatch("/api/v1/artifacts/{id:guid}", BackfillArtifactDigest.Handle)
+    .RequireAuthorization(Permissions.ArtifactsWrite);
+     
 if (app.Environment.IsDevelopment()) {
     await DevelopmentUserSeed.SeedAsync(app.Services);
 }
