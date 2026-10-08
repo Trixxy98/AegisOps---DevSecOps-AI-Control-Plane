@@ -11,6 +11,12 @@ public sealed class PermissionAuthorizationHandler : AuthorizationHandler<Permis
         var roles = context.User.FindAll("role").Select(claim => claim.Value);
         if (RolePermissions.Grants(roles, requirement.Permission)) {
             context.Succeed(requirement);
+            return Task.CompletedTask;
+        }
+
+        var scopes = context.User.FindAll("scope").Select(claim => claim.Value);
+        if (scopes.Contains(requirement.Permission, StringComparer.Ordinal)) {
+            context.Succeed(requirement);
         }
 
         return Task.CompletedTask;
