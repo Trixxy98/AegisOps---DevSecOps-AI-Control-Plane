@@ -52,6 +52,10 @@ app.MapPatch("/api/v1/projects/{slug}/environments/{envId:guid}", UpdateEnvironm
     .RequireAuthorization(Permissions.EnvironmentsWrite);
 app.MapPost("/api/v1/projects/{slug}/api-keys", CreateApiKey.Handle)
     .RequireAuthorization(Permissions.ApiKeysManage);
+app.MapGet("/api/v1/projects/{slug}/api-keys", ListApiKeys.Handle)
+    .RequireAuthorization(Permissions.ApiKeysManage);
+app.MapDelete("/api/v1/projects/{slug}/api-keys/{keyId:guid}", RevokeApiKey.Handle)
+    .RequireAuthorization(Permissions.ApiKeysManage);
 
 if (app.Environment.IsDevelopment()) {
     await DevelopmentUserSeed.SeedAsync(app.Services);

@@ -5,6 +5,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using AegisOps.Application.Authorization;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authentication;
 
 namespace AegisOps.Api.Identity;
 
@@ -22,7 +23,23 @@ public static class JwtAuthenticationExtensions {
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
 
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme) 
+        services.AddAuthentication(ApiKeyAuthenticationDefaults.SmartScheme)
+            .AddPolicyScheme(
+                ApiKeyAuthenticationDefaults.SmartScheme,
+                ApiKeyAuthenticationDefaults.SmartScheme,
+                scheme => {
+                    scheme.ForwardDefaultSelector = context => {
+                        var header = context.Request.Headers.Authorization.ToString();
+                        return header.StartsWith("Bearer aok_", StringComparison.Ordinal)
+                            ? ApiKeyAuthenticationDefaults.Scheme
+                            : JwtBearerDefaults.AuthenticationScheme;
+                    };
+                }
+            )
+            .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
+                ApiKeyAuthenticationDefaults.Scheme,
+                _ => { }
+            )
             .AddJwtBearer(bearer => {
                 bearer.MapInboundClaims = false;
                 bearer.TokenValidationParameters = new TokenValidationParameters {
