@@ -66,4 +66,17 @@ public sealed class Environment {
     public void Retarget(DeploymentTarget target) {
         Target = target ?? throw new ArgumentNullException(nameof(target));
     }
+
+    public void RecordDeployment(Guid artifactId, Guid deploymentId) {
+        if (artifactId == Guid.Empty) {
+            throw new ArgumentException("Artifact ID is required.", nameof(artifactId));
+        }
+
+        if (deploymentId == Guid.Empty) {
+            throw new ArgumentException("Deployment ID is required.", nameof(deploymentId));
+        }
+
+        CurrentArtifactId = artifactId;
+        LastDeploymentId = deploymentId;
+    }
 }

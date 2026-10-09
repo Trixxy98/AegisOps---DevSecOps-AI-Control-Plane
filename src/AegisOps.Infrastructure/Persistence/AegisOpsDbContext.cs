@@ -3,8 +3,11 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using AegisOps.Domain.Organization;
-using AegisOps.Domain.Security;
+using AegisOps.Domain.Audit;
+using AegisOps.Domain.Deploy;
+using AegisOps.Domain.Jobs;
 using AegisOps.Domain.Policy;
+using AegisOps.Domain.Security;
 
 namespace AegisOps.Infrastructure.Persistence;
 
@@ -33,4 +36,10 @@ public sealed class AegisOpsDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<Artifact> Artifacts => Set<Artifact>();
     public DbSet<Policy> Policies => Set<Policy>();
     public DbSet<PolicyRule> PolicyRules => Set<PolicyRule>();
+    public DbSet<PolicyEvaluation> PolicyEvaluations => Set<PolicyEvaluation>();
+    public DbSet<Deployment> Deployments => Set<Deployment>();
+    public DbSet<DeploymentEvent> DeploymentEvents => Set<DeploymentEvent>();
+    public DbSet<Approval> Approvals => Set<Approval>();
+    public DbSet<Job> Jobs => Set<Job>();
+    public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 }
