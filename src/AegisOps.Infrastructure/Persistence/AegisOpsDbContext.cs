@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using AegisOps.Domain.Organization;
 using AegisOps.Domain.Security;
+using AegisOps.Domain.Policy;
 
 namespace AegisOps.Infrastructure.Persistence;
 
@@ -30,5 +31,6 @@ public sealed class AegisOpsDbContext : IdentityDbContext<User, IdentityRole<Gui
     }
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<Artifact> Artifacts => Set<Artifact>();
-
+    public DbSet<Policy> Policies => Set<Policy>();
+    public DbSet<PolicyRule> PolicyRules => Set<PolicyRule>();
 }
