@@ -66,6 +66,8 @@ app.MapPatch("/api/v1/artifacts/{id:guid}", BackfillArtifactDigest.Handle)
     .RequireAuthorization(Permissions.ArtifactsWrite);
 app.MapPost("/api/v1/policies", CreatePolicy.Handle)
     .RequireAuthorization(Permissions.PoliciesWrite);
+app.MapGet("/api/v1/policies", ListPolicies.Handle)
+    .RequireAuthorization(Permissions.PoliciesRead);
 
 if (app.Environment.IsDevelopment()) {
     await DevelopmentUserSeed.SeedAsync(app.Services);
