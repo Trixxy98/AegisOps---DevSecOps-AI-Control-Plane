@@ -23,6 +23,238 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("AegisOps.Domain.Audit.AuditEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("ActorDisplay")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("actor_display");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<string>("ActorType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("actor_type");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("outcome");
+
+                    b.Property<Guid?>("ResourceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("resource_id");
+
+                    b.Property<string>("ResourceType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("resource_type");
+
+                    b.Property<DateTimeOffset>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.HasKey("Id")
+                        .HasName("pk_audit_events");
+
+                    b.HasIndex("Timestamp")
+                        .HasDatabaseName("ix_audit_events_timestamp");
+
+                    b.ToTable("audit_events", "audit");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Deploy.Approval", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ApproverId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approver_id");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("comment");
+
+                    b.Property<DateTimeOffset>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<string>("Decision")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("decision");
+
+                    b.Property<Guid>("DeploymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deployment_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_approvals");
+
+                    b.HasIndex("DeploymentId", "ApproverId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_approvals_deployment_id_approver_id");
+
+                    b.ToTable("approvals", "deploy");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Deploy.Deployment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("ApprovalsReceived")
+                        .HasColumnType("integer")
+                        .HasColumnName("approvals_received");
+
+                    b.Property<int>("ApprovalsRequired")
+                        .HasColumnType("integer")
+                        .HasColumnName("approvals_required");
+
+                    b.Property<Guid>("ArtifactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("artifact_id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("environment_id");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<Guid?>("PolicyEvaluationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("policy_evaluation_id");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_at");
+
+                    b.Property<Guid?>("RequestedByApiKeyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by_api_key_id");
+
+                    b.Property<Guid?>("RequestedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by_id");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_deployments");
+
+                    b.HasIndex("ArtifactId")
+                        .HasDatabaseName("ix_deployments_artifact_id");
+
+                    b.HasIndex("EnvironmentId", "Status")
+                        .HasDatabaseName("ix_deployments_environment_id_status");
+
+                    b.HasIndex("ProjectId", "RequestedAt")
+                        .HasDatabaseName("ix_deployments_project_id_requested_at");
+
+                    b.ToTable("deployments", "deploy");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Deploy.DeploymentEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("DeploymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deployment_id");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("message");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer")
+                        .HasColumnName("sequence");
+
+                    b.Property<DateTimeOffset>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id")
+                        .HasName("pk_deployment_events");
+
+                    b.HasIndex("DeploymentId", "Sequence")
+                        .IsUnique()
+                        .HasDatabaseName("ix_deployment_events_deployment_id_sequence");
+
+                    b.ToTable("deployment_events", "deploy");
+                });
+
             modelBuilder.Entity("AegisOps.Domain.Identity.ApiKey", b =>
                 {
                     b.Property<Guid>("Id")
@@ -242,6 +474,79 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("UserNameIndex");
 
                     b.ToTable("AspNetUsers", "identity");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Jobs.Job", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTimeOffset?>("LockedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_at");
+
+                    b.Property<string>("LockedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("locked_by");
+
+                    b.Property<int>("MaxAttempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_attempts");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<DateTimeOffset>("ScheduledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("scheduled_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id")
+                        .HasName("pk_jobs");
+
+                    b.HasIndex("Status", "ScheduledAt")
+                        .HasDatabaseName("ix_jobs_status_scheduled_at");
+
+                    b.ToTable("jobs", "jobs");
                 });
 
             modelBuilder.Entity("AegisOps.Domain.Organization.Environment", b =>
@@ -537,6 +842,45 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_policies_scope", "scope IN ('Global', 'Team', 'Project')");
                         });
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Policy.PolicyEvaluation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("ApprovalsRequired")
+                        .HasColumnType("integer")
+                        .HasColumnName("approvals_required");
+
+                    b.Property<string>("Decision")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("decision");
+
+                    b.Property<Guid?>("DeploymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deployment_id");
+
+                    b.Property<DateTimeOffset>("EvaluatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("evaluated_at");
+
+                    b.Property<string>("RuleResults")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("rule_results");
+
+                    b.HasKey("Id")
+                        .HasName("pk_policy_evaluations");
+
+                    b.HasIndex("DeploymentId")
+                        .HasDatabaseName("ix_policy_evaluations_deployment_id");
+
+                    b.ToTable("policy_evaluations", "policy");
                 });
 
             modelBuilder.Entity("AegisOps.Domain.Policy.PolicyRule", b =>
@@ -852,6 +1196,50 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         .HasName("pk_asp_net_user_tokens");
 
                     b.ToTable("AspNetUserTokens", "identity");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Deploy.Approval", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Deploy.Deployment", null)
+                        .WithMany()
+                        .HasForeignKey("DeploymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_approvals_deployments_deployment_id");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Deploy.Deployment", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Security.Artifact", null)
+                        .WithMany()
+                        .HasForeignKey("ArtifactId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_deployments_artifacts_artifact_id");
+
+                    b.HasOne("AegisOps.Domain.Organization.Environment", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_deployments_environments_environment_id");
+
+                    b.HasOne("AegisOps.Domain.Organization.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_deployments_projects_project_id");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Deploy.DeploymentEvent", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Deploy.Deployment", null)
+                        .WithMany()
+                        .HasForeignKey("DeploymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_deployment_events_deployments_deployment_id");
                 });
 
             modelBuilder.Entity("AegisOps.Domain.Identity.ApiKey", b =>

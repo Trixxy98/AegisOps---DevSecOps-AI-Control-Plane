@@ -3,6 +3,7 @@ using System.Text.Json;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
 using AegisOps.Domain.Policy;
+using AegisOps.Infrastructure.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -153,6 +154,7 @@ public static class CreatePolicy {
 
             db.Policies.Add(policy);
             db.PolicyRules.AddRange(rules);
+            AuditLog.Write(db, now, user.Id, user.Email ?? user.DisplayName, "policy.created", "Policy", policy.Id);
             await db.SaveChangesAsync(cancellationToken);
 
             return Results.Created($"/api/v1/policies/{policy.Id}", ToResponse(policy, rules));

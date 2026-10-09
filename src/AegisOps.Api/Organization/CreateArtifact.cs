@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Security;
+using AegisOps.Infrastructure.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -78,6 +79,7 @@ public static class CreateArtifact {
 
         Guid? createdById = null;
         Guid? createdByApiKeyId = null;
+        var actorDisplay = "api-key";
         var actorType = principal.FindFirst("actor_type")?.Value;
         if (string.Equals(actorType, "apiKey", StringComparison.OrdinalIgnoreCase)) {
             var subject = principal.FindFirst("sub")?.Value;
@@ -113,6 +115,7 @@ public static class CreateArtifact {
             }
 
             createdById = userId;
+            actorDisplay = user.Email ?? user.DisplayName;
         }
 
         var versionTaken = await db.Artifacts.AnyAsync(
@@ -156,6 +159,7 @@ public static class CreateArtifact {
             );
 
             db.Artifacts.Add(artifact);
+            AuditLog.Write(db, time.GetUtcNow(), createdById ?? createdByApiKeyId, actorDisplay, "artifact.created", "Artifact", artifact.Id);
             await db.SaveChangesAsync(cancellationToken);
 
             return Results.Created(

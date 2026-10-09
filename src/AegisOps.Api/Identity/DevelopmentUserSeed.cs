@@ -1,7 +1,8 @@
 using System.Security.Cryptography;
 using AegisOps.Domain.Identity;
-using Microsoft.AspNetCore.Identity;
 using AegisOps.Domain.Organization;
+using AegisOps.Domain.Policy;
+using Microsoft.AspNetCore.Identity;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -46,6 +47,7 @@ public static partial class DevelopmentUserSeed {
 
         var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
         await EnsureDemoTeamAsync(db, users, now);
+        await EnsureProductionApprovalsAsync(db, users, now);
     }
 
     private sealed record DemoAccount(string Email, string DisplayName, string[] Roles);
@@ -96,6 +98,59 @@ public static partial class DevelopmentUserSeed {
         }
 
         db.TeamMembers.Add(TeamMember.Create(teamId, user.Id, role, joinedAt));
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task EnsureProductionApprovalsAsync(
+        AegisOpsDbContext db,
+        UserManager<User> users,
+        DateTimeOffset now
+    ) {
+        var admin = await users.FindByEmailAsync(Email);
+        if (admin is null) {
+            return;
+        }
+
+        var policy = await db.Policies.SingleOrDefaultAsync(item =>
+            item.Name == "Production baseline" && item.ArchivedAt == null);
+        if (policy is null) {
+            policy = Policy.Create(
+                "Production baseline",
+                PolicyScope.Global,
+                [EnvironmentTier.Production],
+                admin.Id,
+                now,
+                description: "Tests must pass, and production needs two approvals.");
+            db.Policies.Add(policy);
+            db.PolicyRules.Add(PolicyRule.Create(
+                policy.Id,
+                PolicyRuleType.RequireTestsPassed,
+                RuleEffect.Deny,
+                0,
+                "{}"));
+            db.PolicyRules.Add(PolicyRule.Create(
+                policy.Id,
+                PolicyRuleType.RequireApprovals,
+                RuleEffect.RequireApproval,
+                1,
+                """{"count":2}"""));
+            await db.SaveChangesAsync();
+            return;
+        }
+
+        var hasApprovals = await db.PolicyRules.AnyAsync(rule =>
+            rule.PolicyId == policy.Id && rule.Type == PolicyRuleType.RequireApprovals);
+        if (hasApprovals) {
+            return;
+        }
+
+        db.PolicyRules.Add(PolicyRule.Create(
+            policy.Id,
+            PolicyRuleType.RequireApprovals,
+            RuleEffect.RequireApproval,
+            1,
+            """{"count":2}"""));
+        policy.SetTiers(policy.AppliesToTiers, admin.Id, now);
         await db.SaveChangesAsync();
     }
 

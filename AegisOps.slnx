@@ -8,5 +8,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AegisOps.Architecture.Tests/AegisOps.Architecture.Tests.csproj" />
+    <Project Path="tests/AegisOps.Application.Tests/AegisOps.Application.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
+using AegisOps.Infrastructure.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -93,6 +94,7 @@ public static class RemoveTeamMember {
         }
 
         db.TeamMembers.Remove(membership);
+        AuditLog.Write(db, TimeProvider.System.GetUtcNow(), actor.Id, actor.Email ?? actor.DisplayName, "team.member_removed", "Team", team.Id);
         await db.SaveChangesAsync(cancellationToken);
         return Results.NoContent();
     }

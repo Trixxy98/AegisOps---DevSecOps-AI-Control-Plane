@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
+using AegisOps.Infrastructure.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -145,6 +146,7 @@ public static class UpdateEnvironment {
                 environment.Retarget(DeploymentTarget.Noop(allowApiKeyProduction));
             }
 
+            AuditLog.Write(db, TimeProvider.System.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "environment.updated", "Environment", environment.Id);
             await db.SaveChangesAsync(cancellationToken);
         } catch (ArgumentException exception) {
             return Results.Problem(
