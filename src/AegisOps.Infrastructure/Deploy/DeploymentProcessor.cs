@@ -18,6 +18,18 @@ public static class DeploymentProcessor {
     ) {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var now = time.GetUtcNow();
+        var staleBefore = now.AddMinutes(-2);
+        var stale = await db.Jobs
+            .Where(item => item.Status == JobStatus.Running && item.LockedAt != null && item.LockedAt < staleBefore)
+            .ToListAsync(cancellationToken);
+        foreach (var item in stale) {
+            item.ReleaseIfStale(now, TimeSpan.FromMinutes(2));
+        }
+
+        if (stale.Count > 0) {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
         var job = await db.Jobs
             .FromSqlInterpolated($"""
                 SELECT * FROM jobs.jobs

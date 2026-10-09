@@ -1,4 +1,5 @@
 using AegisOps.Domain.Identity;
+using AegisOps.Infrastructure.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -38,7 +39,10 @@ public static class Logout {
             );
         }
 
-        await Refresh.RevokeFamilyAsync(db, current.FamilyId, time.GetUtcNow(), cancellationToken);
+        var now = time.GetUtcNow();
+        await Refresh.RevokeFamilyAsync(db, current.FamilyId, now, cancellationToken);
+        AuditLog.Write(db, now, userId, principal.FindFirst(JwtRegisteredClaimNames.Email)?.Value ?? subject, "auth.logout", "User", userId);
+        await db.SaveChangesAsync(cancellationToken);
         RefreshCookie.Clear(http);
         return Results.NoContent();
     }

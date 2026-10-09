@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AegisOps.Infrastructure.Identity;
 
@@ -32,6 +33,7 @@ public static class IdentityStoreExtensions {
             .AddRoles<IdentityRole<Guid>>()
             .AddEntityFrameworkStores<AegisOpsDbContext>();
 
+        services.TryAddSingleton(TimeProvider.System);
         return services;
     }
 }

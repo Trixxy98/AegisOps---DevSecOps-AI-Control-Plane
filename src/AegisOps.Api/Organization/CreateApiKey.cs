@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
+using AegisOps.Infrastructure.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -113,6 +114,7 @@ public static class CreateApiKey {
             );
 
             db.ApiKeys.Add(apiKey);
+            AuditLog.Write(db, now, user.Id, user.Email ?? user.DisplayName, "apikey.created", "ApiKey", apiKey.Id);
             await db.SaveChangesAsync(cancellationToken);
 
             return Results.Created(

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
+using AegisOps.Infrastructure.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -46,6 +47,7 @@ public static class ArchivePolicy {
 
         try {
             policy.Archive(userId, time.GetUtcNow());
+            AuditLog.Write(db, time.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "policy.archived", "Policy", policy.Id);
             await db.SaveChangesAsync(cancellationToken);
         } catch (InvalidOperationException exception) {
             return Results.Problem(

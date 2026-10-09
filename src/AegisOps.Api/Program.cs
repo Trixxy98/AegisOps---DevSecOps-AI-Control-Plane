@@ -3,6 +3,7 @@ using AegisOps.Infrastructure.Identity;
 using AegisOps.Application.Authorization;
 using AegisOps.Api.Organization;
 using AegisOps.Api.Deploy;
+using AegisOps.Infrastructure.Deploy;
 
 
 
@@ -27,6 +28,8 @@ app.MapPost("/api/v1/auth/logout", Logout.Handle).RequireAuthorization();
 app.MapGet("/api/v1/auth/me", CurrentUser.Handle).RequireAuthorization();
 app.MapPost("/api/v1/auth/change-password", ChangePassword.Handle).RequireAuthorization();
 app.MapGet("/api/v1/admin/ping", () => Results.NoContent())
+    .RequireAuthorization(Permissions.UsersManage);
+app.MapGet("/api/v1/admin/users", ListUsers.Handle)
     .RequireAuthorization(Permissions.UsersManage);
 app.MapGet("/api/v1/teams", ListTeams.Handle)
     .RequireAuthorization(Permissions.TeamsRead);

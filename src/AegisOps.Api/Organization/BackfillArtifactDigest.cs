@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
+using AegisOps.Infrastructure.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -37,6 +38,8 @@ public static class BackfillArtifactDigest {
             );
         }
 
+        var actorDisplay = "api-key";
+        Guid? actorId = null;
         var actorType = principal.FindFirst("actor_type")?.Value;
         if (string.Equals(actorType, "apiKey", StringComparison.OrdinalIgnoreCase)) {
             var projectClaim = principal.FindFirst("project")?.Value;
@@ -62,10 +65,14 @@ public static class BackfillArtifactDigest {
                     statusCode: StatusCodes.Status401Unauthorized
                 );
             }
+
+            actorId = user.Id;
+            actorDisplay = user.Email ?? user.DisplayName;
         }
 
         try {
             artifact.BackfillDigest(request.ImageDigest);
+            AuditLog.Write(db, TimeProvider.System.GetUtcNow(), actorId, actorDisplay, "artifact.digest_backfilled", "Artifact", artifact.Id);
             await db.SaveChangesAsync(cancellationToken);
         } catch (ArgumentException exception) {
             return Results.Problem(

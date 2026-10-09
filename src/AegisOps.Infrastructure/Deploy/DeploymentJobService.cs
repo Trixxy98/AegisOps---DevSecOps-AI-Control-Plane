@@ -1,7 +1,8 @@
-using AegisOps.Infrastructure.Deploy;
 using AegisOps.Infrastructure.Persistence;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
-namespace AegisOps.Api.Deploy;
+namespace AegisOps.Infrastructure.Deploy;
 
 public sealed class DeploymentJobService : BackgroundService {
     private readonly IServiceScopeFactory _scopes;
@@ -17,7 +18,11 @@ public sealed class DeploymentJobService : BackgroundService {
             try {
                 await using var scope = _scopes.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
-                var worked = await DeploymentProcessor.TryProcessOneAsync(db, _time, Environment.MachineName, stoppingToken);
+                var worked = await DeploymentProcessor.TryProcessOneAsync(
+                    db,
+                    _time,
+                    Environment.MachineName,
+                    stoppingToken);
                 if (!worked) {
                     await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
                 }

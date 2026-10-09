@@ -100,4 +100,13 @@ public sealed class Job {
         var delaySeconds = Math.Min(60, Math.Pow(2, Attempts));
         ScheduledAt = at.AddSeconds(delaySeconds);
     }
+
+    public bool ReleaseIfStale(DateTimeOffset now, TimeSpan lease) {
+        if (Status != JobStatus.Running || LockedAt is null || now - LockedAt.Value < lease) {
+            return false;
+        }
+
+        Fail("Worker lease expired.", now);
+        return true;
+    }
 }

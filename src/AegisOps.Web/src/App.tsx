@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-type View = "projects" | "deployments" | "approvals" | "policies" | "audit";
+type View = "dashboard" | "projects" | "deployments" | "approvals" | "policies" | "audit" | "admin";
 
 async function api<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -23,7 +23,7 @@ async function api<T>(path: string, token: string, init?: RequestInit): Promise<
 
 export function App() {
   const [token, setToken] = useState<string | null>(null);
-  const [view, setView] = useState<View>("projects");
+  const [view, setView] = useState<View>("dashboard");
   const [error, setError] = useState<string | null>(null);
 
   if (!token) {
@@ -38,7 +38,7 @@ export function App() {
           <h1 className="text-lg font-semibold">Control plane</h1>
         </div>
         <nav className="flex gap-2 text-sm">
-          {(["projects", "deployments", "approvals", "policies", "audit"] as View[]).map((item) => (
+          {(["dashboard", "projects", "deployments", "approvals", "policies", "audit", "admin"] as View[]).map((item) => (
             <button key={item} className={`rounded px-3 py-1 ${view === item ? "bg-slate-100 text-slate-950" : "bg-slate-900"}`} onClick={() => setView(item)} type="button">{item}</button>
           ))}
           <button className="rounded bg-slate-900 px-3 py-1" type="button" onClick={() => setToken(null)}>Logout</button>
@@ -46,11 +46,13 @@ export function App() {
       </header>
       <section className="mx-auto max-w-5xl px-6 py-6">
         {error && <p className="mb-4 rounded bg-red-950 px-3 py-2 text-sm text-red-200">{error}</p>}
+        {view === "dashboard" && <Dashboard token={token} onError={setError} />}
         {view === "projects" && <Projects token={token} onError={setError} />}
         {view === "deployments" && <Deployments token={token} onError={setError} />}
         {view === "approvals" && <Approvals token={token} onError={setError} />}
         {view === "policies" && <Policies token={token} onError={setError} />}
         {view === "audit" && <Audit token={token} onError={setError} />}
+        {view === "admin" && <Admin token={token} onError={setError} />}
       </section>
     </main>
   );
@@ -80,6 +82,32 @@ function Login({ onToken }: { onToken: (token: string) => void }) {
         <button className="w-full rounded bg-slate-100 px-3 py-2 text-slate-950" type="submit">Continue</button>
       </form>
     </main>
+  );
+}
+
+function Dashboard({ token, onError }: { token: string; onError: (value: string | null) => void }) {
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    api<Array<{ status: string }>>("/api/v1/deployments", token)
+      .then((items) => {
+        const next: Record<string, number> = {};
+        for (const item of items) {
+          next[item.status] = (next[item.status] ?? 0) + 1;
+        }
+        setCounts(next);
+      })
+      .catch((error: Error) => onError(error.message));
+  }, [token, onError]);
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      {Object.entries(counts).map(([status, count]) => (
+        <article key={status} className="rounded border border-slate-800 p-4">
+          <p className="text-sm text-slate-400">{status}</p>
+          <p className="text-2xl font-semibold">{count}</p>
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -134,6 +162,8 @@ function Projects({ token, onError }: { token: string; onError: (value: string |
 function Deployments({ token, onError }: { token: string; onError: (value: string | null) => void }) {
   const [items, setItems] = useState<Array<{ id: string; status: string; approvalsReceived: number; approvalsRequired: number; failureReason?: string }>>([]);
   const [events, setEvents] = useState<Array<{ sequence: number; type: string; message: string }>>([]);
+  const [rules, setRules] = useState<Array<{ type: string; passed: boolean; message: string }>>([]);
+  const [decision, setDecision] = useState<string | null>(null);
 
   async function load() {
     setItems(await api("/api/v1/deployments", token));
@@ -145,12 +175,25 @@ function Deployments({ token, onError }: { token: string; onError: (value: strin
     return () => clearInterval(timer);
   }, [token]);
 
+  async function open(id: string) {
+    const [timeline, evaluation] = await Promise.all([
+      api<Array<{ sequence: number; type: string; message: string }>>(`/api/v1/deployments/${id}/events`, token),
+      api<{ decision: string; ruleResults: Array<{ type: string; passed: boolean; message: string }> }>(`/api/v1/deployments/${id}/evaluation`, token).catch(() => null),
+    ]);
+    setEvents(timeline);
+    setDecision(evaluation?.decision ?? null);
+    setRules((evaluation?.ruleResults ?? []).map((rule) => {
+      const row = rule as { type?: string; Type?: string; passed?: boolean; Passed?: boolean; message?: string; Message?: string };
+      return { type: row.type ?? row.Type ?? "rule", passed: row.passed ?? row.Passed ?? false, message: row.message ?? row.Message ?? "" };
+    }));
+  }
+
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <ul className="space-y-2">
         {items.map((item) => (
           <li key={item.id}>
-            <button className="w-full rounded bg-slate-900 px-3 py-2 text-left" type="button" onClick={() => void api<Array<{ sequence: number; type: string; message: string }>>(`/api/v1/deployments/${item.id}/events`, token).then(setEvents)}>
+            <button className="w-full rounded bg-slate-900 px-3 py-2 text-left" type="button" onClick={() => void open(item.id).catch((error: Error) => onError(error.message))}>
               <span className="font-medium">{item.status}</span>
               <span className="ml-2 text-slate-400">{item.approvalsReceived}/{item.approvalsRequired}</span>
               {item.failureReason && <span className="mt-1 block text-sm text-amber-200">{item.failureReason}</span>}
@@ -158,9 +201,15 @@ function Deployments({ token, onError }: { token: string; onError: (value: strin
           </li>
         ))}
       </ul>
-      <ol className="space-y-2 text-sm">
-        {events.map((item) => <li key={item.sequence} className="rounded bg-slate-900 px-3 py-2">{item.type}: {item.message}</li>)}
-      </ol>
+      <div className="space-y-3">
+        {decision && <p className="rounded bg-slate-900 px-3 py-2 text-sm">Policy decision: {decision}</p>}
+        <ul className="space-y-2 text-sm">
+          {rules.map((rule) => <li key={`${rule.type}-${rule.message}`} className="rounded bg-slate-900 px-3 py-2">{rule.passed ? "Pass" : "Fail"} · {rule.type}: {rule.message}</li>)}
+        </ul>
+        <ol className="space-y-2 text-sm">
+          {events.map((item) => <li key={item.sequence} className="rounded bg-slate-900 px-3 py-2">{item.type}: {item.message}</li>)}
+        </ol>
+      </div>
     </div>
   );
 }
@@ -192,32 +241,85 @@ function Approvals({ token, onError }: { token: string; onError: (value: string 
 }
 
 function Policies({ token, onError }: { token: string; onError: (value: string | null) => void }) {
-  const [items, setItems] = useState<Array<{ id: string; name: string; version: number; isEnabled: boolean; appliesToTiers: string[]; rules: Array<{ type: string; effect: string; order: number; parameters: object }> }>>([]);
+  type PolicyItem = { id: string; name: string; version: number; scope: string; isEnabled: boolean; appliesToTiers: string[]; rules: Array<{ type: string; effect: string; order: number; parameters: object }> };
+  const [items, setItems] = useState<PolicyItem[]>([]);
+  const [catalogue, setCatalogue] = useState<Array<{ type: string; effect: string; parameters: object }>>([]);
+  const [choice, setChoice] = useState("");
 
   useEffect(() => {
-    api<typeof items>("/api/v1/policies", token).then(setItems).catch((error: Error) => onError(error.message));
+    Promise.all([
+      api<PolicyItem[]>("/api/v1/policies", token),
+      api<Array<{ type: string; effect: string; parameters: object }>>("/api/v1/policies/rule-types", token),
+    ]).then(([policies, types]) => {
+      setItems(policies);
+      setCatalogue(types);
+      setChoice(types[0]?.type ?? "");
+    }).catch((error: Error) => onError(error.message));
   }, [token, onError]);
 
-  async function addWindow(policy: (typeof items)[number]) {
-    const rules = [...policy.rules, { type: "DeploymentWindow", effect: "Deny", order: policy.rules.length, parameters: { timezone: "Asia/Kuala_Lumpur", allowed: [{ days: ["Mon", "Tue", "Wed", "Thu"], from: "09:00", to: "18:00" }, { days: ["Fri"], from: "09:00", to: "15:00" }] } }];
-    await api(`/api/v1/policies/${policy.id}`, token, { method: "PUT", body: JSON.stringify({ name: policy.name, scope: "Global", appliesToTiers: policy.appliesToTiers, rules }) });
+  async function addRule(policy: PolicyItem) {
+    const template = catalogue.find((item) => item.type === choice);
+    if (!template) {
+      return;
+    }
+    const rules = [...policy.rules, { type: template.type, effect: template.effect, order: policy.rules.length, parameters: template.parameters }];
+    await api(`/api/v1/policies/${policy.id}`, token, { method: "PUT", body: JSON.stringify({ name: policy.name, scope: policy.scope, appliesToTiers: policy.appliesToTiers, rules }) });
     setItems(await api("/api/v1/policies", token));
   }
 
   return (
-    <ul className="space-y-3">
-      {items.map((policy) => (
-        <li key={policy.id} className="rounded border border-slate-800 p-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold">{policy.name} · v{policy.version}</h2>
-            <button className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-950" type="button" onClick={() => void addWindow(policy).catch((error: Error) => onError(error.message))}>Add Friday window</button>
-          </div>
-          <ul className="mt-2 text-sm text-slate-300">
-            {policy.rules.map((rule) => <li key={`${rule.type}-${rule.order}`}>{rule.order}. {rule.type} ({rule.effect})</li>)}
-          </ul>
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-3">
+      <label className="block text-sm text-slate-300">
+        Rule to add
+        <select className="ml-2 rounded bg-slate-900 px-2 py-1" value={choice} onChange={(event) => setChoice(event.target.value)}>
+          {catalogue.map((item) => <option key={item.type} value={item.type}>{item.type}</option>)}
+        </select>
+      </label>
+      <ul className="space-y-3">
+        {items.map((policy) => (
+          <li key={policy.id} className="rounded border border-slate-800 p-3">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold">{policy.name} · v{policy.version}</h2>
+              <button className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-950" type="button" onClick={() => void addRule(policy).catch((error: Error) => onError(error.message))}>Add rule</button>
+            </div>
+            <ul className="mt-2 text-sm text-slate-300">
+              {policy.rules.map((rule) => <li key={`${rule.type}-${rule.order}`}>{rule.order}. {rule.type} ({rule.effect})</li>)}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Admin({ token, onError }: { token: string; onError: (value: string | null) => void }) {
+  const [users, setUsers] = useState<Array<{ id: string; email: string; displayName: string; roles: string[] }>>([]);
+  const [teams, setTeams] = useState<Array<{ slug: string; name: string }>>([]);
+  useEffect(() => {
+    Promise.all([
+      api<Array<{ id: string; email: string; displayName: string; roles: string[] }>>("/api/v1/admin/users", token),
+      api<Array<{ slug: string; name: string }>>("/api/v1/teams", token),
+    ]).then(([accounts, groups]) => {
+      setUsers(accounts);
+      setTeams(groups);
+    }).catch((error: Error) => onError(error.message));
+  }, [token, onError]);
+
+  return (
+    <div className="grid gap-6 md:grid-cols-2">
+      <section>
+        <h2 className="mb-2 font-semibold">Users</h2>
+        <ul className="space-y-2 text-sm">
+          {users.map((user) => <li key={user.id} className="rounded bg-slate-900 px-3 py-2">{user.displayName} · {user.email} · {user.roles.join(", ")}</li>)}
+        </ul>
+      </section>
+      <section>
+        <h2 className="mb-2 font-semibold">Teams</h2>
+        <ul className="space-y-2 text-sm">
+          {teams.map((team) => <li key={team.slug} className="rounded bg-slate-900 px-3 py-2">{team.name}</li>)}
+        </ul>
+      </section>
+    </div>
   );
 }
 
