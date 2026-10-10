@@ -1,9 +1,12 @@
 using AegisOps.Api.Identity;
 using AegisOps.Infrastructure.Identity;
 using AegisOps.Application.Authorization;
+using AegisOps.Application.Idempotency;
 using AegisOps.Api.Organization;
 using AegisOps.Api.Deploy;
 using AegisOps.Infrastructure.Deploy;
+using AegisOps.Infrastructure.Redis;
+using StackExchange.Redis;
 
 
 
@@ -13,6 +16,17 @@ builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddIdentityStore(builder.Configuration);
 builder.Services.AddAuthRateLimiting();
 builder.Services.AddHostedService<DeploymentJobService>();
+var redis = builder.Configuration.GetConnectionString("Redis");
+if (!string.IsNullOrWhiteSpace(redis)) {
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ => {
+        var options = ConfigurationOptions.Parse(redis);
+        options.AbortOnConnectFail = false;
+        return ConnectionMultiplexer.Connect(options);
+    });
+}
+
+builder.Services.AddSingleton<IIdempotencyStore>(services =>
+    new RedisIdempotencyStore(services.GetService<IConnectionMultiplexer>()));
 
 var app = builder.Build();
 app.UseAuthentication();

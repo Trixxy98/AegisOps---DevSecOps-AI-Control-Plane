@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using AegisOps.Api.Idempotency;
+using AegisOps.Application.Idempotency;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Security;
 using AegisOps.Infrastructure.Audit;
@@ -51,8 +53,14 @@ public static class CreateArtifact {
         UserManager<User> users,
         AegisOpsDbContext db,
         TimeProvider time,
+        IIdempotencyStore idempotency,
         HttpContext http
     ) {
+        var replay = await IdempotencyRequests.ReplayAsync(http, principal, idempotency);
+        if (replay is not null) {
+            return replay;
+        }
+
         if (!Enum.TryParse<CheckStatus>(request.BuildStatus, ignoreCase: true, out var buildStatus)
             || !Enum.IsDefined(buildStatus)
             || !Enum.TryParse<CheckStatus>(request.TestStatus, ignoreCase: true, out var testStatus)
@@ -123,10 +131,10 @@ public static class CreateArtifact {
             cancellationToken
         );
         if (versionTaken) {
-            return Results.Problem(
-                title: "An artifact with this version already exists.",
-                statusCode: StatusCodes.Status409Conflict
-            );
+            return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status409Conflict, new {
+                title = "An artifact with this version already exists.",
+                status = StatusCodes.Status409Conflict,
+            });
         }
 
         try {
@@ -162,21 +170,18 @@ public static class CreateArtifact {
             AuditLog.Write(db, time.GetUtcNow(), createdById ?? createdByApiKeyId, actorDisplay, "artifact.created", "Artifact", artifact.Id);
             await db.SaveChangesAsync(cancellationToken);
 
-            return Results.Created(
-                $"/api/v1/artifacts/{artifact.Id}",
-                new ArtifactResponse(
-                    artifact.Id,
-                    artifact.ProjectId,
-                    artifact.Version,
-                    artifact.CommitSha,
-                    artifact.Branch,
-                    artifact.ImageReference,
-                    artifact.ImageDigest,
-                    artifact.BuildStatus.ToString(),
-                    artifact.TestStatus.ToString(),
-                    artifact.CreatedAt
-                )
-            );
+            return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status201Created, new ArtifactResponse(
+                artifact.Id,
+                artifact.ProjectId,
+                artifact.Version,
+                artifact.CommitSha,
+                artifact.Branch,
+                artifact.ImageReference,
+                artifact.ImageDigest,
+                artifact.BuildStatus.ToString(),
+                artifact.TestStatus.ToString(),
+                artifact.CreatedAt
+            ));
         } catch (ArgumentException exception) {
             return Results.Problem(
                 title: exception.Message,
