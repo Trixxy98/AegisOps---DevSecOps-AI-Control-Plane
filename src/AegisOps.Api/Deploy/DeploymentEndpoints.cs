@@ -1,16 +1,19 @@
 using System.Security.Claims;
 using System.Text.Json;
+using AegisOps.Api.Idempotency;
+using AegisOps.Application.Idempotency;
 using AegisOps.Domain.Audit;
 using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Jobs;
+using AegisOps.Domain.Organization;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace AegisOps.Api.Deploy;
 
-public sealed record RequestDeploymentRequest(Guid ArtifactId, Guid EnvironmentId, string? Reason);
+public sealed record RequestDeploymentRequest(Guid ArtifactId, Guid? EnvironmentId, string? EnvironmentTier, string? Reason);
 
 public sealed record DeploymentDecisionRequest(string Decision, string? Comment);
 
@@ -21,8 +24,14 @@ public static class DeploymentEndpoints {
         UserManager<User> users,
         AegisOpsDbContext db,
         TimeProvider time,
+        IIdempotencyStore idempotency,
         HttpContext http
     ) {
+        var replay = await IdempotencyRequests.ReplayAsync(http, principal, idempotency);
+        if (replay is not null) {
+            return replay;
+        }
+
         var actor = await ActorResult.ResolveAsync(principal, users);
         if (actor.Error is not null) {
             return actor.Error;
@@ -30,7 +39,14 @@ public static class DeploymentEndpoints {
 
         var cancellationToken = http.RequestAborted;
         var artifact = await db.Artifacts.SingleOrDefaultAsync(item => item.Id == request.ArtifactId, cancellationToken);
-        var environment = await db.Environments.SingleOrDefaultAsync(item => item.Id == request.EnvironmentId, cancellationToken);
+        AegisOps.Domain.Organization.Environment? environment = null;
+        if (request.EnvironmentId is Guid environmentId && environmentId != Guid.Empty) {
+            environment = await db.Environments.SingleOrDefaultAsync(item => item.Id == environmentId, cancellationToken);
+        } else if (artifact is not null && Enum.TryParse<EnvironmentTier>(request.EnvironmentTier, true, out var tier)) {
+            environment = await db.Environments.SingleOrDefaultAsync(
+                item => item.ProjectId == artifact.ProjectId && item.Tier == tier,
+                cancellationToken);
+        }
         if (artifact is null || environment is null || artifact.ProjectId != environment.ProjectId) {
             return Results.Problem(title: "Artifact or environment was not found.", statusCode: StatusCodes.Status404NotFound);
         }
@@ -60,7 +76,10 @@ public static class DeploymentEndpoints {
         ));
         db.AuditEvents.Add(AuditEvent.Record(now, actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display, "deployment.requested", "Deployment", deployment.Id, "Accepted", deployment.CorrelationId));
         await db.SaveChangesAsync(cancellationToken);
-        return Results.Accepted($"/api/v1/deployments/{deployment.Id}", new { deployment.Id, status = deployment.Status.ToString() });
+        return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status202Accepted, new {
+            deployment.Id,
+            status = deployment.Status.ToString(),
+        });
     }
 
     public static async Task<IResult> List(

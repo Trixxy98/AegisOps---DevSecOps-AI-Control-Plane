@@ -116,6 +116,9 @@ function Projects({ token, onError }: { token: string; onError: (value: string |
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ environments: Array<{ id: string; name: string; tier: string }> } | null>(null);
   const [artifacts, setArtifacts] = useState<Array<{ id: string; version: string; branch: string }>>([]);
+  const [keys, setKeys] = useState<Array<{ id: string; name: string; keyPrefix: string; lastUsedAt?: string; revokedAt?: string }>>([]);
+  const [keyName, setKeyName] = useState("ci");
+  const [plaintext, setPlaintext] = useState<string | null>(null);
 
   useEffect(() => {
     api<Array<{ slug: string; name: string }>>("/api/v1/projects", token).then(setProjects).catch((error: Error) => onError(error.message));
@@ -123,12 +126,41 @@ function Projects({ token, onError }: { token: string; onError: (value: string |
 
   async function open(slug: string) {
     setSelected(slug);
-    const [project, items] = await Promise.all([
+    const [project, items, apiKeys] = await Promise.all([
       api<{ environments: Array<{ id: string; name: string; tier: string }> }>(`/api/v1/projects/${slug}`, token),
       api<Array<{ id: string; version: string; branch: string }>>(`/api/v1/projects/${slug}/artifacts`, token),
+      api<Array<{ id: string; name: string; keyPrefix: string; lastUsedAt?: string; revokedAt?: string }>>(`/api/v1/projects/${slug}/api-keys`, token).catch(() => []),
     ]);
     setDetail(project);
     setArtifacts(items);
+    setKeys(apiKeys);
+    setPlaintext(null);
+  }
+
+  async function createKey() {
+    if (!selected) {
+      return;
+    }
+    const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+    const created = await api<{ plaintext: string }>(`/api/v1/projects/${selected}/api-keys`, token, {
+      method: "POST",
+      body: JSON.stringify({
+        name: keyName,
+        scopes: ["artifacts:write", "scans:write", "deployments:request"],
+        expiresAt,
+      }),
+    });
+    setPlaintext(created.plaintext);
+    await open(selected);
+    setPlaintext(created.plaintext);
+  }
+
+  async function revokeKey(id: string) {
+    if (!selected) {
+      return;
+    }
+    await api(`/api/v1/projects/${selected}/api-keys/${id}`, token, { method: "DELETE" });
+    await open(selected);
   }
 
   return (
@@ -141,6 +173,22 @@ function Projects({ token, onError }: { token: string; onError: (value: string |
       {selected && detail && (
         <div className="space-y-3">
           <h2 className="font-semibold">{selected}</h2>
+          <section className="space-y-2 rounded border border-slate-800 p-3">
+            <h3 className="text-sm font-semibold">API keys</h3>
+            <div className="flex gap-2">
+              <input className="flex-1 rounded bg-slate-900 px-2 py-1 text-sm" value={keyName} onChange={(event) => setKeyName(event.target.value)} />
+              <button className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-950" type="button" onClick={() => void createKey().catch((error: Error) => onError(error.message))}>Create</button>
+            </div>
+            {plaintext && <p className="break-all text-xs text-amber-200">Copy this key now: {plaintext}</p>}
+            <ul className="space-y-1 text-sm">
+              {keys.map((key) => (
+                <li key={key.id} className="flex items-center justify-between gap-2">
+                  <span>{key.name} · {key.keyPrefix} · {key.revokedAt ? "revoked" : key.lastUsedAt ? `used ${key.lastUsedAt}` : "never used"}</span>
+                  {!key.revokedAt && <button className="rounded bg-red-900 px-2 py-1 text-xs" type="button" onClick={() => void revokeKey(key.id).catch((error: Error) => onError(error.message))}>Revoke</button>}
+                </li>
+              ))}
+            </ul>
+          </section>
           {artifacts.map((artifact) => (
             <article key={artifact.id} className="rounded border border-slate-800 p-3">
               <p>{artifact.version} · {artifact.branch}</p>
