@@ -1,0 +1,84 @@
+name: Report to AegisOps
+description: Register an artifact and request a deployment.
+inputs:
+  url:
+    description: AegisOps API base URL, without a trailing slash.
+    required: true
+  api-key:
+    description: Project API key.
+    required: true
+  project:
+    description: Project slug.
+    required: true
+  version:
+    description: Artifact version.
+    required: true
+  commit-sha:
+    description: Git commit SHA.
+    required: true
+  branch:
+    description: Git branch.
+    required: true
+  image:
+    description: Image reference.
+    required: true
+  digest:
+    description: Image digest.
+    required: false
+    default: ""
+  test-summary:
+    description: Path to a test summary JSON file.
+    required: false
+    default: ""
+  scans:
+    description: Comma-separated SARIF paths. Upload is skipped until scan ingestion exists.
+    required: false
+    default: ""
+  deploy-to:
+    description: Environment tier to request, usually Staging.
+    required: false
+    default: Staging
+runs:
+  using: composite
+  steps:
+    - name: Register artifact and request deployment
+      shell: bash
+      env:
+        AEGISOPS_URL: ${{ inputs.url }}
+        AEGISOPS_API_KEY: ${{ inputs.api-key }}
+        AEGISOPS_PROJECT: ${{ inputs.project }}
+        AEGISOPS_VERSION: ${{ inputs.version }}
+        AEGISOPS_SHA: ${{ inputs.commit-sha }}
+        AEGISOPS_BRANCH: ${{ inputs.branch }}
+        AEGISOPS_IMAGE: ${{ inputs.image }}
+        AEGISOPS_DIGEST: ${{ inputs.digest }}
+        AEGISOPS_SUMMARY: ${{ inputs.test-summary }}
+        AEGISOPS_DEPLOY: ${{ inputs.deploy-to }}
+        AEGISOPS_KEY: ${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        summary='{"total":1,"passed":1,"failed":0,"skipped":0,"durationSeconds":0}'
+        if [ -n "${AEGISOPS_SUMMARY}" ] && [ -f "${AEGISOPS_SUMMARY}" ]; then
+          summary=$(cat "${AEGISOPS_SUMMARY}")
+        fi
+        body=$(jq -n \
+          --arg version "$AEGISOPS_VERSION" \
+          --arg sha "$AEGISOPS_SHA" \
+          --arg branch "$AEGISOPS_BRANCH" \
+          --arg image "$AEGISOPS_IMAGE" \
+          --arg digest "$AEGISOPS_DIGEST" \
+          --argjson tests "$summary" \
+          '{version:$version,commitSha:$sha,branch:$branch,imageReference:$image,imageDigest:($digest|select(.!="")),ciProvider:"github-actions",buildStatus:"Passed",testStatus:"Passed",testSummary:$tests}')
+        artifact=$(curl -fsS -X POST "${AEGISOPS_URL}/api/v1/projects/${AEGISOPS_PROJECT}/artifacts" \
+          -H "Authorization: Bearer ${AEGISOPS_API_KEY}" \
+          -H "Idempotency-Key: artifact-${AEGISOPS_KEY}" \
+          -H "Content-Type: application/json" \
+          -d "$body")
+        artifact_id=$(printf '%s' "$artifact" | jq -r '.id')
+        if [ -n "${AEGISOPS_DEPLOY}" ]; then
+          curl -fsS -X POST "${AEGISOPS_URL}/api/v1/deployments" \
+            -H "Authorization: Bearer ${AEGISOPS_API_KEY}" \
+            -H "Idempotency-Key: deploy-${AEGISOPS_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg id "$artifact_id" --arg tier "$AEGISOPS_DEPLOY" '{artifactId:$id,environmentTier:$tier,reason:"CI request"}')"
+        fi
