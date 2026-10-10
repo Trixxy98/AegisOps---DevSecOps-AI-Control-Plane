@@ -1,0 +1,18 @@
+{
+  "project": "site-service",
+  "version": "v0.0.0-ci.replay",
+  "commitSha": "0123456789abcdef0123456789abcdef01234567",
+  "branch": "main",
+  "imageReference": "ghcr.io/aegisops/site-service:replay",
+  "imageDigest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "buildStatus": "Passed",
+  "testStatus": "Passed",
+  "testSummary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationSeconds": 1
+  },
+  "deployTo": "Staging"
+}
