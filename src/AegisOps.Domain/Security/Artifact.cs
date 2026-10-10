@@ -90,9 +90,11 @@ public sealed class Artifact {
     private static string RequireVersion(string version) {
         var value = RequireText(version, "Version", nameof(version));
         var body = value.StartsWith('v') ? value[1..] : value;
-        var parts = body.Split('.');
+        var cut = body.IndexOfAny('-', '+');
+        var core = cut < 0 ? body : body[..cut];
+        var parts = core.Split('.');
         if (parts.Length < 3 || parts.Take(3).Any(part => part.Length == 0 || part.Any(character => !char.IsAsciiDigit(character)))) {
-            throw new ArgumentException("Version must look like 1.2.3 or v1.2.3.", nameof(version));
+            throw new ArgumentException("Version must look like 1.2.3, v1.2.3, or v1.2.3-preview.", nameof(version));
         }
 
         return value;
