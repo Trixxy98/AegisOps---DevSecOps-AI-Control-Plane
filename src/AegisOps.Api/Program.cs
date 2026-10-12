@@ -27,6 +27,9 @@ if (!string.IsNullOrWhiteSpace(redis)) {
 
 builder.Services.AddSingleton<IIdempotencyStore>(services =>
     new RedisIdempotencyStore(services.GetService<IConnectionMultiplexer>()));
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options => {
+    options.MultipartBodyLengthLimit = UploadScan.MaxBytes;
+});
 
 var app = builder.Build();
 app.UseAuthentication();
@@ -83,6 +86,13 @@ app.MapGet("/api/v1/artifacts/{id:guid}", GetArtifact.Handle)
     .RequireAuthorization(Permissions.ArtifactsRead);
 app.MapPatch("/api/v1/artifacts/{id:guid}", BackfillArtifactDigest.Handle)
     .RequireAuthorization(Permissions.ArtifactsWrite);
+app.MapPost("/api/v1/artifacts/{id:guid}/scans", UploadScan.Handle)
+    .DisableAntiforgery()
+    .RequireAuthorization(Permissions.ScansWrite);
+app.MapGet("/api/v1/artifacts/{id:guid}/findings", ListFindings.Handle)
+    .RequireAuthorization(Permissions.FindingsRead);
+app.MapPost("/api/v1/projects/{slug}/finding-suppressions", SuppressFinding.Handle)
+    .RequireAuthorization(Permissions.FindingsSuppress);
 app.MapPost("/api/v1/policies", CreatePolicy.Handle)
     .RequireAuthorization(Permissions.PoliciesWrite);
 app.MapGet("/api/v1/policies/rule-types", PolicyPhase1Endpoints.RuleTypes)

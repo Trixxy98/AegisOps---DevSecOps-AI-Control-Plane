@@ -11,6 +11,18 @@ public sealed record PriorSuccess(
     DateTimeOffset CompletedAt
 );
 
+public sealed record ScanEvidence(
+    string Scanner,
+    string Status,
+    DateTimeOffset? CompletedAt,
+    int Critical,
+    int High,
+    int Medium,
+    int Low,
+    int Info,
+    int Unknown
+);
+
 public sealed record PolicyContext(
     string Branch,
     CheckStatus BuildStatus,
@@ -21,7 +33,8 @@ public sealed record PolicyContext(
     Guid TeamId,
     PriorSuccess? Prior,
     int SatisfiedApprovals,
-    DateTimeOffset Now
+    DateTimeOffset Now,
+    IReadOnlyList<ScanEvidence> Scans
 );
 
 public sealed record ApplicableRule(
@@ -157,13 +170,105 @@ public static class PolicyEngine {
                 PolicyRuleType.RequirePriorEnvironment => PriorEnvironment(rule.Parameters, context),
                 PolicyRuleType.DeploymentWindow => Window(rule.Parameters, context.Now),
                 PolicyRuleType.RequireApprovals => Approvals(rule.Parameters),
-                PolicyRuleType.RequireScan => (false, "Scan evidence is not available in this phase.", 0),
-                PolicyRuleType.MaxFindings => (false, "Finding evidence is not available in this phase.", 0),
+                PolicyRuleType.RequireScan => RequireScan(rule.Parameters, context),
+                PolicyRuleType.MaxFindings => MaxFindings(rule.Parameters, context),
                 _ => (false, "Rule type is unknown.", 0),
             };
         } catch (JsonException) {
             return (false, "Rule parameters are invalid.", 0);
         }
+    }
+
+    private static (bool, string, int) RequireScan(string parameters, PolicyContext context) {
+        var body = JsonSerializer.Deserialize<ScanParameters>(parameters, Json) ?? new ScanParameters(null, null);
+        var scanners = body.Scanners ?? [];
+        if (scanners.Length == 0) {
+            return (false, "No scanners are configured.", 0);
+        }
+
+        foreach (var scanner in scanners) {
+            var scan = context.Scans.FirstOrDefault(item => string.Equals(item.Scanner, scanner, StringComparison.OrdinalIgnoreCase));
+            if (scan is null || !string.Equals(scan.Status, "Completed", StringComparison.OrdinalIgnoreCase) || scan.CompletedAt is null) {
+                var reason = scan is not null && string.Equals(scan.Status, "Failed", StringComparison.OrdinalIgnoreCase)
+                    ? "failed and is treated as missing"
+                    : "is missing";
+                return (false, $"{scanner} scan {reason}.", 0);
+            }
+
+            if (body.MaxAgeHours is > 0 && (context.Now - scan.CompletedAt.Value).TotalHours > body.MaxAgeHours) {
+                return (false, $"{scanner} scan is older than {body.MaxAgeHours} hours.", 0);
+            }
+        }
+
+        return (true, "Required scans are present.", 0);
+    }
+
+    private static (bool, string, int) MaxFindings(string parameters, PolicyContext context) {
+        var body = JsonSerializer.Deserialize<FindingParameters>(parameters, Json) ?? new FindingParameters(null, null, null, null);
+        var severity = string.IsNullOrWhiteSpace(body.Severity) ? "Critical" : body.Severity.Trim();
+        var rank = Rank(severity);
+        if (rank == 0) {
+            return (false, "Finding severity is invalid.", 0);
+        }
+
+        var max = body.Max ?? 0;
+        var count = 0;
+        foreach (var scan in context.Scans) {
+            if (!string.Equals(scan.Status, "Completed", StringComparison.OrdinalIgnoreCase)) {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(body.Scanner) && !string.Equals(scan.Scanner, body.Scanner, StringComparison.OrdinalIgnoreCase)) {
+                continue;
+            }
+
+            count += CountAtLeast(scan, rank);
+            if (body.IncludeUnknown == true) {
+                count += scan.Unknown;
+            }
+        }
+
+        if (count <= max) {
+            return (true, $"{severity} findings are within the limit of {max}.", 0);
+        }
+
+        return (false, $"{count} {severity} finding(s) exceed limit {max}.", 0);
+    }
+
+    private static int Rank(string severity) {
+        return severity.ToLowerInvariant() switch {
+            "critical" => 5,
+            "high" => 4,
+            "medium" => 3,
+            "low" => 2,
+            "info" => 1,
+            _ => 0,
+        };
+    }
+
+    private static int CountAtLeast(ScanEvidence scan, int rank) {
+        var total = 0;
+        if (5 >= rank) {
+            total += scan.Critical;
+        }
+
+        if (4 >= rank) {
+            total += scan.High;
+        }
+
+        if (3 >= rank) {
+            total += scan.Medium;
+        }
+
+        if (2 >= rank) {
+            total += scan.Low;
+        }
+
+        if (1 >= rank) {
+            total += scan.Info;
+        }
+
+        return total;
     }
 
     private static (bool, string, int) AllowedBranches(string parameters, string branch) {
@@ -249,4 +354,6 @@ public static class PolicyEngine {
     private sealed record ApprovalParameters(int Count, string[]? Roles);
     private sealed record WindowParameters(string? Timezone, WindowSlot[]? Allowed);
     private sealed record WindowSlot(string[]? Days, string? From, string? To);
+    private sealed record ScanParameters(string[]? Scanners, int? MaxAgeHours);
+    private sealed record FindingParameters(string? Scanner, string? Severity, int? Max, bool? IncludeUnknown);
 }

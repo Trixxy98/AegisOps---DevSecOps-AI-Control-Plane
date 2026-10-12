@@ -5,6 +5,7 @@ using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Jobs;
 using AegisOps.Domain.Policy;
 using AegisOps.Infrastructure.Persistence;
+using AegisOps.Infrastructure.Scanning;
 using Microsoft.EntityFrameworkCore;
 
 namespace AegisOps.Infrastructure.Deploy;
@@ -50,11 +51,16 @@ public static class DeploymentProcessor {
         await db.SaveChangesAsync(cancellationToken);
 
         try {
-            var deploymentId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("deploymentId").GetGuid();
-            if (job.Type == JobType.EvaluateDeployment) {
-                await EvaluateAsync(db, deploymentId, time, cancellationToken);
-            } else if (job.Type == JobType.ExecuteDeployment) {
-                await ExecuteAsync(db, deploymentId, time, cancellationToken);
+            if (job.Type == JobType.ParseScanReport) {
+                var scanId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("scanId").GetGuid();
+                await ScanReportStore.ParseQueuedAsync(db, scanId, time.GetUtcNow(), cancellationToken);
+            } else {
+                var deploymentId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("deploymentId").GetGuid();
+                if (job.Type == JobType.EvaluateDeployment) {
+                    await EvaluateAsync(db, deploymentId, time, cancellationToken);
+                } else if (job.Type == JobType.ExecuteDeployment) {
+                    await ExecuteAsync(db, deploymentId, time, cancellationToken);
+                }
             }
 
             job.Succeed(time.GetUtcNow());
@@ -210,6 +216,22 @@ public static class DeploymentProcessor {
             )).ToArray()
         )).ToArray();
 
+        var scans = (await db.SecurityScans.AsNoTracking()
+            .Where(item => item.ArtifactId == artifact.Id)
+            .ToListAsync(cancellationToken))
+            .Select(item => new ScanEvidence(
+                item.Scanner.ToString(),
+                item.Status.ToString(),
+                item.CompletedAt,
+                item.Summary.Critical,
+                item.Summary.High,
+                item.Summary.Medium,
+                item.Summary.Low,
+                item.Summary.Info,
+                item.Summary.Unknown
+            ))
+            .ToArray();
+
         var result = PolicyEngine.Evaluate(new PolicyContext(
             artifact.Branch,
             artifact.BuildStatus,
@@ -220,7 +242,8 @@ public static class DeploymentProcessor {
             project.TeamId,
             prior,
             satisfied,
-            time.GetUtcNow()
+            time.GetUtcNow(),
+            scans
         ), applicable);
 
         var evaluation = PolicyEvaluation.Create(

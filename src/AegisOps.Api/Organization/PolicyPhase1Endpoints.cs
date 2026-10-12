@@ -119,6 +119,21 @@ public static class PolicyPhase1Endpoints {
             policy.IsEnabled,
             rules.Where(rule => rule.PolicyId == policy.Id).Select(rule => new ApplicableRule(policy.Id, policy.Name, policy.Version, rule.Id, rule.Type, rule.Effect, rule.Parameters, rule.Order)).ToArray()
         ));
+        var scans = (await db.SecurityScans.AsNoTracking()
+            .Where(item => item.ArtifactId == artifact.Id)
+            .ToListAsync(cancellationToken))
+            .Select(item => new ScanEvidence(
+                item.Scanner.ToString(),
+                item.Status.ToString(),
+                item.CompletedAt,
+                item.Summary.Critical,
+                item.Summary.High,
+                item.Summary.Medium,
+                item.Summary.Low,
+                item.Summary.Info,
+                item.Summary.Unknown
+            ))
+            .ToArray();
         var result = PolicyEngine.Evaluate(new PolicyContext(
             artifact.Branch,
             artifact.BuildStatus,
@@ -129,7 +144,8 @@ public static class PolicyPhase1Endpoints {
             project.TeamId,
             null,
             0,
-            time.GetUtcNow()
+            time.GetUtcNow(),
+            scans
         ), applicable);
         return Results.Ok(new { decision = result.Decision.ToString(), result.ApprovalsRequired, result.Message, result.Results });
     }

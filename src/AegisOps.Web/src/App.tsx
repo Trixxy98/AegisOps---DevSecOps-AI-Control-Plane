@@ -211,6 +211,7 @@ function Deployments({ token, onError }: { token: string; onError: (value: strin
   const [items, setItems] = useState<Array<{ id: string; status: string; approvalsReceived: number; approvalsRequired: number; failureReason?: string }>>([]);
   const [events, setEvents] = useState<Array<{ sequence: number; type: string; message: string }>>([]);
   const [rules, setRules] = useState<Array<{ type: string; passed: boolean; message: string }>>([]);
+  const [findings, setFindings] = useState<Array<{ id: string; severity: string; title: string; cve?: string; packageName?: string; status: string }>>([]);
   const [decision, setDecision] = useState<string | null>(null);
 
   async function load() {
@@ -224,12 +225,15 @@ function Deployments({ token, onError }: { token: string; onError: (value: strin
   }, [token]);
 
   async function open(id: string) {
-    const [timeline, evaluation] = await Promise.all([
+    const deployment = await api<{ artifactId: string }>(`/api/v1/deployments/${id}`, token);
+    const [timeline, evaluation, found] = await Promise.all([
       api<Array<{ sequence: number; type: string; message: string }>>(`/api/v1/deployments/${id}/events`, token),
       api<{ decision: string; ruleResults: Array<{ type: string; passed: boolean; message: string }> }>(`/api/v1/deployments/${id}/evaluation`, token).catch(() => null),
+      api<Array<{ id: string; severity: string; title: string; cve?: string; packageName?: string; status: string }>>(`/api/v1/artifacts/${deployment.artifactId}/findings`, token).catch(() => []),
     ]);
     setEvents(timeline);
     setDecision(evaluation?.decision ?? null);
+    setFindings(found);
     setRules((evaluation?.ruleResults ?? []).map((rule) => {
       const row = rule as { type?: string; Type?: string; passed?: boolean; Passed?: boolean; message?: string; Message?: string };
       return { type: row.type ?? row.Type ?? "rule", passed: row.passed ?? row.Passed ?? false, message: row.message ?? row.Message ?? "" };
@@ -253,6 +257,9 @@ function Deployments({ token, onError }: { token: string; onError: (value: strin
         {decision && <p className="rounded bg-slate-900 px-3 py-2 text-sm">Policy decision: {decision}</p>}
         <ul className="space-y-2 text-sm">
           {rules.map((rule) => <li key={`${rule.type}-${rule.message}`} className="rounded bg-slate-900 px-3 py-2">{rule.passed ? "Pass" : "Fail"} · {rule.type}: {rule.message}</li>)}
+        </ul>
+        <ul className="space-y-2 text-sm">
+          {findings.map((finding) => <li key={finding.id} className="rounded bg-slate-900 px-3 py-2">{finding.severity} · {finding.title}{finding.cve ? ` · ${finding.cve}` : ""}{finding.packageName ? ` · ${finding.packageName}` : ""} · {finding.status}</li>)}
         </ul>
         <ol className="space-y-2 text-sm">
           {events.map((item) => <li key={item.sequence} className="rounded bg-slate-900 px-3 py-2">{item.type}: {item.message}</li>)}

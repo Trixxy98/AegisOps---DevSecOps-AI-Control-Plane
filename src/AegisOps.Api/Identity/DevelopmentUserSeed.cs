@@ -48,6 +48,7 @@ public static partial class DevelopmentUserSeed {
         var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
         await EnsureDemoTeamAsync(db, users, now);
         await EnsureProductionApprovalsAsync(db, users, now);
+        await EnsureScanPoliciesAsync(db, users, now);
     }
 
     private sealed record DemoAccount(string Email, string DisplayName, string[] Roles);
@@ -151,6 +152,55 @@ public static partial class DevelopmentUserSeed {
             1,
             """{"count":2}"""));
         policy.SetTiers(policy.AppliesToTiers, admin.Id, now);
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task EnsureScanPoliciesAsync(
+        AegisOpsDbContext db,
+        UserManager<User> users,
+        DateTimeOffset now
+    ) {
+        var admin = await users.FindByEmailAsync(Email);
+        if (admin is null) {
+            return;
+        }
+
+        if (!await db.Policies.AnyAsync(item => item.Name == "Global baseline" && item.ArchivedAt == null)) {
+            var baseline = Policy.Create(
+                "Global baseline",
+                PolicyScope.Global,
+                [EnvironmentTier.Development, EnvironmentTier.Staging, EnvironmentTier.Production],
+                admin.Id,
+                now,
+                description: "Tests must pass, and any critical finding is denied.");
+            db.Policies.Add(baseline);
+            db.PolicyRules.Add(PolicyRule.Create(baseline.Id, PolicyRuleType.RequireTestsPassed, RuleEffect.Deny, 0, "{}"));
+            db.PolicyRules.Add(PolicyRule.Create(baseline.Id, PolicyRuleType.MaxFindings, RuleEffect.Deny, 1, """{"severity":"Critical","max":0}"""));
+        }
+
+        if (!await db.Policies.AnyAsync(item => item.Name == "Staging gate" && item.ArchivedAt == null)) {
+            var staging = Policy.Create(
+                "Staging gate",
+                PolicyScope.Global,
+                [EnvironmentTier.Staging],
+                admin.Id,
+                now,
+                description: "Staging requires fresh scans. High findings warn above 10.");
+            db.Policies.Add(staging);
+            db.PolicyRules.Add(PolicyRule.Create(
+                staging.Id,
+                PolicyRuleType.RequireScan,
+                RuleEffect.Deny,
+                0,
+                """{"scanners":["Gitleaks","Trivy","Semgrep"],"maxAgeHours":168}"""));
+            db.PolicyRules.Add(PolicyRule.Create(
+                staging.Id,
+                PolicyRuleType.MaxFindings,
+                RuleEffect.Warn,
+                1,
+                """{"severity":"High","max":10}"""));
+        }
+
         await db.SaveChangesAsync();
     }
 
