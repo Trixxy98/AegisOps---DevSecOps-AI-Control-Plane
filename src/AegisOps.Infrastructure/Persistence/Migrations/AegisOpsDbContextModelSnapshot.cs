@@ -1036,6 +1036,241 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("AegisOps.Domain.Security.FindingSuppression", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("fingerprint");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("reason");
+
+                    b.HasKey("Id")
+                        .HasName("pk_finding_suppressions");
+
+                    b.HasIndex("ProjectId", "Fingerprint")
+                        .IsUnique()
+                        .HasDatabaseName("ix_finding_suppressions_project_id_fingerprint");
+
+                    b.ToTable("finding_suppressions", "security");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Security.SecurityFinding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ArtifactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("artifact_id");
+
+                    b.Property<string>("Cve")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("cve");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("FilePath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("file_path");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("fingerprint");
+
+                    b.Property<string>("FixedVersion")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("fixed_version");
+
+                    b.Property<string>("HelpUri")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("help_uri");
+
+                    b.Property<string>("InstalledVersion")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("installed_version");
+
+                    b.Property<string>("PackageName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("package_name");
+
+                    b.Property<string>("RuleId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("rule_id");
+
+                    b.Property<Guid>("ScanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("scan_id");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("severity");
+
+                    b.Property<int?>("StartLine")
+                        .HasColumnType("integer")
+                        .HasColumnName("start_line");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("SuppressedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("suppressed_by_id");
+
+                    b.Property<string>("SuppressionReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("suppression_reason");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id")
+                        .HasName("pk_security_findings");
+
+                    b.HasIndex("Fingerprint")
+                        .HasDatabaseName("ix_security_findings_fingerprint");
+
+                    b.HasIndex("ArtifactId", "Status")
+                        .HasDatabaseName("ix_security_findings_artifact_id_status");
+
+                    b.HasIndex("ScanId", "Severity")
+                        .HasDatabaseName("ix_security_findings_scan_id_severity");
+
+                    b.ToTable("security_findings", "security", t =>
+                        {
+                            t.HasCheckConstraint("ck_security_findings_severity", "severity IN ('Unknown', 'Info', 'Low', 'Medium', 'High', 'Critical')");
+
+                            t.HasCheckConstraint("ck_security_findings_status", "status IN ('Open', 'Suppressed', 'Resolved')");
+                        });
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Security.SecurityScan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ArtifactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("artifact_id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("error_message");
+
+                    b.Property<string>("RawReportPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("raw_report_path");
+
+                    b.Property<string>("ReportFormat")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("report_format");
+
+                    b.Property<string>("Scanner")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("scanner");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("ToolVersion")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("tool_version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_security_scans");
+
+                    b.HasIndex("ArtifactId", "Scanner")
+                        .IsUnique()
+                        .HasDatabaseName("ix_security_scans_artifact_id_scanner");
+
+                    b.ToTable("security_scans", "security", t =>
+                        {
+                            t.HasCheckConstraint("ck_security_scans_format", "report_format IN ('Sarif', 'TrivyJson', 'GitleaksJson', 'SemgrepJson')");
+
+                            t.HasCheckConstraint("ck_security_scans_scanner", "scanner IN ('Gitleaks', 'Trivy', 'Semgrep')");
+
+                            t.HasCheckConstraint("ck_security_scans_source", "source IN ('CiUploaded', 'WorkerExecuted')");
+
+                            t.HasCheckConstraint("ck_security_scans_status", "status IN ('Queued', 'Running', 'Completed', 'Failed')");
+                        });
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole<System.Guid>", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1417,6 +1652,62 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         });
 
                     b.Navigation("TestSummary");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Security.SecurityFinding", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Security.SecurityScan", null)
+                        .WithMany()
+                        .HasForeignKey("ScanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_security_findings_security_scans_scan_id");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Security.SecurityScan", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Security.Artifact", null)
+                        .WithMany()
+                        .HasForeignKey("ArtifactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_security_scans_artifacts_artifact_id");
+
+                    b.OwnsOne("AegisOps.Domain.Security.ScanSummary", "Summary", b1 =>
+                        {
+                            b1.Property<Guid>("SecurityScanId");
+
+                            b1.Property<int>("Critical");
+
+                            b1.Property<int>("High");
+
+                            b1.Property<int>("Info");
+
+                            b1.Property<int>("Low");
+
+                            b1.Property<int>("Medium");
+
+                            b1.Property<int>("Open");
+
+                            b1.Property<int>("Suppressed");
+
+                            b1.Property<int>("Unknown");
+
+                            b1.HasKey("SecurityScanId");
+
+                            b1.ToTable("security_scans", "security");
+
+                            b1
+                                .ToJson("summary")
+                                .HasColumnType("jsonb");
+
+                            b1.WithOwner()
+                                .HasForeignKey("SecurityScanId")
+                                .HasConstraintName("fk_security_scans_security_scans_id");
+                        });
+
+                    b.Navigation("Summary")
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>

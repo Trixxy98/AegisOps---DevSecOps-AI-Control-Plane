@@ -108,15 +108,116 @@ public sealed class PolicyEngineTests {
         Assert.Equal(PolicyDecision.Allow, result.Decision);
     }
 
+    [Fact]
+    public void Missing_semgrep_scan_denies() {
+        var result = Engine.Evaluate(
+            Context(scans: [Scan("Trivy")]),
+            [Policy(Rule(PolicyRuleType.RequireScan, RuleEffect.Deny, """{"scanners":["Semgrep"]}"""))]
+        );
+        Assert.Equal(PolicyDecision.Deny, result.Decision);
+        Assert.Contains("Semgrep", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void High_findings_warn_without_denying() {
+        var result = Engine.Evaluate(
+            Context(scans: [Scan("Trivy", high: 12)]),
+            [Policy(Rule(PolicyRuleType.MaxFindings, RuleEffect.Warn, """{"scanner":"Trivy","severity":"High","max":10}"""))]
+        );
+        Assert.Equal(PolicyDecision.Allow, result.Decision);
+        Assert.Contains(result.Results, item => !item.Passed);
+    }
+
+    [Fact]
+    public void One_critical_finding_denies() {
+        var result = Engine.Evaluate(
+            Context(scans: [Scan("Trivy", critical: 1)]),
+            [Policy(Rule(PolicyRuleType.MaxFindings, RuleEffect.Deny, """{"severity":"Critical","max":0}"""))]
+        );
+        Assert.Equal(PolicyDecision.Deny, result.Decision);
+        Assert.Contains("1 Critical", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void High_findings_can_be_approved() {
+        var waiting = Engine.Evaluate(
+            Context(scans: [Scan("Trivy", high: 4)]),
+            [Policy(Rule(PolicyRuleType.MaxFindings, RuleEffect.RequireApproval, """{"scanner":"Trivy","severity":"High","max":3}"""))]
+        );
+        var allowed = Engine.Evaluate(
+            Context(approvals: 2, scans: [Scan("Trivy", high: 4)]),
+            [Policy(Rule(PolicyRuleType.MaxFindings, RuleEffect.RequireApproval, """{"scanner":"Trivy","severity":"High","max":3}"""))]
+        );
+        Assert.Equal(PolicyDecision.RequireApproval, waiting.Decision);
+        Assert.Equal(PolicyDecision.Allow, allowed.Decision);
+    }
+
+    [Fact]
+    public void Critical_deny_beats_approvals() {
+        var result = Engine.Evaluate(
+            Context(approvals: 2, scans: [Scan("Trivy", critical: 1)]),
+            [Policy(
+                Rule(PolicyRuleType.MaxFindings, RuleEffect.Deny, """{"severity":"Critical","max":0}"""),
+                Rule(PolicyRuleType.RequireApprovals, RuleEffect.RequireApproval, """{"count":2}""")
+            )]
+        );
+        Assert.Equal(PolicyDecision.Deny, result.Decision);
+    }
+
+    [Fact]
+    public void Stale_scan_denies() {
+        var now = new DateTimeOffset(2026, 10, 6, 6, 0, 0, TimeSpan.Zero);
+        var result = Engine.Evaluate(
+            Context(now: now, scans: [Scan("Trivy", completedAt: now.AddHours(-200))]),
+            [Policy(Rule(PolicyRuleType.RequireScan, RuleEffect.Deny, """{"scanners":["Trivy"],"maxAgeHours":168}"""))]
+        );
+        Assert.Equal(PolicyDecision.Deny, result.Decision);
+    }
+
+    [Fact]
+    public void Unknown_findings_are_excluded_unless_requested() {
+        var excluded = Engine.Evaluate(
+            Context(scans: [Scan("Trivy", unknown: 5)]),
+            [Policy(Rule(PolicyRuleType.MaxFindings, RuleEffect.Deny, """{"severity":"Critical","max":0,"includeUnknown":false}"""))]
+        );
+        var included = Engine.Evaluate(
+            Context(scans: [Scan("Trivy", unknown: 5)]),
+            [Policy(Rule(PolicyRuleType.MaxFindings, RuleEffect.Deny, """{"severity":"Critical","max":0,"includeUnknown":true}"""))]
+        );
+        Assert.Equal(PolicyDecision.Allow, excluded.Decision);
+        Assert.Equal(PolicyDecision.Deny, included.Decision);
+    }
+
+    [Fact]
+    public void Failed_scan_is_treated_as_missing() {
+        var result = Engine.Evaluate(
+            Context(scans: [Scan("Trivy", status: "Failed")]),
+            [Policy(Rule(PolicyRuleType.RequireScan, RuleEffect.Deny, """{"scanners":["Trivy"]}"""))]
+        );
+        Assert.Equal(PolicyDecision.Deny, result.Decision);
+    }
+
+    private static ScanEvidence Scan(
+        string scanner,
+        string status = "Completed",
+        int critical = 0,
+        int high = 0,
+        int unknown = 0,
+        DateTimeOffset? completedAt = null
+    ) {
+        return new ScanEvidence(scanner, status, status == "Completed" ? completedAt ?? new DateTimeOffset(2026, 10, 6, 5, 0, 0, TimeSpan.Zero) : null, critical, high, 0, 0, 0, unknown);
+    }
+
     private static PolicyContext Context(
         string branch = "main",
         CheckStatus test = CheckStatus.Passed,
         string? digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         int approvals = 0,
         DateTimeOffset? now = null,
-        PriorSuccess? prior = null
+        PriorSuccess? prior = null,
+        IReadOnlyList<ScanEvidence>? scans = null
     ) {
-        return new PolicyContext(branch, CheckStatus.Passed, test, digest, EnvironmentTier.Production, Guid.CreateVersion7(), Guid.CreateVersion7(), prior, approvals, now ?? new DateTimeOffset(2026, 10, 6, 6, 0, 0, TimeSpan.Zero));
+        return new PolicyContext(branch, CheckStatus.Passed, test, digest, EnvironmentTier.Production, Guid.CreateVersion7(), Guid.CreateVersion7(), prior, approvals, now ?? new DateTimeOffset(2026, 10, 6, 6, 0, 0, TimeSpan.Zero), scans ?? []);
     }
 
     private static ApplicablePolicy Policy(params ApplicableRule[] rules) {

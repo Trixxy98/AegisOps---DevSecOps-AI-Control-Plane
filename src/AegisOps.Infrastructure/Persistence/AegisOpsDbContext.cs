@@ -34,6 +34,9 @@ public sealed class AegisOpsDbContext : IdentityDbContext<User, IdentityRole<Gui
     }
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<Artifact> Artifacts => Set<Artifact>();
+    public DbSet<SecurityScan> SecurityScans => Set<SecurityScan>();
+    public DbSet<SecurityFinding> SecurityFindings => Set<SecurityFinding>();
+    public DbSet<FindingSuppression> FindingSuppressions => Set<FindingSuppression>();
     public DbSet<Policy> Policies => Set<Policy>();
     public DbSet<PolicyRule> PolicyRules => Set<PolicyRule>();
     public DbSet<PolicyEvaluation> PolicyEvaluations => Set<PolicyEvaluation>();
