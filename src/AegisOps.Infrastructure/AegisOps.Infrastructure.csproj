@@ -17,6 +17,7 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="EFCore.NamingConventions" />
     <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="Docker.DotNet" />
   </ItemGroup>
 
 </Project>

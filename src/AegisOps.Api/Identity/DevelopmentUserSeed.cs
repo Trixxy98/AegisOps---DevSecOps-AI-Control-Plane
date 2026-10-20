@@ -49,6 +49,7 @@ public static partial class DevelopmentUserSeed {
         await EnsureDemoTeamAsync(db, users, now);
         await EnsureProductionApprovalsAsync(db, users, now);
         await EnsureScanPoliciesAsync(db, users, now);
+        await EnsureCircuitStagingTargetAsync(db);
     }
 
     private sealed record DemoAccount(string Email, string DisplayName, string[] Roles);
@@ -201,6 +202,25 @@ public static partial class DevelopmentUserSeed {
                 """{"severity":"High","max":10}"""));
         }
 
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task EnsureCircuitStagingTargetAsync(AegisOpsDbContext db) {
+        var environment = await db.Environments
+            .Where(item => item.Name == "Staging" && item.Tier == EnvironmentTier.Staging)
+            .Join(db.Projects.Where(item => item.Slug == "circuit-service"), item => item.ProjectId, project => project.Id, (item, _) => item)
+            .SingleOrDefaultAsync();
+        if (environment is null || !string.Equals(environment.Target.Type, "noop", StringComparison.OrdinalIgnoreCase)) {
+            return;
+        }
+
+        environment.Retarget(DeploymentTarget.Docker(
+            "circuit-service-staging",
+            "aegisops-staging",
+            8102,
+            8080,
+            "/health",
+            60));
         await db.SaveChangesAsync();
     }
 

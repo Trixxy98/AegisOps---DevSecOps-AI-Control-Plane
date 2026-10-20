@@ -11,7 +11,13 @@ namespace AegisOps.Api.Organization;
 
 public sealed record UpdateEnvironmentTargetRequest(
     string? Type,
-    bool? AllowApiKeyProduction
+    bool? AllowApiKeyProduction,
+    string? ContainerName,
+    string? Network,
+    int? HostPort,
+    int? ContainerPort,
+    string? HealthPath,
+    int? HealthTimeoutSeconds
 );
 
 public sealed record UpdateEnvironmentRequest(
@@ -134,16 +140,26 @@ public static class UpdateEnvironment {
                     ? environment.Target.Type
                     : request.Target.Type.Trim().ToLowerInvariant();
 
-                if (type != "noop") {
+                var allowApiKeyProduction = request.Target.AllowApiKeyProduction
+                    ?? environment.Target.AllowApiKeyProduction;
+                if (type == "docker") {
+                    environment.Retarget(DeploymentTarget.Docker(
+                        request.Target.ContainerName ?? environment.Target.ContainerName ?? "",
+                        request.Target.Network ?? environment.Target.Network,
+                        request.Target.HostPort ?? environment.Target.HostPort,
+                        request.Target.ContainerPort ?? (environment.Target.ContainerPort < 1 ? 8080 : environment.Target.ContainerPort),
+                        request.Target.HealthPath ?? environment.Target.HealthPath ?? "/health",
+                        request.Target.HealthTimeoutSeconds ?? (environment.Target.HealthTimeoutSeconds < 1 ? 60 : environment.Target.HealthTimeoutSeconds),
+                        allowApiKeyProduction
+                    ));
+                } else if (type == "noop") {
+                    environment.Retarget(DeploymentTarget.Noop(allowApiKeyProduction));
+                } else {
                     return Results.Problem(
-                        title: "Target type must be noop in this phase.",
+                        title: "Target type must be noop or docker.",
                         statusCode: StatusCodes.Status400BadRequest
                     );
                 }
-
-                var allowApiKeyProduction = request.Target.AllowApiKeyProduction
-                    ?? environment.Target.AllowApiKeyProduction;
-                environment.Retarget(DeploymentTarget.Noop(allowApiKeyProduction));
             }
 
             AuditLog.Write(db, TimeProvider.System.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "environment.updated", "Environment", environment.Id);
