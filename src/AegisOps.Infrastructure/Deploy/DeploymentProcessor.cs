@@ -4,6 +4,7 @@ using AegisOps.Domain.Audit;
 using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Jobs;
 using AegisOps.Domain.Policy;
+using AegisOps.Infrastructure.Docker;
 using AegisOps.Infrastructure.Persistence;
 using AegisOps.Infrastructure.Scanning;
 using Microsoft.EntityFrameworkCore;
@@ -17,38 +18,41 @@ public static class DeploymentProcessor {
         string workerId,
         CancellationToken cancellationToken
     ) {
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var now = time.GetUtcNow();
-        var staleBefore = now.AddMinutes(-2);
-        var stale = await db.Jobs
-            .Where(item => item.Status == JobStatus.Running && item.LockedAt != null && item.LockedAt < staleBefore)
-            .ToListAsync(cancellationToken);
-        foreach (var item in stale) {
-            item.ReleaseIfStale(now, TimeSpan.FromMinutes(2));
-        }
+        Job? job;
+        await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken)) {
+            var now = time.GetUtcNow();
+            var staleBefore = now.AddMinutes(-2);
+            var stale = await db.Jobs
+                .Where(item => item.Status == JobStatus.Running && item.LockedAt != null && item.LockedAt < staleBefore)
+                .ToListAsync(cancellationToken);
+            foreach (var item in stale) {
+                item.ReleaseIfStale(now, TimeSpan.FromMinutes(2));
+            }
 
-        if (stale.Count > 0) {
+            if (stale.Count > 0) {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            job = await db.Jobs
+                .FromSqlInterpolated($"""
+                    SELECT * FROM jobs.jobs
+                    WHERE status = 'Pending' AND scheduled_at <= {now}
+                    ORDER BY scheduled_at
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                    """)
+                .AsTracking()
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (job is null) {
+                await transaction.CommitAsync(cancellationToken);
+                return false;
+            }
+
+            job.MarkRunning(now, workerId);
             await db.SaveChangesAsync(cancellationToken);
-        }
-
-        var job = await db.Jobs
-            .FromSqlInterpolated($"""
-                SELECT * FROM jobs.jobs
-                WHERE status = 'Pending' AND scheduled_at <= {now}
-                ORDER BY scheduled_at
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-                """)
-            .AsTracking()
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (job is null) {
             await transaction.CommitAsync(cancellationToken);
-            return false;
         }
-
-        job.MarkRunning(now, workerId);
-        await db.SaveChangesAsync(cancellationToken);
 
         try {
             if (job.Type == JobType.ParseScanReport) {
@@ -65,12 +69,10 @@ public static class DeploymentProcessor {
 
             job.Succeed(time.GetUtcNow());
             await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
             return true;
         } catch (Exception exception) {
             job.Fail(exception.Message, time.GetUtcNow());
             await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
             return true;
         }
     }
@@ -139,16 +141,39 @@ public static class DeploymentProcessor {
 
         var now = time.GetUtcNow();
         deployment.Start(now);
-        await AddEventAsync(db, deployment.Id, DeploymentEventType.DeployStarted, "Noop executor started.", time, cancellationToken);
         var environment = await db.Environments.SingleAsync(item => item.Id == deployment.EnvironmentId, cancellationToken);
+        if (string.Equals(environment.Target.Type, "docker", StringComparison.OrdinalIgnoreCase)) {
+            var artifact = await db.Artifacts.SingleAsync(item => item.Id == deployment.ArtifactId, cancellationToken);
+            var project = await db.Projects.AsNoTracking().SingleAsync(item => item.Id == deployment.ProjectId, cancellationToken);
+            await AddEventAsync(db, deployment.Id, DeploymentEventType.DeployStarted, $"Docker executor started for {environment.Target.ContainerName}.", time, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            var execution = await DockerDeploymentExecutor.ExecuteAsync(
+                environment.Target,
+                artifact,
+                project.Slug,
+                environment.Name,
+                deployment.Id,
+                (type, message, token) => AddEventAsync(db, deployment.Id, type, message, time, token),
+                cancellationToken);
+            if (!execution.Succeeded) {
+                deployment.Fail(execution.Message, time.GetUtcNow());
+                await AddEventAsync(db, deployment.Id, DeploymentEventType.Failed, execution.Message, time, cancellationToken);
+                db.AuditEvents.Add(AuditEvent.Record(time.GetUtcNow(), "System", null, "docker-executor", "deployment.failed", "Deployment", deployment.Id, "Failed", deployment.CorrelationId));
+                return;
+            }
+        } else {
+            await AddEventAsync(db, deployment.Id, DeploymentEventType.DeployStarted, "Noop executor started.", time, cancellationToken);
+        }
+
+        var docker = string.Equals(environment.Target.Type, "docker", StringComparison.OrdinalIgnoreCase);
         environment.RecordDeployment(deployment.ArtifactId, deployment.Id);
         deployment.Succeed(time.GetUtcNow());
-        await AddEventAsync(db, deployment.Id, DeploymentEventType.Succeeded, "Simulated deployment succeeded.", time, cancellationToken);
+        await AddEventAsync(db, deployment.Id, DeploymentEventType.Succeeded, docker ? "Container is healthy." : "Simulated deployment succeeded.", time, cancellationToken);
         db.AuditEvents.Add(AuditEvent.Record(
             time.GetUtcNow(),
             "System",
             null,
-            "noop-executor",
+            docker ? "docker-executor" : "noop-executor",
             "deployment.succeeded",
             "Deployment",
             deployment.Id,

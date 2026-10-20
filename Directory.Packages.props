@@ -19,5 +19,6 @@
         <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
         <PackageVersion Include="EFCore.NamingConventions" Version="10.0.1" />
         <PackageVersion Include="StackExchange.Redis" Version="2.8.41" />
+        <PackageVersion Include="Docker.DotNet" Version="3.125.15" />
     </ItemGroup>
 </Project>

@@ -12,4 +12,9 @@ public enum DeploymentEventType {
     Succeeded = 9,
     Failed = 10,
     Cancelled = 11,
+    ImagePulled = 12,
+    ContainerStarted = 13,
+    HealthCheckPassed = 14,
+    HealthCheckFailed = 15,
+    RolledBack = 16,
 }
