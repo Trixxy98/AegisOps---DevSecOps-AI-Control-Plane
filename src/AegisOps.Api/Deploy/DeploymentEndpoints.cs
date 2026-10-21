@@ -56,25 +56,73 @@ public static class DeploymentEndpoints {
         }
 
         var now = time.GetUtcNow();
-        var deployment = Deployment.Request(
-            artifact.ProjectId,
-            environment.Id,
-            artifact.Id,
+        var deployment = Enqueue(
+            db,
+            artifact,
+            environment,
             now,
-            Guid.CreateVersion7().ToString("N"),
-            actor.UserId,
-            actor.ApiKeyId,
-            request.Reason
-        );
-        db.Deployments.Add(deployment);
-        db.DeploymentEvents.Add(DeploymentEvent.Create(deployment.Id, 1, now, DeploymentEventType.Requested, "Deployment requested."));
-        db.Jobs.Add(Job.Enqueue(
-            JobType.EvaluateDeployment,
-            JsonSerializer.Serialize(new { deploymentId = deployment.Id }),
+            actor,
+            request.Reason,
+            environment.CurrentArtifactId);
+        await db.SaveChangesAsync(cancellationToken);
+        return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status202Accepted, new {
+            deployment.Id,
+            status = deployment.Status.ToString(),
+        });
+    }
+
+    public static async Task<IResult> Rollback(
+        Guid id,
+        ClaimsPrincipal principal,
+        UserManager<User> users,
+        AegisOpsDbContext db,
+        TimeProvider time,
+        IIdempotencyStore idempotency,
+        HttpContext http
+    ) {
+        var replay = await IdempotencyRequests.ReplayAsync(http, principal, idempotency);
+        if (replay is not null) {
+            return replay;
+        }
+
+        var actor = await ActorResult.ResolveAsync(principal, users);
+        if (actor.Error is not null) {
+            return actor.Error;
+        }
+
+        var cancellationToken = http.RequestAborted;
+        var source = await db.Deployments.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+        if (source is null) {
+            return Results.Problem(title: "Deployment was not found.", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (source.Status != DeploymentStatus.Succeeded) {
+            return Results.Problem(title: "Only a succeeded deployment can be rolled back.", statusCode: StatusCodes.Status409Conflict);
+        }
+
+        if (source.PreviousArtifactId is null) {
+            return Results.Problem(title: "This deployment has no predecessor to restore.", statusCode: StatusCodes.Status409Conflict);
+        }
+
+        var artifact = await db.Artifacts.SingleOrDefaultAsync(item => item.Id == source.PreviousArtifactId, cancellationToken);
+        var environment = await db.Environments.SingleOrDefaultAsync(item => item.Id == source.EnvironmentId, cancellationToken);
+        if (artifact is null || environment is null || artifact.ProjectId != environment.ProjectId) {
+            return Results.Problem(title: "Artifact or environment was not found.", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (actor.ApiKeyProjectId is Guid projectId && projectId != artifact.ProjectId) {
+            return Results.Problem(title: "Artifact or environment was not found.", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var now = time.GetUtcNow();
+        var deployment = Enqueue(
+            db,
+            artifact,
+            environment,
             now,
-            deployment.CorrelationId
-        ));
-        db.AuditEvents.Add(AuditEvent.Record(now, actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display, "deployment.requested", "Deployment", deployment.Id, "Accepted", deployment.CorrelationId));
+            actor,
+            $"rollback of {source.Id:D}",
+            environment.CurrentArtifactId);
         await db.SaveChangesAsync(cancellationToken);
         return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status202Accepted, new {
             deployment.Id,
@@ -130,6 +178,7 @@ public static class DeploymentEndpoints {
             item.CompletedAt,
             item.FailureReason,
             item.Reason,
+            item.PreviousArtifactId,
             item.PolicyEvaluationId,
         });
     }
@@ -231,6 +280,38 @@ public static class DeploymentEndpoints {
         db.AuditEvents.Add(AuditEvent.Record(now, actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display, "deployment.cancelled", "Deployment", deployment.Id, "Cancelled", deployment.CorrelationId));
         await db.SaveChangesAsync(http.RequestAborted);
         return Results.NoContent();
+    }
+
+    private static Deployment Enqueue(
+        AegisOpsDbContext db,
+        AegisOps.Domain.Security.Artifact artifact,
+        AegisOps.Domain.Organization.Environment environment,
+        DateTimeOffset now,
+        ActorResult actor,
+        string? reason,
+        Guid? previousArtifactId
+    ) {
+        var deployment = Deployment.Request(
+            artifact.ProjectId,
+            environment.Id,
+            artifact.Id,
+            now,
+            Guid.CreateVersion7().ToString("N"),
+            actor.UserId,
+            actor.ApiKeyId,
+            reason,
+            previousArtifactId
+        );
+        db.Deployments.Add(deployment);
+        db.DeploymentEvents.Add(DeploymentEvent.Create(deployment.Id, 1, now, DeploymentEventType.Requested, reason is not null && reason.StartsWith("rollback of ", StringComparison.Ordinal) ? reason : "Deployment requested."));
+        db.Jobs.Add(Job.Enqueue(
+            JobType.EvaluateDeployment,
+            JsonSerializer.Serialize(new { deploymentId = deployment.Id }),
+            now,
+            deployment.CorrelationId
+        ));
+        db.AuditEvents.Add(AuditEvent.Record(now, actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display, "deployment.requested", "Deployment", deployment.Id, "Accepted", deployment.CorrelationId));
+        return deployment;
     }
 }
 

@@ -58,17 +58,13 @@ public static class GetProject {
             }
         }
 
-        var environments = await db.Environments
+        var environments = (await db.Environments
             .AsNoTracking()
             .Where(environment => environment.ProjectId == project.Id)
             .OrderBy(environment => environment.Order)
-            .Select(environment => new EnvironmentListItem(
-                environment.Id,
-                environment.Name,
-                environment.Tier.ToString(),
-                environment.Order
-            ))
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken))
+            .Select(CreateProject.MapEnvironment)
+            .ToList();
 
         var repository = await db.Repositories
             .AsNoTracking()

@@ -4,6 +4,7 @@ using AegisOps.Application.Authorization;
 using AegisOps.Application.Idempotency;
 using AegisOps.Api.Organization;
 using AegisOps.Api.Deploy;
+using AegisOps.Api.Jobs;
 using AegisOps.Infrastructure.Deploy;
 using AegisOps.Infrastructure.Redis;
 using StackExchange.Redis;
@@ -72,6 +73,8 @@ app.MapPut("/api/v1/projects/{slug}/repository", UpsertRepository.Handle)
     .RequireAuthorization(Permissions.ProjectsWrite);
 app.MapPatch("/api/v1/projects/{slug}/environments/{envId:guid}", UpdateEnvironment.Handle)
     .RequireAuthorization(Permissions.EnvironmentsWrite);
+app.MapGet("/api/v1/projects/{slug}/environments/{envId:guid}/runtime", GetEnvironmentRuntime.Handle)
+    .RequireAuthorization(Permissions.ProjectsRead);
 app.MapPost("/api/v1/projects/{slug}/api-keys", CreateApiKey.Handle)
     .RequireAuthorization(Permissions.ApiKeysManage);
 app.MapGet("/api/v1/projects/{slug}/api-keys", ListApiKeys.Handle)
@@ -123,6 +126,14 @@ app.MapPost("/api/v1/deployments/{id:guid}/approvals", DeploymentEndpoints.Decid
     .RequireAuthorization(Permissions.DeploymentsApprove);
 app.MapPost("/api/v1/deployments/{id:guid}/cancel", DeploymentEndpoints.Cancel)
     .RequireAuthorization(Permissions.DeploymentsCancel);
+app.MapPost("/api/v1/deployments/{id:guid}/rollback", DeploymentEndpoints.Rollback)
+    .RequireAuthorization(Permissions.DeploymentsRequest);
+app.MapGet("/api/v1/admin/jobs", AdminJobs.List)
+    .RequireAuthorization(Permissions.UsersManage);
+app.MapGet("/api/v1/admin/jobs/summary", AdminJobs.Summary)
+    .RequireAuthorization(Permissions.UsersManage);
+app.MapPost("/api/v1/admin/jobs/{id:guid}/retry", AdminJobs.Retry)
+    .RequireAuthorization(Permissions.UsersManage);
 app.MapGet("/api/v1/audit", PolicyPhase1Endpoints.Audit)
     .RequireAuthorization(Permissions.AuditRead);
 

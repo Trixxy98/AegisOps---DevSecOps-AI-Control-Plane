@@ -16,6 +16,7 @@ public sealed class Deployment {
     public DateTimeOffset? StartedAt {get; private set;}
     public DateTimeOffset? CompletedAt {get; private set;}
     public string? FailureReason {get; private set;}
+    public Guid? PreviousArtifactId {get; private set;}
     public string CorrelationId {get; private set;}
 
     private Deployment() {
@@ -30,7 +31,8 @@ public sealed class Deployment {
         string correlationId,
         Guid? requestedById,
         Guid? requestedByApiKeyId,
-        string? reason
+        string? reason,
+        Guid? previousArtifactId = null
     ) {
         if (projectId == Guid.Empty || environmentId == Guid.Empty || artifactId == Guid.Empty) {
             throw new ArgumentException("Project, environment, and artifact are required.");
@@ -54,6 +56,7 @@ public sealed class Deployment {
             RequestedByApiKeyId = requestedByApiKeyId,
             RequestedAt = requestedAt,
             Reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
+            PreviousArtifactId = previousArtifactId == Guid.Empty || previousArtifactId == artifactId ? null : previousArtifactId,
             CorrelationId = correlationId.Trim(),
         };
     }
