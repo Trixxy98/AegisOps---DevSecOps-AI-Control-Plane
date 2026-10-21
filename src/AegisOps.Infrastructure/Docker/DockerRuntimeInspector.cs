@@ -28,7 +28,7 @@ public static class DockerRuntimeInspector {
                 container.State,
                 container.Image,
                 container.Ports.Select(port => $"{port.IP}:{port.PublicPort}->{port.PrivatePort}/{port.Type}").ToArray(),
-                container.Labels ?? new Dictionary<string, string>()
+                new Dictionary<string, string>(container.Labels ?? new Dictionary<string, string>())
             ))
             .ToArray();
     }
