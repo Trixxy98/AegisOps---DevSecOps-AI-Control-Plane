@@ -33,6 +33,7 @@ public sealed class DeploymentConfiguration : IEntityTypeConfiguration<Deploymen
         builder.HasOne<Project>().WithMany().HasForeignKey(item => item.ProjectId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<AegisOps.Domain.Organization.Environment>().WithMany().HasForeignKey(item => item.EnvironmentId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Artifact>().WithMany().HasForeignKey(item => item.ArtifactId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Artifact>().WithMany().HasForeignKey(item => item.PreviousArtifactId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 

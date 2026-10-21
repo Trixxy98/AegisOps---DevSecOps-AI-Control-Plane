@@ -21,7 +21,16 @@ public sealed record EnvironmentListItem(
     Guid Id,
     string Name,
     string Tier,
-    int Order
+    int Order,
+    string TargetType,
+    bool AllowApiKeyProduction,
+    string? ContainerName,
+    string? Network,
+    int HostPort,
+    int ContainerPort,
+    string? HealthPath,
+    int HealthTimeoutSeconds,
+    Guid? CurrentArtifactId
 );
 
 public sealed record ProjectResponse(
@@ -124,12 +133,7 @@ public static class CreateProject {
                     project.IsArchived,
                     environments
                         .OrderBy(item => item.Order)
-                        .Select(item => new EnvironmentListItem(
-                            item.Id,
-                            item.Name,
-                            item.Tier.ToString(),
-                            item.Order
-                        ))
+                        .Select(MapEnvironment)
                         .ToArray(),
                     null
                 )
@@ -140,5 +144,23 @@ public static class CreateProject {
                 statusCode: StatusCodes.Status400BadRequest
             );
         }
+    }
+
+    public static EnvironmentListItem MapEnvironment(ProjectEnvironment environment) {
+        return new EnvironmentListItem(
+            environment.Id,
+            environment.Name,
+            environment.Tier.ToString(),
+            environment.Order,
+            environment.Target.Type,
+            environment.Target.AllowApiKeyProduction,
+            environment.Target.ContainerName,
+            environment.Target.Network,
+            environment.Target.HostPort,
+            environment.Target.ContainerPort,
+            environment.Target.HealthPath,
+            environment.Target.HealthTimeoutSeconds,
+            environment.CurrentArtifactId
+        );
     }
 }

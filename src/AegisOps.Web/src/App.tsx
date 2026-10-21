@@ -114,7 +114,8 @@ function Dashboard({ token, onError }: { token: string; onError: (value: string 
 function Projects({ token, onError }: { token: string; onError: (value: string | null) => void }) {
   const [projects, setProjects] = useState<Array<{ slug: string; name: string }>>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ environments: Array<{ id: string; name: string; tier: string }> } | null>(null);
+  const [detail, setDetail] = useState<{ environments: Array<{ id: string; name: string; tier: string; targetType: string; containerName?: string; network?: string; hostPort: number; containerPort: number; healthPath?: string; healthTimeoutSeconds: number }> } | null>(null);
+  const [runtime, setRuntime] = useState<string | null>(null);
   const [artifacts, setArtifacts] = useState<Array<{ id: string; version: string; branch: string }>>([]);
   const [keys, setKeys] = useState<Array<{ id: string; name: string; keyPrefix: string; lastUsedAt?: string; revokedAt?: string }>>([]);
   const [keyName, setKeyName] = useState("ci");
@@ -127,7 +128,7 @@ function Projects({ token, onError }: { token: string; onError: (value: string |
   async function open(slug: string) {
     setSelected(slug);
     const [project, items, apiKeys] = await Promise.all([
-      api<{ environments: Array<{ id: string; name: string; tier: string }> }>(`/api/v1/projects/${slug}`, token),
+      api<{ environments: Array<{ id: string; name: string; tier: string; targetType: string; containerName?: string; network?: string; hostPort: number; containerPort: number; healthPath?: string; healthTimeoutSeconds: number }> }>(`/api/v1/projects/${slug}`, token),
       api<Array<{ id: string; version: string; branch: string }>>(`/api/v1/projects/${slug}/artifacts`, token),
       api<Array<{ id: string; name: string; keyPrefix: string; lastUsedAt?: string; revokedAt?: string }>>(`/api/v1/projects/${slug}/api-keys`, token).catch(() => []),
     ]);
@@ -174,6 +175,48 @@ function Projects({ token, onError }: { token: string; onError: (value: string |
         <div className="space-y-3">
           <h2 className="font-semibold">{selected}</h2>
           <section className="space-y-2 rounded border border-slate-800 p-3">
+            <h3 className="text-sm font-semibold">Environments</h3>
+            {detail.environments.map((environment) => (
+              <form key={environment.id} className="space-y-2 rounded bg-slate-900 p-2 text-xs" onSubmit={(event) => {
+                event.preventDefault();
+                const form = new FormData(event.currentTarget);
+                void api(`/api/v1/projects/${selected}/environments/${environment.id}`, token, {
+                  method: "PATCH",
+                  body: JSON.stringify({
+                    target: {
+                      type: form.get("type"),
+                      containerName: form.get("containerName") || null,
+                      network: form.get("network") || null,
+                      hostPort: Number(form.get("hostPort")),
+                      containerPort: Number(form.get("containerPort")),
+                      healthPath: form.get("healthPath") || "/health",
+                      healthTimeoutSeconds: Number(form.get("healthTimeoutSeconds")),
+                    },
+                  }),
+                }).then(() => open(selected)).catch((error: Error) => onError(error.message));
+              }}>
+                <p className="font-medium">{environment.name} · {environment.targetType}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <select className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.targetType} name="type">
+                    <option value="noop">noop</option>
+                    <option value="docker">docker</option>
+                  </select>
+                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.containerName ?? ""} name="containerName" placeholder="container" />
+                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.network ?? ""} name="network" placeholder="network" />
+                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.hostPort || 8102} name="hostPort" />
+                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.containerPort || 8080} name="containerPort" />
+                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.healthPath ?? "/health"} name="healthPath" />
+                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.healthTimeoutSeconds || 60} name="healthTimeoutSeconds" />
+                </div>
+                <div className="flex gap-2">
+                  <button className="rounded bg-slate-100 px-2 py-1 text-slate-950" type="submit">Save target</button>
+                  <button className="rounded bg-slate-800 px-2 py-1" type="button" onClick={() => void api<{ containers: Array<{ name: string; state: string; image: string }> }>(`/api/v1/projects/${selected}/environments/${environment.id}/runtime`, token).then((body) => setRuntime(JSON.stringify(body))).catch((error: Error) => onError(error.message))}>Runtime</button>
+                </div>
+              </form>
+            ))}
+            {runtime && <pre className="overflow-x-auto text-[11px] text-slate-300">{runtime}</pre>}
+          </section>
+          <section className="space-y-2 rounded border border-slate-800 p-3">
             <h3 className="text-sm font-semibold">API keys</h3>
             <div className="flex gap-2">
               <input className="flex-1 rounded bg-slate-900 px-2 py-1 text-sm" value={keyName} onChange={(event) => setKeyName(event.target.value)} />
@@ -213,6 +256,8 @@ function Deployments({ token, onError }: { token: string; onError: (value: strin
   const [rules, setRules] = useState<Array<{ type: string; passed: boolean; message: string }>>([]);
   const [findings, setFindings] = useState<Array<{ id: string; severity: string; title: string; cve?: string; packageName?: string; status: string }>>([]);
   const [decision, setDecision] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [canRollback, setCanRollback] = useState(false);
 
   async function load() {
     setItems(await api("/api/v1/deployments", token));
@@ -225,7 +270,9 @@ function Deployments({ token, onError }: { token: string; onError: (value: strin
   }, [token]);
 
   async function open(id: string) {
-    const deployment = await api<{ artifactId: string }>(`/api/v1/deployments/${id}`, token);
+    const deployment = await api<{ artifactId: string; status: string; previousArtifactId?: string }>(`/api/v1/deployments/${id}`, token);
+    setSelected(id);
+    setCanRollback(deployment.status === "Succeeded" && Boolean(deployment.previousArtifactId));
     const [timeline, evaluation, found] = await Promise.all([
       api<Array<{ sequence: number; type: string; message: string }>>(`/api/v1/deployments/${id}/events`, token),
       api<{ decision: string; ruleResults: Array<{ type: string; passed: boolean; message: string }> }>(`/api/v1/deployments/${id}/evaluation`, token).catch(() => null),
@@ -254,6 +301,9 @@ function Deployments({ token, onError }: { token: string; onError: (value: strin
         ))}
       </ul>
       <div className="space-y-3">
+        {selected && canRollback && (
+          <button className="rounded bg-amber-200 px-3 py-1 text-sm text-slate-950" type="button" onClick={() => void api(`/api/v1/deployments/${selected}/rollback`, token, { method: "POST" }).then(() => load()).catch((error: Error) => onError(error.message))}>Rollback</button>
+        )}
         {decision && <p className="rounded bg-slate-900 px-3 py-2 text-sm">Policy decision: {decision}</p>}
         <ul className="space-y-2 text-sm">
           {rules.map((rule) => <li key={`${rule.type}-${rule.message}`} className="rounded bg-slate-900 px-3 py-2">{rule.passed ? "Pass" : "Fail"} · {rule.type}: {rule.message}</li>)}
@@ -350,13 +400,19 @@ function Policies({ token, onError }: { token: string; onError: (value: string |
 function Admin({ token, onError }: { token: string; onError: (value: string | null) => void }) {
   const [users, setUsers] = useState<Array<{ id: string; email: string; displayName: string; roles: string[] }>>([]);
   const [teams, setTeams] = useState<Array<{ slug: string; name: string }>>([]);
+  const [jobs, setJobs] = useState<Array<{ id: string; type: string; status: string; lastError?: string }>>([]);
+  const [queue, setQueue] = useState<{ pending: number; running: number; deadLettered: number } | null>(null);
   useEffect(() => {
     Promise.all([
       api<Array<{ id: string; email: string; displayName: string; roles: string[] }>>("/api/v1/admin/users", token),
       api<Array<{ slug: string; name: string }>>("/api/v1/teams", token),
-    ]).then(([accounts, groups]) => {
+      api<Array<{ id: string; type: string; status: string; lastError?: string }>>("/api/v1/admin/jobs?status=DeadLettered", token).catch(() => []),
+      api<{ pending: number; running: number; deadLettered: number }>("/api/v1/admin/jobs/summary", token).catch(() => null),
+    ]).then(([accounts, groups, dead, depth]) => {
       setUsers(accounts);
       setTeams(groups);
+      setJobs(dead);
+      setQueue(depth);
     }).catch((error: Error) => onError(error.message));
   }, [token, onError]);
 
@@ -372,6 +428,18 @@ function Admin({ token, onError }: { token: string; onError: (value: string | nu
         <h2 className="mb-2 font-semibold">Teams</h2>
         <ul className="space-y-2 text-sm">
           {teams.map((team) => <li key={team.slug} className="rounded bg-slate-900 px-3 py-2">{team.name}</li>)}
+        </ul>
+      </section>
+      <section className="md:col-span-2">
+        <h2 className="mb-2 font-semibold">Jobs</h2>
+        {queue && <p className="mb-2 text-sm text-slate-400">Pending {queue.pending} · running {queue.running} · dead-letter {queue.deadLettered}</p>}
+        <ul className="space-y-2 text-sm">
+          {jobs.map((job) => (
+            <li key={job.id} className="flex items-center justify-between rounded bg-slate-900 px-3 py-2">
+              <span>{job.type} · {job.status}{job.lastError ? ` · ${job.lastError}` : ""}</span>
+              <button className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-950" type="button" onClick={() => void api(`/api/v1/admin/jobs/${job.id}/retry`, token, { method: "POST" }).then(() => api<typeof jobs>("/api/v1/admin/jobs?status=DeadLettered", token).then(setJobs)).catch((error: Error) => onError(error.message))}>Retry</button>
+            </li>
+          ))}
         </ul>
       </section>
     </div>

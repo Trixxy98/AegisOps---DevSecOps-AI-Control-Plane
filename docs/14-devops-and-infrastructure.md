@@ -75,6 +75,14 @@ ENTRYPOINT ["dotnet", "AegisOps.Api.dll"]
 Worker identical with its project; Worker runtime image additionally needs the Docker
 socket group id matched (`--group-add` via compose `group_add`).
 
+On a Mac host the socket is `unix://${HOME}/.docker/run/docker.sock`, not
+`/var/run/docker.sock`. Set `DOCKER_HOST` (or `Docker:Endpoint`) to that path.
+Mounting the raw socket into the Worker is equivalent to root on the host. Prefer a
+[docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy) sidecar that
+allows only `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, and keep `POST=1` for create/start.
+Point `DOCKER_HOST` at `tcp://docker-socket-proxy:2375` and do not mount the socket
+into the Worker.
+
 ### Web
 
 ```dockerfile

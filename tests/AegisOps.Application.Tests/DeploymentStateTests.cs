@@ -44,6 +44,28 @@ public sealed class DeploymentStateTests {
     }
 
     [Fact]
+    public void Request_records_the_previous_artifact() {
+        var current = Guid.CreateVersion7();
+        var next = Guid.CreateVersion7();
+        var deployment = Deployment.Request(Guid.CreateVersion7(), Guid.CreateVersion7(), next, DateTimeOffset.UtcNow, "corr", Guid.CreateVersion7(), null, "promo", current);
+        Assert.Equal(current, deployment.PreviousArtifactId);
+    }
+
+    [Fact]
+    public void Dead_lettered_job_can_be_retried() {
+        var now = DateTimeOffset.UtcNow;
+        var job = Job.Enqueue(JobType.ExecuteDeployment, """{"deploymentId":"00000000-0000-0000-0000-000000000001"}""", now, "corr");
+        for (var attempt = 0; attempt < 5; attempt++) {
+            job.MarkRunning(now, "worker");
+            job.Fail("boom", now);
+        }
+
+        job.Retry(now);
+        Assert.Equal(JobStatus.Pending, job.Status);
+        Assert.Equal(0, job.Attempts);
+    }
+
+    [Fact]
     public void Fifth_failure_dead_letters() {
         var now = DateTimeOffset.UtcNow;
         var job = Job.Enqueue(JobType.ExecuteDeployment, """{"deploymentId":"00000000-0000-0000-0000-000000000001"}""", now, "corr");

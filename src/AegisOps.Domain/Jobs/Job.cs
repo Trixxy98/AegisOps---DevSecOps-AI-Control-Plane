@@ -102,6 +102,19 @@ public sealed class Job {
         ScheduledAt = at.AddSeconds(delaySeconds);
     }
 
+    public void Retry(DateTimeOffset at) {
+        if (Status != JobStatus.DeadLettered) {
+            throw new InvalidOperationException("Only a dead-lettered job can be retried.");
+        }
+
+        Status = JobStatus.Pending;
+        Attempts = 0;
+        ScheduledAt = at;
+        CompletedAt = null;
+        LockedAt = null;
+        LockedBy = null;
+    }
+
     public bool ReleaseIfStale(DateTimeOffset now, TimeSpan lease) {
         if (Status != JobStatus.Running || LockedAt is null || now - LockedAt.Value < lease) {
             return false;

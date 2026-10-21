@@ -33,7 +33,13 @@ public sealed record EnvironmentResponse(
     string Tier,
     int Order,
     string TargetType,
-    bool AllowApiKeyProduction
+    bool AllowApiKeyProduction,
+    string? ContainerName,
+    string? Network,
+    int HostPort,
+    int ContainerPort,
+    string? HealthPath,
+    int HealthTimeoutSeconds
 );
 
 public static class UpdateEnvironment {
@@ -178,7 +184,13 @@ public static class UpdateEnvironment {
             environment.Tier.ToString(),
             environment.Order,
             environment.Target.Type,
-            environment.Target.AllowApiKeyProduction
+            environment.Target.AllowApiKeyProduction,
+            environment.Target.ContainerName,
+            environment.Target.Network,
+            environment.Target.HostPort,
+            environment.Target.ContainerPort,
+            environment.Target.HealthPath,
+            environment.Target.HealthTimeoutSeconds
         ));
     }
 }
