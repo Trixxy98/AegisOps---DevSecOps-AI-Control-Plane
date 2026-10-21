@@ -11,9 +11,11 @@ public static class DockerImageRef {
             return reference;
         }
 
-        var slash = reference.LastIndexOf('/');
-        var colon = reference.LastIndexOf(':');
-        var name = colon > slash ? reference[..colon] : reference;
+        var at = reference.IndexOf('@');
+        var withoutDigest = at >= 0 ? reference[..at] : reference;
+        var slash = withoutDigest.LastIndexOf('/');
+        var colon = withoutDigest.LastIndexOf(':');
+        var name = colon > slash ? withoutDigest[..colon] : withoutDigest;
         return $"{name}@{digest.Trim()}";
     }
 }
