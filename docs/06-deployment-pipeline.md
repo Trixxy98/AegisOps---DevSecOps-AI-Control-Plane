@@ -211,6 +211,8 @@ failed deployment.
 | Two workers, same deployment | Redis lock per deployment id |
 | Worker crash mid-deploy | Job reaped → re-run → executor detects half-applied state via container labels and continues/rolls back |
 
+Deployment requests and rollbacks with an idempotency key fail with `503` when Redis is unavailable; artifact creation retains its best-effort Redis behavior and PostgreSQL version uniqueness. Artifact and deployment keys have separate namespaces (previously cached artifact responses under unprefixed keys are not replayed after this change). A pending deployment claim lives for two minutes, and the saved response for 24 hours; only its current owner may finalize it. A `503` **after** database persistence can mean the deployment was created but its response was not recorded. Check the deployment list before retrying: Redis cannot atomically commit with PostgreSQL, and a retry after the pending claim expires (or after a Redis flush / 24-hour response expiry) may create another deployment. Strong guarantees across those failures require a durable database idempotency record or transactional outbox.
+
 ## 10. Cancellation
 
 `POST /deployments/{id}/cancel` is allowed for the requester, team owners and admins while

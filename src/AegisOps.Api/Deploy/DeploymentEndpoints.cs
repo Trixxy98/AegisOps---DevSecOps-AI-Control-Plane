@@ -27,11 +27,6 @@ public static class DeploymentEndpoints {
         IIdempotencyStore idempotency,
         HttpContext http
     ) {
-        var replay = await IdempotencyRequests.ReplayAsync(http, principal, idempotency);
-        if (replay is not null) {
-            return replay;
-        }
-
         var actor = await ActorResult.ResolveAsync(principal, users);
         if (actor.Error is not null) {
             return actor.Error;
@@ -51,8 +46,15 @@ public static class DeploymentEndpoints {
             return Results.Problem(title: "Artifact or environment was not found.", statusCode: StatusCodes.Status404NotFound);
         }
 
-        if (actor.ApiKeyProjectId is Guid projectId && projectId != artifact.ProjectId) {
-            return Results.Problem(title: "Artifact or environment was not found.", statusCode: StatusCodes.Status404NotFound);
+        var denied = await AuthorizeTargetAsync(actor, users, db, artifact.ProjectId, environment, cancellationToken);
+        if (denied is not null) {
+            return denied;
+        }
+
+        var replay = await IdempotencyRequests.ReplayAsync(http, principal, idempotency,
+            IdempotencyRequests.DeploymentIdentity("request", request));
+        if (replay is not null) {
+            return replay;
         }
 
         var now = time.GetUtcNow();
@@ -80,11 +82,6 @@ public static class DeploymentEndpoints {
         IIdempotencyStore idempotency,
         HttpContext http
     ) {
-        var replay = await IdempotencyRequests.ReplayAsync(http, principal, idempotency);
-        if (replay is not null) {
-            return replay;
-        }
-
         var actor = await ActorResult.ResolveAsync(principal, users);
         if (actor.Error is not null) {
             return actor.Error;
@@ -96,6 +93,16 @@ public static class DeploymentEndpoints {
             return Results.Problem(title: "Deployment was not found.", statusCode: StatusCodes.Status404NotFound);
         }
 
+        var environment = await db.Environments.SingleOrDefaultAsync(item => item.Id == source.EnvironmentId, cancellationToken);
+        if (environment is null || environment.ProjectId != source.ProjectId) {
+            return Results.Problem(title: "Deployment was not found.", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var denied = await AuthorizeTargetAsync(actor, users, db, source.ProjectId, environment, cancellationToken);
+        if (denied is not null) {
+            return denied;
+        }
+
         if (source.Status != DeploymentStatus.Succeeded) {
             return Results.Problem(title: "Only a succeeded deployment can be rolled back.", statusCode: StatusCodes.Status409Conflict);
         }
@@ -105,13 +112,14 @@ public static class DeploymentEndpoints {
         }
 
         var artifact = await db.Artifacts.SingleOrDefaultAsync(item => item.Id == source.PreviousArtifactId, cancellationToken);
-        var environment = await db.Environments.SingleOrDefaultAsync(item => item.Id == source.EnvironmentId, cancellationToken);
         if (artifact is null || environment is null || artifact.ProjectId != environment.ProjectId) {
             return Results.Problem(title: "Artifact or environment was not found.", statusCode: StatusCodes.Status404NotFound);
         }
 
-        if (actor.ApiKeyProjectId is Guid projectId && projectId != artifact.ProjectId) {
-            return Results.Problem(title: "Artifact or environment was not found.", statusCode: StatusCodes.Status404NotFound);
+        var replay = await IdempotencyRequests.ReplayAsync(http, principal, idempotency,
+            IdempotencyRequests.DeploymentIdentity("rollback", new { id }));
+        if (replay is not null) {
+            return replay;
         }
 
         var now = time.GetUtcNow();
@@ -280,6 +288,40 @@ public static class DeploymentEndpoints {
         db.AuditEvents.Add(AuditEvent.Record(now, actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display, "deployment.cancelled", "Deployment", deployment.Id, "Cancelled", deployment.CorrelationId));
         await db.SaveChangesAsync(http.RequestAborted);
         return Results.NoContent();
+    }
+
+    private static async Task<IResult?> AuthorizeTargetAsync(
+        ActorResult actor,
+        UserManager<User> users,
+        AegisOpsDbContext db,
+        Guid projectId,
+        AegisOps.Domain.Organization.Environment environment,
+        CancellationToken cancellationToken
+    ) {
+        if (actor.ApiKeyId is not null) {
+            if (actor.ApiKeyProjectId != projectId) {
+                return Results.Problem(title: "Artifact or environment was not found.", statusCode: StatusCodes.Status404NotFound);
+            }
+
+            if (environment.Tier == EnvironmentTier.Production && !environment.Target.AllowApiKeyProduction) {
+                return Results.Problem(title: "API key deployments to production are not allowed for this target.", statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            return null;
+        }
+
+        var project = await db.Projects.AsNoTracking().SingleOrDefaultAsync(item => item.Id == projectId, cancellationToken);
+        if (project is null) {
+            return Results.Problem(title: "Artifact or environment was not found.", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var user = await users.FindByIdAsync(actor.UserId!.Value.ToString());
+        if (user is null || !await users.IsInRoleAsync(user, "Admin") && !await db.TeamMembers.AnyAsync(
+                member => member.TeamId == project.TeamId && member.UserId == actor.UserId.Value, cancellationToken)) {
+            return Results.Problem(title: "Artifact or environment was not found.", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return null;
     }
 
     private static Deployment Enqueue(
