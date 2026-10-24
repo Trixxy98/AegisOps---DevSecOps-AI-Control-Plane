@@ -49,6 +49,12 @@ public static class AdminJobs {
             return Results.Problem(title: "Job was not found.", statusCode: StatusCodes.Status404NotFound);
         }
 
+        if (job.Type == JobType.ExecuteDeployment && job.LastError?.StartsWith("Execution ", StringComparison.Ordinal) == true &&
+            job.LastError.Contains("; inspect the Docker target before retrying", StringComparison.Ordinal)) {
+            return Results.Problem(title: "Docker execution may still be active. Reconcile the target and deployment state before releasing its reservation.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
         try {
             job.Retry(time.GetUtcNow());
         } catch (InvalidOperationException exception) {

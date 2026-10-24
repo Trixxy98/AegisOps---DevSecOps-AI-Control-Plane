@@ -168,6 +168,10 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("policy_evaluation_id");
 
+                    b.Property<Guid?>("PreviousArtifactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("previous_artifact_id");
+
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid")
                         .HasColumnName("project_id");
@@ -207,6 +211,9 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("EnvironmentId", "Status")
                         .HasDatabaseName("ix_deployments_environment_id_status");
+
+                    b.HasIndex("PreviousArtifactId")
+                        .HasDatabaseName("ix_deployments_previous_artifact_id");
 
                     b.HasIndex("ProjectId", "RequestedAt")
                         .HasDatabaseName("ix_deployments_project_id_requested_at");
@@ -505,6 +512,10 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("last_error");
+
+                    b.Property<Guid?>("LeaseToken")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_token");
 
                     b.Property<DateTimeOffset?>("LockedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1445,6 +1456,12 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("AegisOps.Domain.Deploy.Deployment", b =>
                 {
+                    b.HasOne("AegisOps.Domain.Security.Artifact", null)
+                        .WithMany()
+                        .HasForeignKey("PreviousArtifactId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_deployments_artifacts_previous_artifact_id");
+
                     b.HasOne("AegisOps.Domain.Security.Artifact", null)
                         .WithMany()
                         .HasForeignKey("ArtifactId")

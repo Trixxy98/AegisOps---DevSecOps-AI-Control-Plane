@@ -3,6 +3,28 @@
 This document describes the full life of a deployment: from a `git push` in a target
 repository to a running container, including the worker, jobs and executors.
 
+### Current worker lease and Docker recovery
+
+API and Worker consumers claim jobs under a short PostgreSQL advisory transaction lock.
+Claims use `FOR UPDATE SKIP LOCKED`; running jobs have a per-claim `lease_token` and
+renew `locked_at` every 10 seconds. Completion checks the token and lease while
+holding the job row lock. Execute jobs sharing an environment, Docker container
+name, or host port cannot be claimed concurrently. A cancelled worker does not
+commit its final job result.
+
+After two minutes without renewal, evaluation/scan jobs can retry. An execution
+job is instead dead-lettered with an *ambiguous Docker state* error. It continues
+to reserve its target: Docker calls cannot be transactionally fenced or revoked
+by PostgreSQL. **Do not blindly retry it.** Inspect the container and deployment
+state, stop any old executor and reconcile the target before manually clearing
+the reservation. The admin retry endpoint refuses ambiguous execution jobs;
+reconciliation currently requires operator intervention in the database. Target
+configuration must not be changed while an execution or ambiguous reservation
+exists; target identity is read from the current environment configuration.
+
+PostgreSQL integration tests require `AEGISOPS_TEST_POSTGRES` (an administrative
+connection string capable of creating/dropping an isolated test database).
+
 ## 1. Responsibilities split
 
 ```

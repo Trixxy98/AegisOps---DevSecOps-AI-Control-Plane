@@ -36,9 +36,13 @@ public static class DockerDeploymentExecutor {
             platform = "linux/amd64";
             try {
                 await PullImageAsync(client, image, platform, cancellationToken);
+            } catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
+                throw;
             } catch (Exception retry) {
                 return new DockerExecution(false, Clip($"Image pull failed: {retry.Message}"));
             }
+        } catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
+            throw;
         } catch (Exception exception) {
             return new DockerExecution(false, Clip($"Image pull failed: {exception.Message}"));
         }
@@ -98,6 +102,9 @@ public static class DockerDeploymentExecutor {
             createdId = null;
             await RestoreAsync(client, previousId, name, record, cancellationToken);
             return new DockerExecution(false, "Health check failed and the new container was removed.");
+        } catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
+            // A lost lease must not rollback containers belonging to a replacement owner.
+            throw;
         } catch (Exception exception) {
             if (createdId is not null) {
                 await RemoveAsync(client, createdId, CancellationToken.None);

@@ -8,73 +8,185 @@ using AegisOps.Infrastructure.Docker;
 using AegisOps.Infrastructure.Persistence;
 using AegisOps.Infrastructure.Scanning;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AegisOps.Infrastructure.Deploy;
 
 public static class DeploymentProcessor {
     public static async Task<bool> TryProcessOneAsync(
         AegisOpsDbContext db,
+        IServiceScopeFactory scopes,
         TimeProvider time,
         string workerId,
         CancellationToken cancellationToken
     ) {
-        Job? job;
+        var job = await TryClaimOneAsync(db, time, workerId, cancellationToken);
+        if (job is null) return false;
+
+        var token = job.LeaseToken!.Value;
+        using var lost = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var heartbeat = RenewAsync(scopes, job.Id, token, time, lost);
+        try {
+            if (job.Type == JobType.ParseScanReport) {
+                var scanId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("scanId").GetGuid();
+                await ScanReportStore.ParseQueuedAsync(db, scanId, time.GetUtcNow(), lost.Token);
+            } else {
+                var deploymentId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("deploymentId").GetGuid();
+                if (job.Type == JobType.EvaluateDeployment) {
+                    await EvaluateAsync(db, deploymentId, time, lost.Token);
+                } else if (job.Type == JobType.ExecuteDeployment) {
+                    await ExecuteAsync(db, deploymentId, time, lost.Token);
+                }
+            }
+
+            await FinishAsync(db, job, token, time, null, lost.Token);
+            return true;
+        } catch (OperationCanceledException) when (lost.IsCancellationRequested) {
+            return true;
+        } catch (Exception exception) {
+            await FinishAsync(db, job, token, time, exception.Message, lost.Token);
+            return true;
+        } finally {
+            lost.Cancel();
+            await heartbeat;
+        }
+    }
+
+    public static async Task<Job?> TryClaimOneAsync(AegisOpsDbContext db, TimeProvider time, string workerId, CancellationToken cancellationToken) {
+        Job? job = null;
         await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken)) {
+            // Serialize the short claim decision across all API and worker instances. Never hold
+            // this transaction while performing external work.
+            await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(643719, 1)", cancellationToken);
             var now = time.GetUtcNow();
             var staleBefore = now.AddMinutes(-2);
-            var stale = await db.Jobs
-                .Where(item => item.Status == JobStatus.Running && item.LockedAt != null && item.LockedAt < staleBefore)
+            var stale = await db.Jobs.FromSqlInterpolated($"""
+                SELECT * FROM jobs.jobs WHERE status = 'Running'
+                  AND (locked_at IS NULL OR locked_at < {staleBefore})
+                FOR UPDATE
+                """)
+                .AsTracking()
                 .ToListAsync(cancellationToken);
             foreach (var item in stale) {
-                item.ReleaseIfStale(now, TimeSpan.FromMinutes(2));
+                if (item.Type == JobType.ExecuteDeployment) {
+                    // Docker calls cannot be fenced by PostgreSQL. Never automatically replay an
+                    // interrupted execution whose external side effects may already have happened.
+                    item.Abandon("Execution lease expired; inspect the Docker target before retrying.", now);
+                } else {
+                    item.Fail("Worker lease expired.", now);
+                }
             }
 
             if (stale.Count > 0) {
                 await db.SaveChangesAsync(cancellationToken);
             }
 
-            job = await db.Jobs
+            var candidates = await db.Jobs
                 .FromSqlInterpolated($"""
                     SELECT * FROM jobs.jobs
                     WHERE status = 'Pending' AND scheduled_at <= {now}
                     ORDER BY scheduled_at
                     FOR UPDATE SKIP LOCKED
-                    LIMIT 1
                     """)
                 .AsTracking()
-                .FirstOrDefaultAsync(cancellationToken);
+                .ToListAsync(cancellationToken);
+
+            foreach (var candidate in candidates) {
+                if (candidate.Type != JobType.ExecuteDeployment) {
+                    job = candidate;
+                    break;
+                }
+
+                var deploymentId = JsonDocument.Parse(candidate.Payload).RootElement.GetProperty("deploymentId").GetGuid();
+                var deployment = await db.Deployments.AsNoTracking().SingleAsync(item => item.Id == deploymentId, cancellationToken);
+                var environment = await db.Environments.AsNoTracking().SingleAsync(item => item.Id == deployment.EnvironmentId, cancellationToken);
+                var name = environment.Target.Type == "docker" ? environment.Target.ContainerName : null;
+                var port = environment.Target.Type == "docker" ? environment.Target.HostPort : 0;
+                // The same environment OR Docker container name OR bound host port must be idle.
+                // The claim transaction serializes this predicate, including empty target sets.
+                var busy = await db.Database.SqlQueryRaw<int>("""
+                    SELECT 1 AS "Value" FROM jobs.jobs j
+                    JOIN deploy.deployments d ON d.id = (j.payload->>'deploymentId')::uuid
+                    JOIN org.environments e ON e.id = d.environment_id
+                    WHERE j.type = 'ExecuteDeployment' AND
+                      (j.status = 'Running' OR (j.status = 'DeadLettered' AND
+                       j.last_error LIKE 'Execution %; inspect the Docker target before retrying%'))
+                      AND (d.environment_id = {0} OR
+                           ({1} <> '' AND e.target->>'Type' = 'docker' AND
+                            (e.target->>'ContainerName' = {1} OR (e.target->>'HostPort')::int = {2})))
+                    LIMIT 1
+                    """, deployment.EnvironmentId, name ?? string.Empty, port).AnyAsync(cancellationToken);
+                if (!busy) {
+                    job = candidate;
+                    break;
+                }
+            }
 
             if (job is null) {
                 await transaction.CommitAsync(cancellationToken);
-                return false;
+                return null;
             }
 
             job.MarkRunning(now, workerId);
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
+        return job;
+    }
 
+    private static async Task RenewAsync(IServiceScopeFactory scopes, Guid id, Guid token, TimeProvider time, CancellationTokenSource lost) {
         try {
-            if (job.Type == JobType.ParseScanReport) {
-                var scanId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("scanId").GetGuid();
-                await ScanReportStore.ParseQueuedAsync(db, scanId, time.GetUtcNow(), cancellationToken);
-            } else {
-                var deploymentId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("deploymentId").GetGuid();
-                if (job.Type == JobType.EvaluateDeployment) {
-                    await EvaluateAsync(db, deploymentId, time, cancellationToken);
-                } else if (job.Type == JobType.ExecuteDeployment) {
-                    await ExecuteAsync(db, deploymentId, time, cancellationToken);
+            while (!lost.IsCancellationRequested) {
+                await Task.Delay(TimeSpan.FromSeconds(10), lost.Token);
+                await using var scope = scopes.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
+                if (!await RenewLeaseAsync(db, id, token, time.GetUtcNow(), lost.Token)) lost.Cancel();
+            }
+        } catch (OperationCanceledException) when (lost.IsCancellationRequested) {
+        } catch (Exception) {
+            // A failed heartbeat is not evidence that the lease still belongs to us.
+            lost.Cancel();
+        }
+    }
+
+    public static async Task<bool> RenewLeaseAsync(AegisOpsDbContext db, Guid id, Guid token, DateTimeOffset now, CancellationToken ct) =>
+        await db.Jobs.Where(j => j.Id == id && j.Status == JobStatus.Running && j.LeaseToken == token &&
+                                 j.LockedAt >= now.AddMinutes(-2))
+            .ExecuteUpdateAsync(set => set.SetProperty(j => j.LockedAt, now), ct) == 1;
+
+    private static async Task FinishAsync(AegisOpsDbContext db, Job job, Guid token, TimeProvider time, string? error, CancellationToken ct) {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var owner = await db.Jobs.FromSqlInterpolated($"SELECT * FROM jobs.jobs WHERE id = {job.Id} FOR UPDATE")
+            .AsNoTracking().ToListAsync(ct);
+        var current = owner.Single();
+        if (current.Status != JobStatus.Running || current.LeaseToken != token || current.LockedAt < time.GetUtcNow().AddMinutes(-2)) {
+            throw new OperationCanceledException("Job lease was lost.");
+        }
+        if (error is null && job.Type == JobType.EvaluateDeployment) {
+            var id = JsonDocument.Parse(job.Payload).RootElement.GetProperty("deploymentId").GetGuid();
+            var tracked = db.Deployments.Local.SingleOrDefault(d => d.Id == id);
+            if (tracked is not null) {
+                var persisted = (await db.Deployments.FromSqlInterpolated($"SELECT * FROM deploy.deployments WHERE id = {id} FOR UPDATE")
+                    .AsNoTracking().ToListAsync(ct)).Single();
+                // A cancellation (or another evaluator) may have won while policy evaluation ran.
+                // Do not overwrite that decision or publish the losing evaluator's events.
+                if (persisted.Status != db.Entry(tracked).Property(d => d.Status).OriginalValue) {
+                    foreach (var entry in db.ChangeTracker.Entries().Where(e => e.Entity != job && e.State != EntityState.Unchanged).ToList())
+                        entry.State = EntityState.Detached;
                 }
             }
-
-            job.Succeed(time.GetUtcNow());
-            await db.SaveChangesAsync(cancellationToken);
-            return true;
-        } catch (Exception exception) {
-            job.Fail(exception.Message, time.GetUtcNow());
-            await db.SaveChangesAsync(cancellationToken);
-            return true;
         }
+        if (error is null) job.Succeed(time.GetUtcNow());
+        else {
+            // A failed attempt must not commit partially tracked deployment changes.
+            foreach (var entry in db.ChangeTracker.Entries().Where(e => e.Entity != job && e.State != EntityState.Unchanged).ToList())
+                entry.State = EntityState.Detached;
+            if (job.Type == JobType.ExecuteDeployment)
+                job.Abandon($"Execution interrupted; inspect the Docker target before retrying: {error}", time.GetUtcNow());
+            else job.Fail(error, time.GetUtcNow());
+        }
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
     }
 
     public static async Task EvaluateAsync(
