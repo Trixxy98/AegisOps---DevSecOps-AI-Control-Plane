@@ -67,7 +67,8 @@ public sealed record RuleResult(
     string Type,
     string Effect,
     bool Passed,
-    string Message
+    string Message,
+    IReadOnlyList<string>? RequiredRoles = null
 );
 
 public sealed record EvaluationResult(
@@ -121,7 +122,8 @@ public static class PolicyEngine {
                     rule.Type.ToString(),
                     rule.Effect.ToString(),
                     passed,
-                    message
+                    message,
+                    rule.Type == PolicyRuleType.RequireApprovals ? ApprovalRoles(rule.Parameters) : null
                 ));
             }
         }
@@ -347,6 +349,14 @@ public static class PolicyEngine {
         var body = JsonSerializer.Deserialize<ApprovalParameters>(parameters, Json) ?? new ApprovalParameters(1, null);
         var count = body.Count < 1 ? 1 : body.Count;
         return (true, $"{count} approval(s) required.", count);
+    }
+
+    private static string[]? ApprovalRoles(string parameters) {
+        try {
+            return JsonSerializer.Deserialize<ApprovalParameters>(parameters, Json)?.Roles;
+        } catch (JsonException) {
+            return null;
+        }
     }
 
     private sealed record BranchParameters(string[]? Patterns);
