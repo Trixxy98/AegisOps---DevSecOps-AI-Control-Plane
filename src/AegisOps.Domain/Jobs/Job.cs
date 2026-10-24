@@ -23,6 +23,7 @@ public sealed class Job {
     public DateTimeOffset ScheduledAt {get; private set;}
     public DateTimeOffset? LockedAt {get; private set;}
     public string? LockedBy {get; private set;}
+    public Guid? LeaseToken {get; private set;}
     public DateTimeOffset? CompletedAt {get; private set;}
     public string? LastError {get; private set;}
     public string CorrelationId {get; private set;}
@@ -69,6 +70,7 @@ public sealed class Job {
         Attempts++;
         LockedAt = at;
         LockedBy = workerId;
+        LeaseToken = Guid.NewGuid();
     }
 
     public void Succeed(DateTimeOffset at) {
@@ -80,6 +82,7 @@ public sealed class Job {
         CompletedAt = at;
         LockedAt = null;
         LockedBy = null;
+        LeaseToken = null;
         LastError = null;
     }
 
@@ -91,6 +94,7 @@ public sealed class Job {
         LastError = string.IsNullOrWhiteSpace(error) ? "Job failed." : error.Trim();
         LockedAt = null;
         LockedBy = null;
+        LeaseToken = null;
         if (Attempts >= MaxAttempts) {
             Status = JobStatus.DeadLettered;
             CompletedAt = at;
@@ -113,6 +117,17 @@ public sealed class Job {
         CompletedAt = null;
         LockedAt = null;
         LockedBy = null;
+        LeaseToken = null;
+    }
+
+    public void Abandon(string error, DateTimeOffset at) {
+        if (Status != JobStatus.Running) throw new InvalidOperationException("Only a running job can be abandoned.");
+        Status = JobStatus.DeadLettered;
+        LastError = error.Length > 2000 ? error[..2000] : error;
+        CompletedAt = at;
+        LockedAt = null;
+        LockedBy = null;
+        LeaseToken = null;
     }
 
     public bool ReleaseIfStale(DateTimeOffset now, TimeSpan lease) {

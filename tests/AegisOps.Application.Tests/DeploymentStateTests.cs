@@ -41,6 +41,22 @@ public sealed class DeploymentStateTests {
         Assert.False(job.ReleaseIfStale(now.AddMinutes(1), TimeSpan.FromMinutes(2)));
         Assert.True(job.ReleaseIfStale(now.AddMinutes(3), TimeSpan.FromMinutes(2)));
         Assert.Equal(JobStatus.Pending, job.Status);
+        Assert.Null(job.LeaseToken);
+    }
+
+    [Fact]
+    public void Each_claim_has_a_new_fence_and_ambiguous_execution_is_not_requeued() {
+        var now = DateTimeOffset.UtcNow;
+        var job = Job.Enqueue(JobType.ExecuteDeployment, "{}", now, "corr");
+        job.MarkRunning(now, "worker-a");
+        var first = job.LeaseToken;
+        Assert.NotNull(first);
+        job.Fail("before execution", now);
+        job.MarkRunning(now, "worker-b");
+        Assert.NotEqual(first, job.LeaseToken);
+        job.Abandon("Execution lease expired; inspect the Docker target before retrying.", now);
+        Assert.Equal(JobStatus.DeadLettered, job.Status);
+        Assert.Null(job.LeaseToken);
     }
 
     [Fact]

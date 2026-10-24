@@ -68,6 +68,7 @@ public sealed class JobConfiguration : IEntityTypeConfiguration<Job> {
         builder.Property(item => item.Payload).HasColumnType("jsonb").IsRequired();
         builder.Property(item => item.LastError).HasMaxLength(2000);
         builder.Property(item => item.LockedBy).HasMaxLength(100);
+        builder.Property(item => item.LeaseToken);
         builder.Property(item => item.CorrelationId).HasMaxLength(64).IsRequired();
         builder.HasIndex(item => new { item.Status, item.ScheduledAt });
     }

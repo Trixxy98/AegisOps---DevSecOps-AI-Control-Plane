@@ -20,6 +20,7 @@ public sealed class DeploymentJobService : BackgroundService {
                 var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
                 var worked = await DeploymentProcessor.TryProcessOneAsync(
                     db,
+                    _scopes,
                     _time,
                     Environment.MachineName,
                     stoppingToken);
