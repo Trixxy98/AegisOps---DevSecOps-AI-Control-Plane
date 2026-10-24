@@ -7,6 +7,8 @@ using AegisOps.Api.Deploy;
 using AegisOps.Api.Jobs;
 using AegisOps.Infrastructure.Deploy;
 using AegisOps.Infrastructure.Redis;
+using AegisOps.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 
 
@@ -16,7 +18,6 @@ builder.Services.AddHealthChecks();
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddIdentityStore(builder.Configuration);
 builder.Services.AddAuthRateLimiting();
-builder.Services.AddHostedService<DeploymentJobService>();
 var redis = builder.Configuration.GetConnectionString("Redis");
 if (!string.IsNullOrWhiteSpace(redis)) {
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ => {
@@ -36,7 +37,6 @@ var app = builder.Build();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
-app.Urls.Add("http://localhost:8080");
 
 app.MapHealthChecks("/health/live");
 app.MapHealthChecks("/health/ready");
@@ -136,6 +136,12 @@ app.MapPost("/api/v1/admin/jobs/{id:guid}/retry", AdminJobs.Retry)
     .RequireAuthorization(Permissions.UsersManage);
 app.MapGet("/api/v1/audit", PolicyPhase1Endpoints.Audit)
     .RequireAuthorization(Permissions.AuditRead);
+
+if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup")) {
+    if (!app.Environment.IsDevelopment()) throw new InvalidOperationException("Automatic migrations are only supported in Development.");
+    await using var scope = app.Services.CreateAsyncScope();
+    await scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>().Database.MigrateAsync();
+}
 
 if (app.Environment.IsDevelopment()) {
     await DevelopmentUserSeed.SeedAsync(app.Services);

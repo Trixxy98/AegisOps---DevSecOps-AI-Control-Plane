@@ -30,6 +30,51 @@ services:
       timeout: 3s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: src/AegisOps.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=aegisops;Username=aegisops;Password=${POSTGRES_PASSWORD:-aegisops_dev}
+      ConnectionStrings__Redis: redis:6379
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env (at least 32 bytes)}
+      Database__MigrateOnStartup: "true"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aegisops
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/AegisOps.Worker/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=aegisops;Username=aegisops;Password=${POSTGRES_PASSWORD:-aegisops_dev}
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - aegisops
+
+  web:
+    build:
+      context: .
+      dockerfile: src/AegisOps.Web/Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - aegisops
+
 volumes:
   pgdata:
 
