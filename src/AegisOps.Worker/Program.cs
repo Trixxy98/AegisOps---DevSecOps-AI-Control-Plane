@@ -7,7 +7,6 @@ builder.Services.AddIdentityStore(builder.Configuration);
 builder.Services.AddHostedService<DeploymentJobService>();
 
 var app = builder.Build();
-app.Urls.Add("http://localhost:8081");
 
 app.MapHealthChecks("/health/live");
 app.MapHealthChecks("/health/ready");

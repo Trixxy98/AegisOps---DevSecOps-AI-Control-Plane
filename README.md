@@ -1,7 +1,9 @@
 # AegisOps — DevSecOps & AI Control Plane
 
-> **Status:** Planning & documentation phase. No application code has been written yet.
-> Start with [`docs/README.md`](docs/README.md).
+> **Status:** Early implementation. The Development Compose stack supports an end-to-end
+> no-op deployment (request → policy evaluation → worker execution → timeline). Docker
+> target deployment and production operation are not yet supported by this quick start.
+> See [`docs/README.md`](docs/README.md) for the design.
 
 AegisOps is a self-hosted **control plane** that sits between CI and your environments.
 It does not build code (GitHub Actions does that). It decides **whether a change may
@@ -88,14 +90,32 @@ providers, LangChain, multiple AI providers. See [`docs/03-tech-stack.md`](docs/
 | 20 | [Glossary](docs/20-glossary.md) | Terminology |
 | — | [ADRs](docs/adr/README.md) | Architecture decision records |
 
-## Planned quick start (after Phase 1)
+## Local quick start (Development only)
+
+Requires Docker Compose. The API migrates the local database on startup and seeds demo
+users, a team, and policies. Use a fresh random JWT signing key (32+ bytes); never use
+the `.env.example` value outside local development.
 
 ```bash
-git clone https://github.com/<you>/AegisOps.git
-cd AegisOps
-docker compose up -d
-open http://localhost:3000
+cp .env.example .env
+# Edit JWT_SIGNING_KEY in .env before starting.
+docker compose up --build -d
+docker compose logs api | grep 'Development user admin@aegisops.local created'
+# Copy the printed password (only generated on first startup) and open http://localhost:3000
+AEGISOPS_ADMIN_PASSWORD='<password from logs>' scripts/smoke-compose-deployment.sh
 ```
+
+The smoke test uses the Web proxy to sign in, create a project/artifact, request a
+Development deployment, and assert the worker recorded an Allow evaluation and
+Succeeded event and updated the environment's current artifact. Each run creates a
+uniquely named test project in the local database. If the database already exists, the
+seed password is not regenerated: keep the first-run password or reset the local database deliberately.
+The API is also exposed at `http://localhost:8080`; Web is at `http://localhost:3000`.
+
+This path uses the **noop** executor; it does not start a target container. Staging
+requires three fresh security scans, and Docker targets additionally require Docker
+daemon access from the worker plus host-reachable health/port wiring. Those are not
+configured in this Development Compose stack. Do not point this stack at production.
 
 ## License
 
