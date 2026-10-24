@@ -140,11 +140,15 @@ public static class DeploymentEndpoints {
 
     public static async Task<IResult> List(
         AegisOpsDbContext db,
+        ClaimsPrincipal principal,
+        UserManager<User> users,
         HttpContext http,
         Guid? projectId = null,
         string? status = null
     ) {
-        var query = db.Deployments.AsNoTracking().AsQueryable();
+        var access = await DeploymentAccess.ResolveAsync(principal, users);
+        if (access.Error is not null) return access.Error;
+        var query = access.Scope(db.Deployments.AsNoTracking(), db);
         if (projectId is not null) {
             query = query.Where(item => item.ProjectId == projectId);
         }
@@ -167,8 +171,10 @@ public static class DeploymentEndpoints {
         return Results.Ok(items);
     }
 
-    public static async Task<IResult> Get(Guid id, AegisOpsDbContext db, HttpContext http) {
-        var item = await db.Deployments.AsNoTracking().SingleOrDefaultAsync(deployment => deployment.Id == id, http.RequestAborted);
+    public static async Task<IResult> Get(Guid id, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, HttpContext http) {
+        var access = await DeploymentAccess.ResolveAsync(principal, users);
+        if (access.Error is not null) return access.Error;
+        var item = await access.Scope(db.Deployments.AsNoTracking(), db).SingleOrDefaultAsync(deployment => deployment.Id == id, http.RequestAborted);
         if (item is null) {
             return Results.Problem(title: "Deployment was not found.", statusCode: StatusCodes.Status404NotFound);
         }
@@ -191,7 +197,10 @@ public static class DeploymentEndpoints {
         });
     }
 
-    public static async Task<IResult> Events(Guid id, AegisOpsDbContext db, HttpContext http) {
+    public static async Task<IResult> Events(Guid id, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, HttpContext http) {
+        var access = await DeploymentAccess.ResolveAsync(principal, users);
+        if (access.Error is not null) return access.Error;
+        if (!await access.Scope(db.Deployments.AsNoTracking(), db).AnyAsync(item => item.Id == id, http.RequestAborted)) return DeploymentAccess.NotFound();
         var events = await db.DeploymentEvents.AsNoTracking()
             .Where(item => item.DeploymentId == id)
             .OrderBy(item => item.Sequence)
@@ -200,7 +209,10 @@ public static class DeploymentEndpoints {
         return Results.Ok(events);
     }
 
-    public static async Task<IResult> Evaluation(Guid id, AegisOpsDbContext db, HttpContext http) {
+    public static async Task<IResult> Evaluation(Guid id, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, HttpContext http) {
+        var access = await DeploymentAccess.ResolveAsync(principal, users);
+        if (access.Error is not null) return access.Error;
+        if (!await access.Scope(db.Deployments.AsNoTracking(), db).AnyAsync(item => item.Id == id, http.RequestAborted)) return DeploymentAccess.NotFound();
         var evaluation = await db.PolicyEvaluations.AsNoTracking()
             .Where(item => item.DeploymentId == id)
             .OrderByDescending(item => item.EvaluatedAt)
@@ -242,9 +254,19 @@ public static class DeploymentEndpoints {
             return Results.Problem(title: "Deployment was not found.", statusCode: StatusCodes.Status404NotFound);
         }
 
-        if (deployment.RequestedById == actor.UserId) {
-            return Results.Problem(title: "The requester cannot approve their own deployment.", statusCode: StatusCodes.Status400BadRequest);
+        var access = await DeploymentAccess.ResolveAsync(principal, users);
+        if (access.Error is not null) return access.Error;
+        if (!await access.CanSeeAsync(deployment.ProjectId, db, cancellationToken)) {
+            await AuditDeniedAsync(db, time, actor, deployment, "deployment.decision_denied", cancellationToken);
+            return DeploymentAccess.NotFound();
         }
+        if (deployment.RequestedById == actor.UserId ||
+            !await access.CanApproveAsync(deployment, db, cancellationToken)) {
+            await AuditDeniedAsync(db, time, actor, deployment, "deployment.decision_denied", cancellationToken);
+            return DeploymentAccess.Forbidden();
+        }
+        if (deployment.Status != DeploymentStatus.AwaitingApproval) return Results.Problem(title: "Deployment is not awaiting approval.", statusCode: StatusCodes.Status409Conflict);
+        if (await db.Approvals.AnyAsync(item => item.DeploymentId == id && item.ApproverId == actor.UserId, cancellationToken)) return Results.Problem(title: "Approval already recorded.", statusCode: StatusCodes.Status409Conflict);
 
         var now = time.GetUtcNow();
         db.Approvals.Add(Approval.Create(deployment.Id, actor.UserId.Value, decision, now, request.Comment));
@@ -280,6 +302,18 @@ public static class DeploymentEndpoints {
         if (deployment is null) {
             return Results.Problem(title: "Deployment was not found.", statusCode: StatusCodes.Status404NotFound);
         }
+
+        var access = await DeploymentAccess.ResolveAsync(principal, users);
+        if (access.Error is not null) return access.Error;
+        if (!await access.CanSeeAsync(deployment.ProjectId, db, http.RequestAborted)) {
+            await AuditDeniedAsync(db, time, actor, deployment, "deployment.cancel_denied", http.RequestAborted);
+            return DeploymentAccess.NotFound();
+        }
+        if (!await access.CanCancelAsync(deployment, db, http.RequestAborted)) {
+            await AuditDeniedAsync(db, time, actor, deployment, "deployment.cancel_denied", http.RequestAborted);
+            return DeploymentAccess.Forbidden();
+        }
+        if (deployment.Status is not DeploymentStatus.Requested and not DeploymentStatus.AwaitingApproval) return Results.Problem(title: "Deployment cannot be cancelled.", statusCode: StatusCodes.Status409Conflict);
 
         var now = time.GetUtcNow();
         deployment.Cancel(now);
@@ -322,6 +356,12 @@ public static class DeploymentEndpoints {
         }
 
         return null;
+    }
+
+    private static async Task AuditDeniedAsync(AegisOpsDbContext db, TimeProvider time, ActorResult actor, Deployment deployment, string action, CancellationToken token) {
+        db.AuditEvents.Add(AuditEvent.Record(time.GetUtcNow(), actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display,
+            action, "Deployment", deployment.Id, "Denied", deployment.CorrelationId));
+        await db.SaveChangesAsync(token);
     }
 
     private static Deployment Enqueue(
