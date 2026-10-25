@@ -245,12 +245,19 @@ public static class DeploymentProcessor {
     ) {
         var deployment = await db.Deployments.SingleAsync(item => item.Id == deploymentId, cancellationToken);
         var outcome = await DecideAsync(db, deployment, time, cancellationToken);
-        if (outcome.Decision == PolicyDecision.Deny) {
+        if (outcome.Decision != PolicyDecision.Allow) {
             deployment.ApplyDecision(outcome, time.GetUtcNow());
-            await AddEventAsync(db, deployment.Id, DeploymentEventType.Denied, outcome.Message ?? "Denied before execution.", time, cancellationToken);
+            var denied = outcome.Decision == PolicyDecision.Deny;
+            await AddEventAsync(db, deployment.Id,
+                denied ? DeploymentEventType.Denied : DeploymentEventType.ApprovalRequested,
+                outcome.Message ?? (denied ? "Denied before execution." : "Approval required before execution."),
+                time, cancellationToken);
+            db.AuditEvents.Add(AuditEvent.Record(time.GetUtcNow(), "System", null, "policy-engine", "deployment.evaluated",
+                "Deployment", deployment.Id, outcome.Decision.ToString(), deployment.CorrelationId));
             return;
         }
 
+        deployment.RecordExecutionEvaluation(outcome.EvaluationId);
         var now = time.GetUtcNow();
         deployment.Start(now);
         var environment = await db.Environments.SingleAsync(item => item.Id == deployment.EnvironmentId, cancellationToken);

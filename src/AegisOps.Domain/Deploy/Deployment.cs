@@ -97,6 +97,14 @@ public sealed class Deployment {
 
     public void MarkApproved() => Move(DeploymentStatus.Approved, DeploymentStatus.AwaitingApproval);
 
+    public void RecordExecutionEvaluation(Guid evaluationId) {
+        if (Status != DeploymentStatus.Approved || evaluationId == Guid.Empty) {
+            throw new InvalidOperationException("Only an approved deployment can record an execution evaluation.");
+        }
+
+        PolicyEvaluationId = evaluationId;
+    }
+
     public void Reject(string? comment, DateTimeOffset at) {
         Move(DeploymentStatus.Rejected, DeploymentStatus.AwaitingApproval);
         FailureReason = string.IsNullOrWhiteSpace(comment) ? "Rejected." : comment.Trim();
