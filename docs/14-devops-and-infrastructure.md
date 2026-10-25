@@ -154,12 +154,38 @@ the `curl` calls so target workflows stay short:
     api-key: ${{ secrets.AEGISOPS_API_KEY }}
     project: circuit-service
     version: ${{ steps.meta.outputs.version }}
+    commit-sha: ${{ github.sha }}
+    branch: ${{ github.ref_name }}
     image: ${{ steps.build.outputs.image }}
     digest: ${{ steps.build.outputs.digest }}
     test-summary: test-summary.json
     scans: gitleaks.sarif,semgrep.sarif,trivy.sarif
     deploy-to: Staging
 ```
+
+Run this step only after the build, tests and scanners succeed. Give its project-scoped
+API key `artifacts:write`, `scans:write`, and `deployments:request` scopes; save the
+one-time plaintext as a GitHub Actions secret. The runner needs `bash`, `jq`, and `curl`.
+`test-summary` is optional (omitted means no summary, **not** fabricated passing tests);
+`digest` is optional for Staging. Supplied summary and SARIF paths must exist. The action
+registers the artifact, uploads the named reports, then requests Staging; a failed upload
+stops the request. Artifact/deployment requests use run-attempt idempotency keys, so
+retrying the same attempt does not create another deployment. Scan uploads are **not**
+idempotent and may be repeated on retry. Verify the run in the project's deployment list;
+an accepted request can later be denied by policy or fail in the worker.
+
+To test the action payloads without a server or credentials, run
+`bash tests/report-action.sh`. This mocks HTTP; it does not exercise API authorization
+or the deployment worker.
+
+The sibling `aegisops-circuit-service/.github/workflows/ci.yml` already has a `register`
+job using this action at `@dev`. Local tests of that repository and an isolated AegisOps
+Compose run verify the report/scan/request contract, but a real GitHub Actions run requires
+the action changes to be committed on the referenced branch, a reachable `AEGISOPS_URL`,
+a project-scoped `AEGISOPS_API_KEY` secret, a self-hosted runner for `register`, and a
+published image. No push or live GitHub run is performed by the local verification.
+The demo branch's scan fallbacks and fixed passing test summary are not evidence of a
+successful security scan or test run; do not use that workflow as a production gate.
 
 ### Reaching AegisOps from GitHub-hosted runners
 
@@ -170,8 +196,19 @@ AegisOps runs on a laptop in the demo. Options, in order of preference:
    stay on GitHub-hosted runners.
 2. **Tunnel** (Cloudflare Tunnel free tier / `ngrok` free) exposing `api` over HTTPS with
    an allow-list on `/api/v1/projects/*/artifacts`, `/artifacts/*/scans`, `/deployments`.
-3. Offline fallback: `scripts/ci-replay.sh` re-plays saved CI outputs (artifact JSON +
-   SARIF files) into a local AegisOps — guarantees the demo works without connectivity.
+3. Offline fallback: `scripts/ci-replay.sh` re-plays saved artifact JSON and a Staging
+   request into a local AegisOps (requires a pre-existing project and API key). It does
+   not upload SARIF reports, so the seeded Staging scan policy can deny execution.
+
+   ```bash
+   AEGISOPS_URL=http://localhost:8080 AEGISOPS_API_KEY="$CIRCUIT_SERVICE_API_KEY" \
+     bash scripts/ci-replay.sh tests/fixtures/ci-payloads/circuit-service.json
+   ```
+
+   Re-running the same fixture returns the same artifact and deployment response. To
+   simulate a new CI version, change both the version and image reference in a copy
+   of the fixture. This path does not require the original seeded admin password, but
+   obtaining a project key still requires an authorized project owner/admin.
 
 ## 5. Environments of AegisOps itself
 

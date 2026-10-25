@@ -6,6 +6,37 @@ namespace AegisOps.Application.Tests;
 
 public sealed class DeploymentStateTests {
     [Fact]
+    public void Execution_recheck_requiring_approval_returns_to_approval_without_starting() {
+        var now = DateTimeOffset.UtcNow;
+        var deployment = Deployment.Request(Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7(), now, "corr", Guid.CreateVersion7(), null, null);
+        deployment.BeginEvaluation();
+        deployment.ApplyDecision(new PolicyOutcome(PolicyDecision.Allow, Guid.CreateVersion7(), 0, null), now);
+        var recheck = Guid.CreateVersion7();
+
+        deployment.ApplyDecision(new PolicyOutcome(PolicyDecision.RequireApproval, recheck, 2, "New approval required."), now);
+
+        Assert.Equal(DeploymentStatus.AwaitingApproval, deployment.Status);
+        Assert.Equal(recheck, deployment.PolicyEvaluationId);
+        Assert.Equal(2, deployment.ApprovalsRequired);
+        Assert.Null(deployment.StartedAt);
+    }
+
+    [Fact]
+    public void Allowed_execution_recheck_updates_the_exposed_evaluation() {
+        var now = DateTimeOffset.UtcNow;
+        var deployment = Deployment.Request(Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7(), now, "corr", Guid.CreateVersion7(), null, null);
+        deployment.BeginEvaluation();
+        deployment.ApplyDecision(new PolicyOutcome(PolicyDecision.Allow, Guid.CreateVersion7(), 0, null), now);
+        var recheck = Guid.CreateVersion7();
+
+        deployment.RecordExecutionEvaluation(recheck);
+        deployment.Start(now);
+
+        Assert.Equal(recheck, deployment.PolicyEvaluationId);
+        Assert.Equal(DeploymentStatus.Deploying, deployment.Status);
+    }
+
+    [Fact]
     public void Approval_quorum_then_simulated_success() {
         var now = DateTimeOffset.UtcNow;
         var deployment = Deployment.Request(Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7(), now, "corr", Guid.CreateVersion7(), null, "demo");

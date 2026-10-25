@@ -34,6 +34,9 @@ jobs:
       - name: Test
         run: dotnet test AegisOps.slnx --no-build
 
+      - name: CI report contract
+        run: bash tests/report-action.sh
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest

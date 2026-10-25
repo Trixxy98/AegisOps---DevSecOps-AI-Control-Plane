@@ -31,7 +31,7 @@ inputs:
     required: false
     default: ""
   scans:
-    description: Comma-separated SARIF paths. Upload is skipped until scan ingestion exists.
+    description: Comma-separated SARIF paths (gitleaks, semgrep, trivy). Missing paths fail the report.
     required: false
     default: ""
   deploy-to:
@@ -56,49 +56,4 @@ runs:
         AEGISOPS_DEPLOY: ${{ inputs.deploy-to }}
         AEGISOPS_SCANS: ${{ inputs.scans }}
         AEGISOPS_KEY: ${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.version }}
-      run: |
-        set -euo pipefail
-        summary='{"total":1,"passed":1,"failed":0,"skipped":0,"durationSeconds":0}'
-        if [ -n "${AEGISOPS_SUMMARY}" ] && [ -f "${AEGISOPS_SUMMARY}" ]; then
-          summary=$(cat "${AEGISOPS_SUMMARY}")
-        fi
-        body=$(jq -n \
-          --arg version "$AEGISOPS_VERSION" \
-          --arg sha "$AEGISOPS_SHA" \
-          --arg branch "$AEGISOPS_BRANCH" \
-          --arg image "$AEGISOPS_IMAGE" \
-          --arg digest "$AEGISOPS_DIGEST" \
-          --argjson tests "$summary" \
-          '{version:$version,commitSha:$sha,branch:$branch,imageReference:$image,imageDigest:($digest|select(.!="")),ciProvider:"github-actions",buildStatus:"Passed",testStatus:"Passed",testSummary:$tests}')
-        artifact=$(curl -fsS -X POST "${AEGISOPS_URL}/api/v1/projects/${AEGISOPS_PROJECT}/artifacts" \
-          -H "Authorization: Bearer ${AEGISOPS_API_KEY}" \
-          -H "Idempotency-Key: artifact-${AEGISOPS_KEY}" \
-          -H "Content-Type: application/json" \
-          -d "$body")
-        artifact_id=$(printf '%s' "$artifact" | jq -r '.id')
-        if [ -n "${AEGISOPS_SCANS}" ]; then
-          IFS=',' read -ra files <<< "${AEGISOPS_SCANS}"
-          for file in "${files[@]}"; do
-            file="${file#"${file%%[![:space:]]*}"}"
-            file="${file%"${file##*[![:space:]]}"}"
-            [ -f "$file" ] || continue
-            case "$file" in
-              *gitleaks*) scanner=Gitleaks ;;
-              *semgrep*) scanner=Semgrep ;;
-              *trivy*) scanner=Trivy ;;
-              *) continue ;;
-            esac
-            curl -fsS -X POST "${AEGISOPS_URL}/api/v1/artifacts/${artifact_id}/scans" \
-              -H "Authorization: Bearer ${AEGISOPS_API_KEY}" \
-              -F "scanner=${scanner}" \
-              -F "format=Sarif" \
-              -F "report=@${file}"
-          done
-        fi
-        if [ -n "${AEGISOPS_DEPLOY}" ]; then
-          curl -fsS -X POST "${AEGISOPS_URL}/api/v1/deployments" \
-            -H "Authorization: Bearer ${AEGISOPS_API_KEY}" \
-            -H "Idempotency-Key: deploy-${AEGISOPS_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n --arg id "$artifact_id" --arg tier "$AEGISOPS_DEPLOY" '{artifactId:$id,environmentTier:$tier,reason:"CI request"}')"
-        fi
+      run: bash "${GITHUB_ACTION_PATH}/report.sh"
