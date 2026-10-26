@@ -60,8 +60,10 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=aegisops;Username=aegisops;Password=${POSTGRES_PASSWORD:-aegisops_dev}
+      DOCKER_HEALTH_HOST: host.docker.internal
     volumes:
       - reports:/app/reports
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       api:
         condition: service_started

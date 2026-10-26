@@ -1,8 +1,9 @@
 # AegisOps — DevSecOps & AI Control Plane
 
 > **Status:** Early implementation. The Development Compose stack supports an end-to-end
-> no-op deployment (request → policy evaluation → worker execution → timeline). Docker
-> target deployment and production operation are not yet supported by this quick start.
+> no-op deployment (request → policy evaluation → worker execution → timeline). The
+> local `site-service` Staging Docker target is opt-in through an existing project and
+> published artifact; production operation is not supported by this quick start.
 > See [`docs/README.md`](docs/README.md) for the design.
 
 AegisOps is a self-hosted **control plane** that sits between CI and your environments.
@@ -112,10 +113,33 @@ uniquely named test project in the local database. If the database already exist
 seed password is not regenerated: keep the first-run password or reset the local database deliberately.
 The API is also exposed at `http://localhost:8080`; Web is at `http://localhost:3000`.
 
-This path uses the **noop** executor; it does not start a target container. Staging
-requires three fresh security scans, and Docker targets additionally require Docker
-daemon access from the worker plus host-reachable health/port wiring. Those are not
-configured in this Development Compose stack. Do not point this stack at production.
+This path uses the **noop** executor; it does not start a target container. For the
+existing `site-service` project only, the Development seed changes its **Staging**
+environment from noop to Docker (`site-service-staging`, network `aegisops-staging`,
+host port 8101, container port 8080, `/health`). It never changes Production or an
+operator-configured target. Staging requires three fresh security scans and passing
+tests. Register a real CI artifact from `ghcr.io/trixxy98/site-service` before
+requesting Staging; `ghcr.io/aegisops/site-service:latest` in the design-only
+`deploy/docker-compose.targets.yml` is not a published image. That file is **not**
+part of this Compose startup; do not start its Production services. The target image
+currently publishes linux/amd64 only; the executor retries with that platform when
+the default pull fails on arm64.
+
+Compose mounts the host Docker socket **only into the Worker** so it can manage
+containers. `DOCKER_HEALTH_HOST=host.docker.internal` lets the Worker probe host
+published port 8101 (its own loopback is not the Docker host). This assumes Docker
+Desktop; another Docker host needs an operator-configured reachable address. The
+API does not have socket access, so its Docker runtime-inspection endpoint may be
+unavailable, while deployment timeline and host `/health` and `/version` remain usable.
+The Docker socket grants effective root-equivalent control over the host Docker daemon
+and all containers/volumes, despite being mounted only in the Worker. Run this
+Development stack only on a trusted local machine, restrict access to AegisOps
+deployment APIs, and never use this pattern in Production without isolating the daemon
+or introducing a constrained Docker authorization proxy. The executor refuses to
+replace an unlabeled/foreign named container or remove an existing `-previous` backup;
+verify target names and port 8101 are free before requesting a deployment. It does not
+auto-deploy during Compose startup. Check wiring with
+`python3 tests/staging-docker-contract.py`. Do not point this stack at production.
 
 SARIF uploads larger than 2 MB are queued for parsing by the worker. Compose mounts a
 dedicated persistent `reports` volume at `/app/reports` in both API and worker, separate

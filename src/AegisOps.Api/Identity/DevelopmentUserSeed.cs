@@ -50,6 +50,7 @@ public static partial class DevelopmentUserSeed {
         await EnsureProductionApprovalsAsync(db, users, now);
         await EnsureScanPoliciesAsync(db, users, now);
         await EnsureCircuitStagingTargetAsync(db);
+        await EnsureSiteStagingTargetAsync(db);
     }
 
     private sealed record DemoAccount(string Email, string DisplayName, string[] Roles);
@@ -218,6 +219,26 @@ public static partial class DevelopmentUserSeed {
             "circuit-service-staging",
             "aegisops-staging",
             8102,
+            8080,
+            "/health",
+            60));
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task EnsureSiteStagingTargetAsync(AegisOpsDbContext db) {
+        var environment = await db.Environments
+            .Where(item => item.Name == "Staging" && item.Tier == EnvironmentTier.Staging)
+            .Join(db.Projects.Where(item => item.Slug == "site-service"), item => item.ProjectId, project => project.Id, (item, _) => item)
+            .SingleOrDefaultAsync();
+        // Never override a target explicitly configured by an operator (including Production).
+        if (environment is null || !string.Equals(environment.Target.Type, "noop", StringComparison.OrdinalIgnoreCase)) {
+            return;
+        }
+
+        environment.Retarget(DeploymentTarget.Docker(
+            "site-service-staging",
+            "aegisops-staging",
+            8101,
             8080,
             "/health",
             60));

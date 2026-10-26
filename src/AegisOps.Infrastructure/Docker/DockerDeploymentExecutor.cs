@@ -54,10 +54,17 @@ public static class DockerDeploymentExecutor {
         try {
             var previous = await FindAsync(client, name, cancellationToken);
             if (previous is not null) {
-                await RemoveNamedAsync(client, name + "-previous", cancellationToken);
-                await client.Containers.StopContainerAsync(previous, new ContainerStopParameters { WaitBeforeKillSeconds = 10 }, cancellationToken);
-                await client.Containers.RenameContainerAsync(previous, new ContainerRenameParameters { NewName = name + "-previous" }, cancellationToken);
-                previousId = previous;
+                if (!OwnedBy(previous, projectSlug, environmentName)) {
+                    return new DockerExecution(false, $"Container {name} is not owned by this target; refusing to replace it.");
+                }
+
+                if (await FindAsync(client, name + "-previous", cancellationToken) is not null) {
+                    return new DockerExecution(false, $"Backup {name}-previous already exists; reconcile it before retrying.");
+                }
+
+                await client.Containers.StopContainerAsync(previous.ID, new ContainerStopParameters { WaitBeforeKillSeconds = 10 }, cancellationToken);
+                await client.Containers.RenameContainerAsync(previous.ID, new ContainerRenameParameters { NewName = name + "-previous" }, cancellationToken);
+                previousId = previous.ID;
             }
 
             var containerPort = target.ContainerPort < 1 ? 8080 : target.ContainerPort;
@@ -167,16 +174,17 @@ public static class DockerDeploymentExecutor {
         return new AuthConfig { Username = user, Password = token, ServerAddress = "ghcr.io" };
     }
 
-    private static async Task<string?> FindAsync(DockerClient client, string name, CancellationToken cancellationToken) {
-        var containers = await client.Containers.ListContainersAsync(new ContainersListParameters { All = true }, cancellationToken);
-        return containers.FirstOrDefault(container => container.Names.Any(item => item == "/" + name))?.ID;
+    public static bool OwnedBy(ContainerListResponse container, string projectSlug, string environmentName) {
+        var labels = container.Labels;
+        return labels is not null
+            && labels.TryGetValue("aegisops.project", out var project) && project == projectSlug
+            && labels.TryGetValue("aegisops.environment", out var environment) && environment == environmentName
+            && labels.ContainsKey("aegisops.deployment");
     }
 
-    private static async Task RemoveNamedAsync(DockerClient client, string name, CancellationToken cancellationToken) {
-        var id = await FindAsync(client, name, cancellationToken);
-        if (id is not null) {
-            await RemoveAsync(client, id, cancellationToken);
-        }
+    private static async Task<ContainerListResponse?> FindAsync(DockerClient client, string name, CancellationToken cancellationToken) {
+        var containers = await client.Containers.ListContainersAsync(new ContainersListParameters { All = true }, cancellationToken);
+        return containers.FirstOrDefault(container => container.Names.Any(item => item == "/" + name));
     }
 
     private static async Task RemoveAsync(DockerClient client, string id, CancellationToken cancellationToken) {
@@ -203,7 +211,9 @@ public static class DockerDeploymentExecutor {
 
     private static async Task<bool> HealthyAsync(int port, string path, int timeoutSeconds, CancellationToken cancellationToken) {
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
-        var url = $"http://127.0.0.1:{port}{(path.StartsWith('/') ? path : "/" + path)}";
+        // Worker runs inside Compose; published host ports are not on its loopback interface.
+        var host = System.Environment.GetEnvironmentVariable("DOCKER_HEALTH_HOST") ?? "127.0.0.1";
+        var url = $"http://{host}:{port}{(path.StartsWith('/') ? path : "/" + path)}";
         var deadline = DateTimeOffset.UtcNow.AddSeconds(timeoutSeconds);
         while (DateTimeOffset.UtcNow < deadline) {
             cancellationToken.ThrowIfCancellationRequested();
