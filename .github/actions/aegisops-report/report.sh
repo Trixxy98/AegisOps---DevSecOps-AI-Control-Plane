@@ -54,11 +54,19 @@ body=$(jq -n \
   --arg run "${GITHUB_RUN_ID:-}" \
   --argjson tests "$summary" \
   '{version:$version,commitSha:$sha,branch:$branch,imageReference:$image,imageDigest:(if $digest == "" then null else $digest end),ciProvider:"github-actions",ciRunId:$run,buildStatus:"Passed",testStatus:"Passed",testSummary:$tests}')
-artifact=$(curl -fsS -X POST "${AEGISOPS_URL}/api/v1/projects/${AEGISOPS_PROJECT}/artifacts" \
+artifact_response=$(mktemp)
+trap 'rm -f "$artifact_response"' EXIT
+artifact_status=$(curl -sS -o "$artifact_response" -w '%{http_code}' -X POST "${AEGISOPS_URL}/api/v1/projects/${AEGISOPS_PROJECT}/artifacts" \
   -H "Authorization: Bearer ${AEGISOPS_API_KEY}" \
   -H "Idempotency-Key: artifact-${AEGISOPS_KEY}" \
   -H "Content-Type: application/json" \
   -d "$body")
+if [[ $artifact_status != 2?? ]]; then
+  # Only surface the API's problem title; never print the request or authorization headers.
+  echo "Artifact registration failed (HTTP $artifact_status): $(jq -r '.title // "No problem title returned"' "$artifact_response" 2>/dev/null || echo 'No problem title returned')" >&2
+  exit 1
+fi
+artifact=$(cat "$artifact_response")
 artifact_id=$(printf '%s' "$artifact" | jq -er '.id | select(type == "string" and length > 0)')
 
 for i in "${!files[@]}"; do

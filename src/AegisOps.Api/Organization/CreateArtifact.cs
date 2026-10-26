@@ -126,11 +126,16 @@ public static class CreateArtifact {
             actorDisplay = user.Email ?? user.DisplayName;
         }
 
-        var versionTaken = await db.Artifacts.AnyAsync(
+        var existing = await db.Artifacts.AsNoTracking().SingleOrDefaultAsync(
             item => item.ProjectId == project.Id && item.Version == request.Version.Trim(),
             cancellationToken
         );
-        if (versionTaken) {
+        if (existing is not null) {
+            // The idempotency cache can expire, or a new run attempt can report the same image.
+            // Never adopt a different build just because it reused the version string.
+            if (MatchesBuild(existing, request, buildStatus, testStatus)) {
+                return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status200OK, ToResponse(existing));
+            }
             return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status409Conflict, new {
                 title = "An artifact with this version already exists.",
                 status = StatusCodes.Status409Conflict,
@@ -170,18 +175,7 @@ public static class CreateArtifact {
             AuditLog.Write(db, time.GetUtcNow(), createdById ?? createdByApiKeyId, actorDisplay, "artifact.created", "Artifact", artifact.Id);
             await db.SaveChangesAsync(cancellationToken);
 
-            return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status201Created, new ArtifactResponse(
-                artifact.Id,
-                artifact.ProjectId,
-                artifact.Version,
-                artifact.CommitSha,
-                artifact.Branch,
-                artifact.ImageReference,
-                artifact.ImageDigest,
-                artifact.BuildStatus.ToString(),
-                artifact.TestStatus.ToString(),
-                artifact.CreatedAt
-            ));
+            return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status201Created, ToResponse(artifact));
         } catch (ArgumentException exception) {
             return Results.Problem(
                 title: exception.Message,
@@ -189,4 +183,27 @@ public static class CreateArtifact {
             );
         }
     }
+
+    public static bool MatchesBuild(Artifact existing, CreateArtifactRequest request, CheckStatus buildStatus, CheckStatus testStatus) {
+        var summary = existing.TestSummary;
+        var reported = request.TestSummary;
+        // A digest is required to identify the same image across CI attempts. Run ID and
+        // test duration are attempt-specific; all other build and check fields must agree.
+        return existing.ImageDigest is not null
+            && string.Equals(existing.CommitSha, request.CommitSha.Trim(), StringComparison.OrdinalIgnoreCase)
+            && existing.Branch == request.Branch.Trim()
+            && existing.ImageReference == request.ImageReference.Trim()
+            && string.Equals(existing.ImageDigest, request.ImageDigest?.Trim(), StringComparison.OrdinalIgnoreCase)
+            && existing.CiProvider == (string.IsNullOrWhiteSpace(request.CiProvider) ? null : request.CiProvider.Trim())
+            && existing.BuildStatus == buildStatus && existing.TestStatus == testStatus
+            && (summary is null && reported is null || summary is not null && reported is not null
+                && summary.Total == reported.Total && summary.Passed == reported.Passed
+                && summary.Failed == reported.Failed && summary.Skipped == reported.Skipped);
+    }
+
+    private static ArtifactResponse ToResponse(Artifact artifact) => new(
+        artifact.Id, artifact.ProjectId, artifact.Version, artifact.CommitSha, artifact.Branch,
+        artifact.ImageReference, artifact.ImageDigest, artifact.BuildStatus.ToString(),
+        artifact.TestStatus.ToString(), artifact.CreatedAt
+    );
 }
