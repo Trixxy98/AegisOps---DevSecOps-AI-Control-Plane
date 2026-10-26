@@ -4,7 +4,13 @@ set -euo pipefail
 summary=null
 if [ -n "${AEGISOPS_SUMMARY}" ]; then
   [ -f "$AEGISOPS_SUMMARY" ] || { echo "Missing test summary: $AEGISOPS_SUMMARY" >&2; exit 1; }
-  summary=$(jq -e 'select(type == "object")' "$AEGISOPS_SUMMARY")
+  summary=$(jq -e 'select(type == "object" and (.total | type == "number") and .total > 0 and
+    (.passed | type == "number") and .passed > 0 and (.failed == 0) and
+    (.skipped | type == "number") and .total == .passed + .failed + .skipped)' "$AEGISOPS_SUMMARY")
+fi
+
+if [ "${AEGISOPS_DEPLOY}" = Staging ] && [ "$summary" = null ]; then
+  echo 'Staging requires a real test summary' >&2; exit 1
 fi
 
 # Check inputs before registering: a missing report must not silently turn into a clean CI run.
@@ -22,9 +28,21 @@ if [ -n "${AEGISOPS_SCANS}" ]; then
       *trivy*) scanner=Trivy ;;
       *) echo "Unknown scanner for SARIF report: $file" >&2; exit 1 ;;
     esac
+    jq -e --arg scanner "$scanner" '
+      .version == "2.1.0" and (.runs | type == "array" and length > 0) and
+      all(.runs[]; (.tool.driver.name | strings | ascii_downcase | contains($scanner | ascii_downcase)) and
+        (.results | type == "array"))' "$file" > /dev/null || {
+      echo "Invalid SARIF for $scanner: $file" >&2; exit 1;
+    }
     files+=("$file")
     scanners+=("$scanner")
   done
+fi
+
+if [ "${AEGISOPS_DEPLOY}" = Staging ] &&
+   { [ "${#scanners[@]}" -ne 3 ] ||
+     [ "${scanners[0]}" != Gitleaks ] || [ "${scanners[1]}" != Semgrep ] || [ "${scanners[2]}" != Trivy ]; }; then
+  echo 'Staging requires Gitleaks, Semgrep and Trivy SARIF in that order' >&2; exit 1
 fi
 
 body=$(jq -n \
