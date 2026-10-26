@@ -2,6 +2,16 @@ import { useEffect, useState } from "react";
 
 type View = "dashboard" | "projects" | "deployments" | "approvals" | "policies" | "audit" | "admin";
 
+const navigation: Array<{ id: View; label: string; description: string }> = [
+  { id: "dashboard", label: "Overview", description: "Deployment activity at a glance" },
+  { id: "projects", label: "Projects", description: "Environments, artifacts, and access" },
+  { id: "deployments", label: "Deployments", description: "Track releases and review outcomes" },
+  { id: "approvals", label: "Approvals", description: "Review requests awaiting a decision" },
+  { id: "policies", label: "Policies", description: "Manage deployment guardrails" },
+  { id: "audit", label: "Audit log", description: "A record of platform activity" },
+  { id: "admin", label: "Administration", description: "People, teams, and background jobs" },
+];
+
 async function api<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -31,21 +41,25 @@ export function App() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
-        <div>
-          <p className="text-xs tracking-wide text-slate-400">AegisOps</p>
-          <h1 className="text-lg font-semibold">Control plane</h1>
-        </div>
-        <nav className="flex gap-2 text-sm">
-          {(["dashboard", "projects", "deployments", "approvals", "policies", "audit", "admin"] as View[]).map((item) => (
-            <button key={item} className={`rounded px-3 py-1 ${view === item ? "bg-slate-100 text-slate-950" : "bg-slate-900"}`} onClick={() => setView(item)} type="button">{item}</button>
+    <main className="app-shell">
+      <aside className="sidebar">
+        <div className="brand"><span className="brand-mark" aria-hidden="true">A</span><div><strong>AegisOps</strong><span>CONTROL PLANE</span></div></div>
+        <div className="sidebar-label">WORKSPACE</div>
+        <nav className="navigation" aria-label="Main navigation">
+          {navigation.map((item) => (
+            <button key={item.id} className={`nav-item ${view === item.id ? "is-active" : ""}`} aria-current={view === item.id ? "page" : undefined} onClick={() => { setView(item.id); setError(null); }} type="button">{item.label}</button>
           ))}
-          <button className="rounded bg-slate-900 px-3 py-1" type="button" onClick={() => setToken(null)}>Logout</button>
         </nav>
-      </header>
-      <section className="mx-auto max-w-5xl px-6 py-6">
-        {error && <p className="mb-4 rounded bg-red-950 px-3 py-2 text-sm text-red-200">{error}</p>}
+        <div className="sidebar-footer"><span className="status-dot" /> System workspace</div>
+      </aside>
+      <div className="main-column">
+        <header className="topbar"><span className="topbar-label">Workspace <span>/</span> {navigation.find((item) => item.id === view)?.label}</span><button className="logout-button" type="button" onClick={() => setToken(null)}>Sign out</button></header>
+        <div className="mobile-navigation"><nav className="navigation" aria-label="Main navigation">
+          {navigation.map((item) => <button key={item.id} className={`nav-item ${view === item.id ? "is-active" : ""}`} aria-current={view === item.id ? "page" : undefined} onClick={() => { setView(item.id); setError(null); }} type="button">{item.label}</button>)}
+        </nav></div>
+        <section className="content">
+        <div className="page-heading"><div><p className="eyebrow">AEGISOPS / WORKSPACE</p><h1>{navigation.find((item) => item.id === view)?.label}</h1><p className="page-description">{navigation.find((item) => item.id === view)?.description}</p></div><span className="heading-badge"><span className="status-dot" /> Live workspace</span></div>
+        {error && <p role="alert" className="error-banner">{error}</p>}
         {view === "dashboard" && <Dashboard token={token} onError={setError} />}
         {view === "projects" && <Projects token={token} onError={setError} />}
         {view === "deployments" && <Deployments token={token} onError={setError} />}
@@ -53,7 +67,8 @@ export function App() {
         {view === "policies" && <Policies token={token} onError={setError} />}
         {view === "audit" && <Audit token={token} onError={setError} />}
         {view === "admin" && <Admin token={token} onError={setError} />}
-      </section>
+        </section>
+      </div>
     </main>
   );
 }
@@ -64,8 +79,8 @@ function Login({ onToken }: { onToken: (token: string) => void }) {
   const [error, setError] = useState<string | null>(null);
 
   return (
-    <main className="grid min-h-screen place-items-center bg-slate-950 text-slate-100">
-      <form className="w-full max-w-sm space-y-3 rounded border border-slate-800 p-6" onSubmit={async (event) => {
+    <main className="login-page">
+      <form className="login-card" onSubmit={async (event) => {
         event.preventDefault();
         const response = await fetch("/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
         const body = await response.json();
@@ -75,11 +90,14 @@ function Login({ onToken }: { onToken: (token: string) => void }) {
         }
         onToken(body.accessToken);
       }}>
-        <h1 className="text-xl font-semibold">Sign in</h1>
-        {error && <p className="text-sm text-red-300">{error}</p>}
-        <input className="w-full rounded bg-slate-900 px-3 py-2" value={email} onChange={(event) => setEmail(event.target.value)} />
-        <input className="w-full rounded bg-slate-900 px-3 py-2" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-        <button className="w-full rounded bg-slate-100 px-3 py-2 text-slate-950" type="submit">Continue</button>
+        <div className="brand"><span className="brand-mark" aria-hidden="true">A</span><div><strong>AegisOps</strong><span>CONTROL PLANE</span></div></div>
+        <div className="login-heading"><p className="eyebrow">WELCOME BACK</p><h1>Sign in to your workspace</h1><p>Manage deployments securely from one place.</p></div>
+        {error && <p role="alert" className="error-banner">{error}</p>}
+        <label className="field-label" htmlFor="login-email">Email address</label>
+        <input id="login-email" autoComplete="username" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+        <label className="field-label" htmlFor="login-password">Password</label>
+        <input id="login-password" autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <button className="primary-button login-submit" type="submit">Continue</button>
       </form>
     </main>
   );
@@ -100,13 +118,14 @@ function Dashboard({ token, onError }: { token: string; onError: (value: string 
   }, [token, onError]);
 
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    <div className="stat-grid">
       {Object.entries(counts).map(([status, count]) => (
-        <article key={status} className="rounded border border-slate-800 p-4">
-          <p className="text-sm text-slate-400">{status}</p>
-          <p className="text-2xl font-semibold">{count}</p>
+        <article key={status} className="stat-card">
+          <p>{status}</p>
+          <strong>{count}</strong>
         </article>
       ))}
+      {Object.keys(counts).length === 0 && <p className="empty-state">No deployments to show yet.</p>}
     </div>
   );
 }
@@ -165,19 +184,18 @@ function Projects({ token, onError }: { token: string; onError: (value: string |
   }
 
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <ul className="space-y-2">
+    <div className="split-layout">
+      <section className="panel"><div className="panel-heading"><h2>Projects</h2><span>{projects.length} total</span></div><ul className="item-list">
         {projects.map((project) => (
-          <li key={project.slug}><button className="w-full rounded bg-slate-900 px-3 py-2 text-left" type="button" onClick={() => void open(project.slug)}>{project.name}</button></li>
+          <li key={project.slug}><button className={`list-button ${selected === project.slug ? "is-selected" : ""}`} type="button" onClick={() => void open(project.slug)}><strong>{project.name}</strong><span>{project.slug}</span></button></li>
         ))}
-      </ul>
+      </ul>{projects.length === 0 && <p className="empty-state">No projects available.</p>}</section>
       {selected && detail && (
-        <div className="space-y-3">
-          <h2 className="font-semibold">{selected}</h2>
-          <section className="space-y-2 rounded border border-slate-800 p-3">
-            <h3 className="text-sm font-semibold">Environments</h3>
+        <div className="detail-stack">
+          <div className="detail-heading"><p className="eyebrow">PROJECT DETAILS</p><h2>{selected}</h2></div>
+          <section className="panel"><div className="panel-heading"><h3>Environments</h3><span>{detail.environments.length} configured</span></div>
             {detail.environments.map((environment) => (
-              <form key={environment.id} className="space-y-2 rounded bg-slate-900 p-2 text-xs" onSubmit={(event) => {
+              <form key={environment.id} className="environment-form" onSubmit={(event) => {
                 event.preventDefault();
                 const form = new FormData(event.currentTarget);
                 void api(`/api/v1/projects/${selected}/environments/${environment.id}`, token, {
@@ -195,57 +213,57 @@ function Projects({ token, onError }: { token: string; onError: (value: string |
                   }),
                 }).then(() => open(selected)).catch((error: Error) => onError(error.message));
               }}>
-                <p className="font-medium">{environment.name} · {environment.targetType}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <select className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.targetType} name="type">
+                <p className="environment-title">{environment.name} <span>{environment.targetType}</span></p>
+                <div className="form-grid">
+                  <label className="field-label">Target type<select defaultValue={environment.targetType} name="type">
                     <option value="noop">noop</option>
                     <option value="docker">docker</option>
-                  </select>
-                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.containerName ?? ""} name="containerName" placeholder="container" />
-                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.network ?? ""} name="network" placeholder="network" />
-                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.hostPort || 8102} name="hostPort" />
-                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.containerPort || 8080} name="containerPort" />
-                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.healthPath ?? "/health"} name="healthPath" />
-                  <input className="rounded bg-slate-950 px-2 py-1" defaultValue={environment.healthTimeoutSeconds || 60} name="healthTimeoutSeconds" />
+                  </select></label>
+                  <label className="field-label">Container name<input defaultValue={environment.containerName ?? ""} name="containerName" placeholder="Container name" /></label>
+                  <label className="field-label">Network<input defaultValue={environment.network ?? ""} name="network" placeholder="Network" /></label>
+                  <label className="field-label">Host port<input defaultValue={environment.hostPort || 8102} name="hostPort" inputMode="numeric" /></label>
+                  <label className="field-label">Container port<input defaultValue={environment.containerPort || 8080} name="containerPort" inputMode="numeric" /></label>
+                  <label className="field-label">Health path<input defaultValue={environment.healthPath ?? "/health"} name="healthPath" /></label>
+                  <label className="field-label">Health timeout (seconds)<input defaultValue={environment.healthTimeoutSeconds || 60} name="healthTimeoutSeconds" inputMode="numeric" /></label>
                 </div>
-                <div className="flex gap-2">
-                  <button className="rounded bg-slate-100 px-2 py-1 text-slate-950" type="submit">Save target</button>
-                  <button className="rounded bg-slate-800 px-2 py-1" type="button" onClick={() => void api<{ containers: Array<{ name: string; state: string; image: string }> }>(`/api/v1/projects/${selected}/environments/${environment.id}/runtime`, token).then((body) => setRuntime(JSON.stringify(body))).catch((error: Error) => onError(error.message))}>Runtime</button>
+                <div className="action-row">
+                  <button className="primary-button" type="submit">Save target</button>
+                  <button className="secondary-button" type="button" onClick={() => void api<{ containers: Array<{ name: string; state: string; image: string }> }>(`/api/v1/projects/${selected}/environments/${environment.id}/runtime`, token).then((body) => setRuntime(JSON.stringify(body))).catch((error: Error) => onError(error.message))}>Runtime</button>
                 </div>
               </form>
             ))}
-            {runtime && <pre className="overflow-x-auto text-[11px] text-slate-300">{runtime}</pre>}
+            {runtime && <pre className="runtime-output">{runtime}</pre>}
           </section>
-          <section className="space-y-2 rounded border border-slate-800 p-3">
-            <h3 className="text-sm font-semibold">API keys</h3>
-            <div className="flex gap-2">
-              <input className="flex-1 rounded bg-slate-900 px-2 py-1 text-sm" value={keyName} onChange={(event) => setKeyName(event.target.value)} />
-              <button className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-950" type="button" onClick={() => void createKey().catch((error: Error) => onError(error.message))}>Create</button>
+          <section className="panel"><div className="panel-heading"><h3>API keys</h3><span>{keys.length} keys</span></div>
+            <div className="action-row">
+              <label className="field-label grow">Key name<input value={keyName} onChange={(event) => setKeyName(event.target.value)} /></label>
+              <button className="primary-button self-end" type="button" onClick={() => void createKey().catch((error: Error) => onError(error.message))}>Create</button>
             </div>
-            {plaintext && <p className="break-all text-xs text-amber-200">Copy this key now: {plaintext}</p>}
-            <ul className="space-y-1 text-sm">
+            {plaintext && <p className="key-notice">Copy this key now: {plaintext}</p>}
+            <ul className="item-list key-list">
               {keys.map((key) => (
-                <li key={key.id} className="flex items-center justify-between gap-2">
+                <li key={key.id} className="list-row">
                   <span>{key.name} · {key.keyPrefix} · {key.revokedAt ? "revoked" : key.lastUsedAt ? `used ${key.lastUsedAt}` : "never used"}</span>
-                  {!key.revokedAt && <button className="rounded bg-red-900 px-2 py-1 text-xs" type="button" onClick={() => void revokeKey(key.id).catch((error: Error) => onError(error.message))}>Revoke</button>}
+                  {!key.revokedAt && <button className="danger-button" type="button" onClick={() => void revokeKey(key.id).catch((error: Error) => onError(error.message))}>Revoke</button>}
                 </li>
               ))}
             </ul>
           </section>
-          {artifacts.map((artifact) => (
-            <article key={artifact.id} className="rounded border border-slate-800 p-3">
-              <p>{artifact.version} · {artifact.branch}</p>
-              <div className="mt-2 flex gap-2">
+          <section className="panel"><div className="panel-heading"><h3>Artifacts</h3><span>{artifacts.length} available</span></div>{artifacts.map((artifact) => (
+            <article key={artifact.id} className="artifact-row">
+              <p><strong>{artifact.version}</strong><span> · {artifact.branch}</span></p>
+              <div className="action-row">
                 {detail.environments.map((environment) => (
-                  <button key={environment.id} className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-950" type="button" onClick={() => void api("/api/v1/deployments", token, { method: "POST", body: JSON.stringify({ artifactId: artifact.id, environmentId: environment.id, reason: "UI request" }) }).then(() => onError(null)).catch((error: Error) => onError(error.message))}>
+                  <button key={environment.id} className="secondary-button" type="button" onClick={() => void api("/api/v1/deployments", token, { method: "POST", body: JSON.stringify({ artifactId: artifact.id, environmentId: environment.id, reason: "UI request" }) }).then(() => onError(null)).catch((error: Error) => onError(error.message))}>
                     Deploy {environment.name}
                   </button>
                 ))}
               </div>
             </article>
-          ))}
+          ))}</section>
         </div>
       )}
+      {!selected && <div className="panel selection-placeholder"><p>Select a project to view environments, keys, and artifacts.</p></div>}
     </div>
   );
 }
@@ -288,33 +306,36 @@ function Deployments({ token, onError }: { token: string; onError: (value: strin
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <ul className="space-y-2">
+    <div className="split-layout">
+      <section className="panel"><div className="panel-heading"><h2>Recent deployments</h2><span>{items.length} total</span></div><ul className="item-list">
         {items.map((item) => (
           <li key={item.id}>
-            <button className="w-full rounded bg-slate-900 px-3 py-2 text-left" type="button" onClick={() => void open(item.id).catch((error: Error) => onError(error.message))}>
-              <span className="font-medium">{item.status}</span>
-              <span className="ml-2 text-slate-400">{item.approvalsReceived}/{item.approvalsRequired}</span>
-              {item.failureReason && <span className="mt-1 block text-sm text-amber-200">{item.failureReason}</span>}
+            <button className={`list-button ${selected === item.id ? "is-selected" : ""}`} type="button" onClick={() => void open(item.id).catch((error: Error) => onError(error.message))}>
+              <strong>{item.status}</strong><span>Approvals {item.approvalsReceived}/{item.approvalsRequired}</span>
+              {item.failureReason && <span className="warning-text">{item.failureReason}</span>}
             </button>
           </li>
         ))}
-      </ul>
-      <div className="space-y-3">
+      </ul>{items.length === 0 && <p className="empty-state">No deployments to show yet.</p>}</section>
+      <section className="panel"><div className="panel-heading"><h2>Deployment details</h2></div><div className="detail-stack">
         {selected && canRollback && (
-          <button className="rounded bg-amber-200 px-3 py-1 text-sm text-slate-950" type="button" onClick={() => void api(`/api/v1/deployments/${selected}/rollback`, token, { method: "POST" }).then(() => load()).catch((error: Error) => onError(error.message))}>Rollback</button>
+          <button className="secondary-button" type="button" onClick={() => void api(`/api/v1/deployments/${selected}/rollback`, token, { method: "POST" }).then(() => load()).catch((error: Error) => onError(error.message))}>Rollback</button>
         )}
-        {decision && <p className="rounded bg-slate-900 px-3 py-2 text-sm">Policy decision: {decision}</p>}
-        <ul className="space-y-2 text-sm">
-          {rules.map((rule) => <li key={`${rule.type}-${rule.message}`} className="rounded bg-slate-900 px-3 py-2">{rule.passed ? "Pass" : "Fail"} · {rule.type}: {rule.message}</li>)}
+        {decision && <p className="detail-row">Policy decision: <strong>{decision}</strong></p>}
+        {rules.length > 0 && <h3 className="subheading">Policy checks</h3>}
+        <ul className="item-list">
+          {rules.map((rule) => <li key={`${rule.type}-${rule.message}`} className="detail-row">{rule.passed ? "Pass" : "Fail"} · {rule.type}: {rule.message}</li>)}
         </ul>
-        <ul className="space-y-2 text-sm">
-          {findings.map((finding) => <li key={finding.id} className="rounded bg-slate-900 px-3 py-2">{finding.severity} · {finding.title}{finding.cve ? ` · ${finding.cve}` : ""}{finding.packageName ? ` · ${finding.packageName}` : ""} · {finding.status}</li>)}
+        {findings.length > 0 && <h3 className="subheading">Findings</h3>}
+        <ul className="item-list">
+          {findings.map((finding) => <li key={finding.id} className="detail-row">{finding.severity} · {finding.title}{finding.cve ? ` · ${finding.cve}` : ""}{finding.packageName ? ` · ${finding.packageName}` : ""} · {finding.status}</li>)}
         </ul>
-        <ol className="space-y-2 text-sm">
-          {events.map((item) => <li key={item.sequence} className="rounded bg-slate-900 px-3 py-2">{item.type}: {item.message}</li>)}
+        {events.length > 0 && <h3 className="subheading">Timeline</h3>}
+        <ol className="item-list">
+          {events.map((item) => <li key={item.sequence} className="detail-row">{item.type}: {item.message}</li>)}
         </ol>
-      </div>
+        {!selected && <p className="empty-state">Select a deployment to inspect its timeline and policy checks.</p>}
+      </div></section>
     </div>
   );
 }
@@ -331,16 +352,17 @@ function Approvals({ token, onError }: { token: string; onError: (value: string 
   }
 
   return (
-    <ul className="space-y-2">
+    <ul className="panel item-list">
       {items.map((item) => (
-        <li key={item.id} className="flex items-center justify-between rounded bg-slate-900 px-3 py-2">
-          <span>{item.id}</span>
-          <span className="space-x-2">
-            <button className="rounded bg-slate-100 px-2 py-1 text-slate-950" type="button" onClick={() => void decide(item.id, "Approved").catch((error: Error) => onError(error.message))}>Approve</button>
-            <button className="rounded bg-red-900 px-2 py-1" type="button" onClick={() => void decide(item.id, "Rejected").catch((error: Error) => onError(error.message))}>Reject</button>
+        <li key={item.id} className="list-row">
+          <span className="break-id">{item.id}</span>
+          <span className="action-row">
+            <button className="primary-button" type="button" onClick={() => void decide(item.id, "Approved").catch((error: Error) => onError(error.message))}>Approve</button>
+            <button className="danger-button" type="button" onClick={() => void decide(item.id, "Rejected").catch((error: Error) => onError(error.message))}>Reject</button>
           </span>
         </li>
       ))}
+      {items.length === 0 && <li className="empty-state">No requests awaiting approval.</li>}
     </ul>
   );
 }
@@ -373,22 +395,22 @@ function Policies({ token, onError }: { token: string; onError: (value: string |
   }
 
   return (
-    <div className="space-y-3">
-      <label className="block text-sm text-slate-300">
+    <div className="detail-stack">
+      <div className="panel"><label className="field-label policy-select">
         Rule to add
-        <select className="ml-2 rounded bg-slate-900 px-2 py-1" value={choice} onChange={(event) => setChoice(event.target.value)}>
+        <select value={choice} onChange={(event) => setChoice(event.target.value)}>
           {catalogue.map((item) => <option key={item.type} value={item.type}>{item.type}</option>)}
         </select>
-      </label>
-      <ul className="space-y-3">
+      </label></div>
+      <ul className="policy-list">
         {items.map((policy) => (
-          <li key={policy.id} className="rounded border border-slate-800 p-3">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold">{policy.name} · v{policy.version}</h2>
-              <button className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-950" type="button" onClick={() => void addRule(policy).catch((error: Error) => onError(error.message))}>Add rule</button>
+          <li key={policy.id} className="panel">
+            <div className="panel-heading policy-heading">
+              <h2>{policy.name} <span>v{policy.version}</span></h2>
+              <button className="primary-button" type="button" onClick={() => void addRule(policy).catch((error: Error) => onError(error.message))}>Add rule</button>
             </div>
-            <ul className="mt-2 text-sm text-slate-300">
-              {policy.rules.map((rule) => <li key={`${rule.type}-${rule.order}`}>{rule.order}. {rule.type} ({rule.effect})</li>)}
+            <ul className="item-list">
+              {policy.rules.map((rule) => <li className="detail-row" key={`${rule.type}-${rule.order}`}>{rule.order}. {rule.type} ({rule.effect})</li>)}
             </ul>
           </li>
         ))}
@@ -417,27 +439,27 @@ function Admin({ token, onError }: { token: string; onError: (value: string | nu
   }, [token, onError]);
 
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <section>
-        <h2 className="mb-2 font-semibold">Users</h2>
-        <ul className="space-y-2 text-sm">
-          {users.map((user) => <li key={user.id} className="rounded bg-slate-900 px-3 py-2">{user.displayName} · {user.email} · {user.roles.join(", ")}</li>)}
+    <div className="admin-grid">
+      <section className="panel">
+        <div className="panel-heading"><h2>Users</h2><span>{users.length} total</span></div>
+        <ul className="item-list">
+          {users.map((user) => <li key={user.id} className="detail-row">{user.displayName} · {user.email} · {user.roles.join(", ")}</li>)}
         </ul>
       </section>
-      <section>
-        <h2 className="mb-2 font-semibold">Teams</h2>
-        <ul className="space-y-2 text-sm">
-          {teams.map((team) => <li key={team.slug} className="rounded bg-slate-900 px-3 py-2">{team.name}</li>)}
+      <section className="panel">
+        <div className="panel-heading"><h2>Teams</h2><span>{teams.length} total</span></div>
+        <ul className="item-list">
+          {teams.map((team) => <li key={team.slug} className="detail-row">{team.name}</li>)}
         </ul>
       </section>
-      <section className="md:col-span-2">
-        <h2 className="mb-2 font-semibold">Jobs</h2>
-        {queue && <p className="mb-2 text-sm text-slate-400">Pending {queue.pending} · running {queue.running} · dead-letter {queue.deadLettered}</p>}
-        <ul className="space-y-2 text-sm">
+      <section className="panel jobs-panel">
+        <div className="panel-heading"><h2>Jobs</h2></div>
+        {queue && <p className="queue-summary">Pending {queue.pending} · running {queue.running} · dead-letter {queue.deadLettered}</p>}
+        <ul className="item-list">
           {jobs.map((job) => (
-            <li key={job.id} className="flex items-center justify-between rounded bg-slate-900 px-3 py-2">
+            <li key={job.id} className="list-row">
               <span>{job.type} · {job.status}{job.lastError ? ` · ${job.lastError}` : ""}</span>
-              <button className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-950" type="button" onClick={() => void api(`/api/v1/admin/jobs/${job.id}/retry`, token, { method: "POST" }).then(() => api<typeof jobs>("/api/v1/admin/jobs?status=DeadLettered", token).then(setJobs)).catch((error: Error) => onError(error.message))}>Retry</button>
+              <button className="secondary-button" type="button" onClick={() => void api(`/api/v1/admin/jobs/${job.id}/retry`, token, { method: "POST" }).then(() => api<typeof jobs>("/api/v1/admin/jobs?status=DeadLettered", token).then(setJobs)).catch((error: Error) => onError(error.message))}>Retry</button>
             </li>
           ))}
         </ul>
@@ -452,8 +474,9 @@ function Audit({ token, onError }: { token: string; onError: (value: string | nu
     api<typeof items>("/api/v1/audit", token).then(setItems).catch((error: Error) => onError(error.message));
   }, [token, onError]);
   return (
-    <ul className="space-y-2 text-sm">
-      {items.map((item) => <li key={item.id} className="rounded bg-slate-900 px-3 py-2">{item.timestamp} · {item.actorDisplay} · {item.action} · {item.outcome}</li>)}
+    <ul className="panel item-list">
+      {items.map((item) => <li key={item.id} className="audit-row"><time>{item.timestamp}</time><span>{item.actorDisplay}</span><strong>{item.action}</strong><span>{item.outcome}</span></li>)}
+      {items.length === 0 && <li className="empty-state">No audit activity to show yet.</li>}
     </ul>
   );
 }
