@@ -12,22 +12,35 @@ url=''
 body=''
 scanner=''
 key=''
+output=''
+format=''
 while (($#)); do
   case "$1" in
     http*) url=$1; shift ;;
     -d) body=$2; shift 2 ;;
     -F) [[ $2 == scanner=* ]] && scanner=${2#scanner=}; shift 2 ;;
     -H) [[ $2 == Idempotency-Key:* ]] && key=${2#Idempotency-Key: }; shift 2 ;;
+    -o) output=$2; shift 2 ;;
+    -w) format=$2; shift 2 ;;
     *) shift ;;
   esac
 done
 jq -nc --arg url "$url" --arg body "$body" --arg scanner "$scanner" --arg key "$key" \
   '{url:$url,body:$body,scanner:$scanner,key:$key}' >> "$REQUESTS"
 case "$url" in
-  */artifacts) echo '{"id":"11111111-1111-1111-1111-111111111111"}' ;;
-  */deployments) echo '{"id":"22222222-2222-2222-2222-222222222222","status":"Queued"}' ;;
-  *) echo '{"status":"Completed"}' ;;
+  */artifacts)
+    if [[ ${ARTIFACT_CONFLICT:-} == 1 ]]; then
+      response='{"title":"An artifact with this version already exists.","status":409}'
+      status=409
+    else
+      response='{"id":"11111111-1111-1111-1111-111111111111"}'
+      status=${ARTIFACT_STATUS:-201}
+    fi ;;
+  */deployments) response='{"id":"22222222-2222-2222-2222-222222222222","status":"Queued"}'; status=202 ;;
+  *) response='{"status":"Completed"}'; status=201 ;;
 esac
+if [[ -n $output ]]; then printf '%s\n' "$response" > "$output"; else printf '%s\n' "$response"; fi
+if [[ -n $format ]]; then printf '%s' "$status"; fi
 MOCK
 chmod +x "$tmp/curl"
 export PATH="$tmp:$PATH" REQUESTS="$tmp/requests"
@@ -58,6 +71,24 @@ jq -e -s 'length == 5 and
   .[1].scanner == "Gitleaks" and .[2].scanner == "Semgrep" and .[3].scanner == "Trivy" and
   (.[1].url | endswith("/artifacts/11111111-1111-1111-1111-111111111111/scans")) and
   (.[4].url | endswith("/deployments"))' "$REQUESTS" > /dev/null
+
+# The API may return an existing, matching artifact with 200; still upload scans and deploy.
+export ARTIFACT_STATUS=200
+: > "$REQUESTS"
+bash "$root/.github/actions/aegisops-report/report.sh" > /dev/null
+jq -e -s 'length == 5 and (.[4].body | fromjson | .artifactId == "11111111-1111-1111-1111-111111111111")' "$REQUESTS" > /dev/null
+unset ARTIFACT_STATUS
+
+# A real conflict must stop before uploading scans or requesting a deployment.
+export ARTIFACT_CONFLICT=1
+: > "$REQUESTS"
+if bash "$root/.github/actions/aegisops-report/report.sh" > "$tmp/stdout" 2> "$tmp/stderr"; then
+  echo 'Conflicting artifact should fail the action' >&2; exit 1
+fi
+grep -q 'Artifact registration failed (HTTP 409): An artifact with this version already exists.' "$tmp/stderr"
+[ ! -s "$tmp/stdout" ]
+jq -e -s 'length == 1 and (.[0].url | endswith("/artifacts"))' "$REQUESTS" > /dev/null
+unset ARTIFACT_CONFLICT
 
 export AEGISOPS_SCANS="$tmp/missing-trivy.sarif"
 : > "$REQUESTS"
