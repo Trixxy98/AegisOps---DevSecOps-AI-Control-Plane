@@ -117,6 +117,14 @@ requires three fresh security scans, and Docker targets additionally require Doc
 daemon access from the worker plus host-reachable health/port wiring. Those are not
 configured in this Development Compose stack. Do not point this stack at production.
 
+SARIF uploads larger than 2 MB are queued for parsing by the worker. Compose mounts a
+dedicated persistent `reports` volume at `/app/reports` in both API and worker, separate
+from `pgdata`. Before upgrading an existing stack, preserve any pending reports from the
+old API container's `/app/reports` (or re-upload those reports after upgrading); an
+existing container's private filesystem is **not** migrated automatically into the new
+volume. Do not run `docker compose down -v`: it deletes the database and reports volumes.
+Check the mount wiring with `python3 tests/report-storage-contract.py`.
+
 ## License
 
 MIT (to be added with the first code commit).
