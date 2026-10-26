@@ -40,6 +40,9 @@ services:
       ConnectionStrings__Redis: redis:6379
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env (at least 32 bytes)}
       Database__MigrateOnStartup: "true"
+      Storage__ReportsPath: /app/reports
+    volumes:
+      - reports:/app/reports
     ports:
       - "8080:8080"
     depends_on:
@@ -57,6 +60,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=aegisops;Username=aegisops;Password=${POSTGRES_PASSWORD:-aegisops_dev}
+    volumes:
+      - reports:/app/reports
     depends_on:
       api:
         condition: service_started
@@ -77,6 +82,7 @@ services:
 
 volumes:
   pgdata:
+  reports:
 
 networks:
   aegisops:
