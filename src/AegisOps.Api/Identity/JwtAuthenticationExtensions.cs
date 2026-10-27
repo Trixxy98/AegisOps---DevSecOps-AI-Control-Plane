@@ -42,6 +42,14 @@ public static class JwtAuthenticationExtensions {
             )
             .AddJwtBearer(bearer => {
                 bearer.MapInboundClaims = false;
+                bearer.Events = new JwtBearerEvents {
+                    OnMessageReceived = context => {
+                        if (context.Request.Path.StartsWithSegments("/hubs/ops") &&
+                            context.Request.Query.TryGetValue("access_token", out var token))
+                            context.Token = token;
+                        return Task.CompletedTask;
+                    },
+                };
                 bearer.TokenValidationParameters = new TokenValidationParameters {
                     ValidateIssuer = true,
                     ValidIssuer = options.Issuer,

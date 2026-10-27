@@ -13,11 +13,72 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.AspNetCore.SignalR;
 using ProjectEnvironment = AegisOps.Domain.Organization.Environment;
 
 namespace AegisOps.Api.Tests;
 
 public sealed class DeploymentAuthorizationTests {
+    [Fact]
+    public async Task LiveDeliveryRechecksMembershipRolesAndActiveUserBeforeSending() {
+        using var fixture = new Fixture();
+        var member = fixture.AddUser("Developer");
+        var outsider = fixture.AddUser("Developer");
+        var security = fixture.AddUser("Security");
+        fixture.Join(member);
+        var connections = new DeploymentConnections();
+        connections.Add("member", Fixture.UserPrincipal(member));
+        connections.Add("outsider", Fixture.UserPrincipal(outsider));
+        connections.Add("security", Fixture.UserPrincipal(security));
+        connections.Add("key", Fixture.KeyPrincipal(fixture.Project.Id, "deployments:read"));
+        var hub = new RecordingHub();
+        var listener = new DeploymentUpdateListener(null!, fixture.Services.GetRequiredService<IServiceScopeFactory>(), hub,
+            connections, NullLogger<DeploymentUpdateListener>.Instance);
+
+        await listener.DispatchAsync(fixture.Source.Id, TestContext.Current.CancellationToken);
+        Assert.Equal(2, hub.Sent.Count);
+        Assert.Contains("member", hub.Sent);
+        Assert.Contains("security", hub.Sent);
+
+        hub.Sent.Clear();
+        fixture.Db.TeamMembers.Remove(fixture.Db.TeamMembers.Single());
+        fixture.Db.SaveChanges();
+        await listener.DispatchAsync(fixture.Source.Id, TestContext.Current.CancellationToken);
+        Assert.Equal("security", Assert.Single(hub.Sent));
+
+        hub.Sent.Clear();
+        security.Deactived();
+        fixture.Db.SaveChanges();
+        await listener.DispatchAsync(fixture.Source.Id, TestContext.Current.CancellationToken);
+        Assert.Empty(hub.Sent);
+        await listener.DispatchAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
+        Assert.Empty(hub.Sent);
+    }
+
+    private sealed class RecordingHub : IHubContext<OpsHub>, IHubClients {
+        public List<string> Sent { get; } = [];
+        public IHubClients Clients => this;
+        public IGroupManager Groups => throw new NotSupportedException();
+        public IClientProxy Client(string connectionId) => new RecordingClient(connectionId, Sent);
+        public IClientProxy All => throw new NotSupportedException();
+        public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => throw new NotSupportedException();
+        IClientProxy IHubClients<IClientProxy>.Clients(IReadOnlyList<string> connectionIds) => throw new NotSupportedException();
+        public IClientProxy Group(string groupName) => throw new NotSupportedException();
+        public IClientProxy GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) => throw new NotSupportedException();
+        IClientProxy IHubClients<IClientProxy>.Groups(IReadOnlyList<string> groupNames) => throw new NotSupportedException();
+        public IClientProxy User(string userId) => throw new NotSupportedException();
+        public IClientProxy Users(IReadOnlyList<string> userIds) => throw new NotSupportedException();
+    }
+
+    private sealed class RecordingClient(string id, List<string> sent) : IClientProxy {
+        public Task SendCoreAsync(string method, object?[] args, CancellationToken cancellationToken = default) {
+            Assert.Equal("DeploymentChanged", method);
+            Assert.Single(args);
+            sent.Add(id);
+            return Task.CompletedTask;
+        }
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -353,6 +414,7 @@ public sealed class DeploymentAuthorizationTests {
     private sealed class Fixture : IDisposable {
         private readonly SqliteConnection connection = new("Data Source=:memory:");
         private readonly ServiceProvider services;
+        public ServiceProvider Services => services;
         public readonly AegisOpsDbContext Db;
         public readonly UserManager<User> Users;
         public readonly ReplayStore Replay = new();

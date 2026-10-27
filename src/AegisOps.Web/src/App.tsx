@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { connectDeploymentUpdates } from "./deploymentUpdates";
 
 type View = "dashboard" | "projects" | "deployments" | "approvals" | "policies" | "audit" | "admin";
 
@@ -35,6 +36,9 @@ export function App() {
   const [token, setToken] = useState<string | null>(null);
   const [view, setView] = useState<View>("dashboard");
   const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+
+  useEffect(() => token ? connectDeploymentUpdates(token, () => setRevision((value) => value + 1)) : undefined, [token]);
 
   if (!token) {
     return <Login onToken={setToken} />;
@@ -60,10 +64,10 @@ export function App() {
         <section className="content">
         <div className="page-heading"><div><p className="eyebrow">AEGISOPS / WORKSPACE</p><h1>{navigation.find((item) => item.id === view)?.label}</h1><p className="page-description">{navigation.find((item) => item.id === view)?.description}</p></div><span className="heading-badge"><span className="status-dot" /> Live workspace</span></div>
         {error && <p role="alert" className="error-banner">{error}</p>}
-        {view === "dashboard" && <Dashboard token={token} onError={setError} />}
+         {view === "dashboard" && <Dashboard token={token} onError={setError} revision={revision} />}
         {view === "projects" && <Projects token={token} onError={setError} />}
-        {view === "deployments" && <Deployments token={token} onError={setError} />}
-        {view === "approvals" && <Approvals token={token} onError={setError} />}
+         {view === "deployments" && <Deployments token={token} onError={setError} revision={revision} />}
+         {view === "approvals" && <Approvals token={token} onError={setError} revision={revision} />}
         {view === "policies" && <Policies token={token} onError={setError} />}
         {view === "audit" && <Audit token={token} onError={setError} />}
         {view === "admin" && <Admin token={token} onError={setError} />}
@@ -103,7 +107,7 @@ function Login({ onToken }: { onToken: (token: string) => void }) {
   );
 }
 
-function Dashboard({ token, onError }: { token: string; onError: (value: string | null) => void }) {
+function Dashboard({ token, onError, revision }: { token: string; onError: (value: string | null) => void; revision: number }) {
   const [counts, setCounts] = useState<Record<string, number>>({});
   useEffect(() => {
     api<Array<{ status: string }>>("/api/v1/deployments", token)
@@ -115,7 +119,7 @@ function Dashboard({ token, onError }: { token: string; onError: (value: string 
         setCounts(next);
       })
       .catch((error: Error) => onError(error.message));
-  }, [token, onError]);
+  }, [token, onError, revision]);
 
   return (
     <div className="stat-grid">
@@ -268,7 +272,7 @@ function Projects({ token, onError }: { token: string; onError: (value: string |
   );
 }
 
-function Deployments({ token, onError }: { token: string; onError: (value: string | null) => void }) {
+function Deployments({ token, onError, revision }: { token: string; onError: (value: string | null) => void; revision: number }) {
   const [items, setItems] = useState<Array<{ id: string; status: string; approvalsReceived: number; approvalsRequired: number; failureReason?: string }>>([]);
   const [events, setEvents] = useState<Array<{ sequence: number; type: string; message: string }>>([]);
   const [rules, setRules] = useState<Array<{ type: string; passed: boolean; message: string }>>([]);
@@ -286,6 +290,22 @@ function Deployments({ token, onError }: { token: string; onError: (value: strin
     const timer = setInterval(() => void load().catch(() => undefined), 10000);
     return () => clearInterval(timer);
   }, [token]);
+
+  useEffect(() => {
+    void load().catch(() => undefined);
+    if (selected) void open(selected).catch(() => {
+      setSelected(null);
+      setEvents([]);
+      setRules([]);
+      setDecision(null);
+    });
+  }, [revision]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const timer = setInterval(() => void open(selected).catch(() => undefined), 10000);
+    return () => clearInterval(timer);
+  }, [selected, token]);
 
   async function open(id: string) {
     const deployment = await api<{ artifactId: string; status: string; previousArtifactId?: string }>(`/api/v1/deployments/${id}`, token);
@@ -340,11 +360,11 @@ function Deployments({ token, onError }: { token: string; onError: (value: strin
   );
 }
 
-function Approvals({ token, onError }: { token: string; onError: (value: string | null) => void }) {
+function Approvals({ token, onError, revision }: { token: string; onError: (value: string | null) => void; revision: number }) {
   const [items, setItems] = useState<Array<{ id: string; status: string }>>([]);
   useEffect(() => {
     api<Array<{ id: string; status: string }>>("/api/v1/deployments?status=AwaitingApproval", token).then(setItems).catch((error: Error) => onError(error.message));
-  }, [token, onError]);
+  }, [token, onError, revision]);
 
   async function decide(id: string, decision: "Approved" | "Rejected") {
     await api(`/api/v1/deployments/${id}/approvals`, token, { method: "POST", body: JSON.stringify({ decision, comment: decision }) });

@@ -149,6 +149,8 @@ replace an unlabeled/foreign named container or remove an existing `-previous` b
 verify target names and port 8101 are free before requesting a deployment. It does not
 auto-deploy during Compose startup. Check wiring with
 `python3 tests/staging-docker-contract.py`. Do not point this stack at production.
+For the controlled upgrade and failed-health rollback exercise, see
+[`docs/staging-rollback-validation.md`](docs/staging-rollback-validation.md).
 
 SARIF uploads larger than 2 MB are queued for parsing by the worker. Compose mounts a
 dedicated persistent `reports` volume at `/app/reports` in both API and worker, separate

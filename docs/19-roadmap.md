@@ -110,6 +110,19 @@ executor — this is the MVP and the heart of the portfolio story.
 
 **Goal:** no polling.
 
+**First slice implemented:** authenticated user SignalR connection at `/hubs/ops`; deployment
+request/rollback/approval/cancel and Worker evaluation/execution publish committed deployment-ID
+hints through Redis to API instances. The API rechecks current active user, role and project-team
+access against the database before sending `DeploymentChanged(deploymentId)` to each connected
+browser (no persistent project groups or API-key connections). The UI reloads deployment lists,
+selected timeline/evaluation and approval/dashboard views from REST on receipt/reconnect; the
+existing 10-second polling remains a fallback (including selected deployment detail). Redis
+messages are ephemeral hints, not a durable event log. Remaining Phase 5: scoped groups if
+needed for scale, approval toasts, generic notifications/outbound HMAC webhooks, connection
+status indicator, streaming of intermediate Docker timeline steps (currently persisted at job
+completion), and browser/integration multi-session tests. This slice does **not** meet the
+full Phase 5 done criterion.
+
 | Deliverable | Detail |
 | --- | --- |
 | Hub | `OpsHub`, groups, authorization on join; Redis pub/sub bridge Worker → Api |

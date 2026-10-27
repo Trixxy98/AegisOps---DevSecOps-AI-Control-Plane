@@ -8,6 +8,8 @@ using AegisOps.Domain.Identity;
 using AegisOps.Domain.Jobs;
 using AegisOps.Domain.Organization;
 using AegisOps.Infrastructure.Persistence;
+using AegisOps.Infrastructure.Deploy;
+using StackExchange.Redis;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -67,6 +69,7 @@ public static class DeploymentEndpoints {
             request.Reason,
             environment.CurrentArtifactId);
         await db.SaveChangesAsync(cancellationToken);
+        await DeploymentUpdates.PublishAsync(http.RequestServices.GetService<IConnectionMultiplexer>(), deployment.Id);
         return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status202Accepted, new {
             deployment.Id,
             status = deployment.Status.ToString(),
@@ -132,6 +135,7 @@ public static class DeploymentEndpoints {
             $"rollback of {source.Id:D}",
             environment.CurrentArtifactId);
         await db.SaveChangesAsync(cancellationToken);
+        await DeploymentUpdates.PublishAsync(http.RequestServices.GetService<IConnectionMultiplexer>(), deployment.Id);
         return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status202Accepted, new {
             deployment.Id,
             status = deployment.Status.ToString(),
@@ -282,6 +286,7 @@ public static class DeploymentEndpoints {
 
         db.AuditEvents.Add(AuditEvent.Record(now, "User", actor.UserId, actor.Display, "deployment." + decision.ToString().ToLowerInvariant(), "Deployment", deployment.Id, decision.ToString(), deployment.CorrelationId));
         await db.SaveChangesAsync(cancellationToken);
+        await DeploymentUpdates.PublishAsync(http.RequestServices.GetService<IConnectionMultiplexer>(), deployment.Id);
         return Results.NoContent();
     }
 
@@ -321,6 +326,7 @@ public static class DeploymentEndpoints {
         db.DeploymentEvents.Add(DeploymentEvent.Create(deployment.Id, sequence, now, DeploymentEventType.Cancelled, "Deployment cancelled."));
         db.AuditEvents.Add(AuditEvent.Record(now, actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display, "deployment.cancelled", "Deployment", deployment.Id, "Cancelled", deployment.CorrelationId));
         await db.SaveChangesAsync(http.RequestAborted);
+        await DeploymentUpdates.PublishAsync(http.RequestServices.GetService<IConnectionMultiplexer>(), deployment.Id);
         return Results.NoContent();
     }
 

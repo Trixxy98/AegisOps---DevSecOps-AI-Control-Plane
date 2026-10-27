@@ -9,6 +9,7 @@ using AegisOps.Infrastructure.Persistence;
 using AegisOps.Infrastructure.Scanning;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using StackExchange.Redis;
 
 namespace AegisOps.Infrastructure.Deploy;
 
@@ -18,7 +19,8 @@ public static class DeploymentProcessor {
         IServiceScopeFactory scopes,
         TimeProvider time,
         string workerId,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        IConnectionMultiplexer? redis = null
     ) {
         var job = await TryClaimOneAsync(db, time, workerId, cancellationToken);
         if (job is null) return false;
@@ -35,11 +37,16 @@ public static class DeploymentProcessor {
                 if (job.Type == JobType.EvaluateDeployment) {
                     await EvaluateAsync(db, deploymentId, time, lost.Token);
                 } else if (job.Type == JobType.ExecuteDeployment) {
-                    await ExecuteAsync(db, deploymentId, time, lost.Token);
+                    await ExecuteAsync(db, deploymentId, time, lost.Token, redis);
                 }
             }
 
+            var pending = db.ChangeTracker.Entries<DeploymentEvent>()
+                .Where(entry => entry.State == EntityState.Added).ToArray();
             await FinishAsync(db, job, token, time, null, lost.Token);
+            foreach (var id in pending.Where(entry => entry.State == EntityState.Unchanged)
+                         .Select(entry => entry.Entity.DeploymentId).Distinct())
+                await DeploymentUpdates.PublishAsync(redis, id);
             return true;
         } catch (OperationCanceledException) when (lost.IsCancellationRequested) {
             return true;
@@ -241,7 +248,8 @@ public static class DeploymentProcessor {
         AegisOpsDbContext db,
         Guid deploymentId,
         TimeProvider time,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        IConnectionMultiplexer? redis = null
     ) {
         var deployment = await db.Deployments.SingleAsync(item => item.Id == deploymentId, cancellationToken);
         var outcome = await DecideAsync(db, deployment, time, cancellationToken);
@@ -266,6 +274,7 @@ public static class DeploymentProcessor {
             var project = await db.Projects.AsNoTracking().SingleAsync(item => item.Id == deployment.ProjectId, cancellationToken);
             await AddEventAsync(db, deployment.Id, DeploymentEventType.DeployStarted, $"Docker executor started for {environment.Target.ContainerName}.", time, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
+            await DeploymentUpdates.PublishAsync(redis, deployment.Id);
             var execution = await DockerDeploymentExecutor.ExecuteAsync(
                 environment.Target,
                 artifact,

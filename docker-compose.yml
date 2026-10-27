@@ -60,6 +60,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=aegisops;Username=aegisops;Password=${POSTGRES_PASSWORD:-aegisops_dev}
+      ConnectionStrings__Redis: redis:6379
       DOCKER_HEALTH_HOST: host.docker.internal
     volumes:
       - reports:/app/reports
