@@ -57,6 +57,20 @@ public static class GetEnvironmentRuntime {
             });
         }
 
+        // The API is deliberately not granted the Worker's Docker socket. Do not
+        // report an empty list as if we had inspected the host.
+        if (!DockerClientFactory.CanInspect(DockerClientFactory.Socket())) {
+            return Results.Ok(new {
+                type = "docker",
+                environment.Target.ContainerName,
+                environment.Target.HostPort,
+                environment.Target.HealthPath,
+                inspectionAvailable = false,
+                reason = "Docker runtime inspection is unavailable to the API; check the deployment timeline and target health endpoint.",
+                containers = (IReadOnlyList<ContainerRuntime>?)null,
+            });
+        }
+
         try {
             var containers = await DockerRuntimeInspector.ListAsync(
                 project.Slug,
@@ -68,6 +82,7 @@ public static class GetEnvironmentRuntime {
                 environment.Target.ContainerName,
                 environment.Target.HostPort,
                 environment.Target.HealthPath,
+                inspectionAvailable = true,
                 containers,
             });
         } catch (Exception exception) {

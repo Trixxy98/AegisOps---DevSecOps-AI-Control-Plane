@@ -16,4 +16,8 @@ public static class DockerClientFactory {
         var mac = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), ".docker", "run", "docker.sock");
         return File.Exists(mac) ? new Uri("unix://" + mac) : new Uri("unix:///var/run/docker.sock");
     }
+
+    public static bool CanInspect(Uri endpoint) =>
+        !string.Equals(endpoint.Scheme, "unix", StringComparison.OrdinalIgnoreCase)
+        || File.Exists(endpoint.LocalPath);
 }

@@ -22,4 +22,19 @@ public class DockerTargetOwnershipTests {
         container.Labels.Clear();
         Assert.False(DockerDeploymentExecutor.OwnedBy(container, "site-service", "Staging"));
     }
+
+    [Theory]
+    [InlineData("Staging")]
+    [InlineData("Production")]
+    public void ExecutorPassesTargetEnvironmentToAspNet(string environment) {
+        var variables = DockerDeploymentExecutor.ContainerEnvironment(environment);
+        Assert.Equal(["DOTNET_ENVIRONMENT=" + environment, "ASPNETCORE_ENVIRONMENT=" + environment], variables);
+    }
+
+    [Fact]
+    public void RuntimeInspectionDoesNotAssumeMissingSocketIsAnEmptyDockerHost() {
+        var missingSocket = new Uri("unix:///nonexistent-aegisops-runtime-test/docker.sock");
+        Assert.False(DockerClientFactory.CanInspect(missingSocket));
+        Assert.True(DockerClientFactory.CanInspect(new Uri("tcp://localhost:2375")));
+    }
 }
