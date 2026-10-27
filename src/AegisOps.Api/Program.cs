@@ -17,6 +17,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHealthChecks();
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddIdentityStore(builder.Configuration);
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<DeploymentConnections>();
 builder.Services.AddAuthRateLimiting();
 var redis = builder.Configuration.GetConnectionString("Redis");
 if (!string.IsNullOrWhiteSpace(redis)) {
@@ -25,6 +27,7 @@ if (!string.IsNullOrWhiteSpace(redis)) {
         options.AbortOnConnectFail = false;
         return ConnectionMultiplexer.Connect(options);
     });
+    builder.Services.AddHostedService<DeploymentUpdateListener>();
 }
 
 builder.Services.AddSingleton<IIdempotencyStore>(services =>
@@ -40,6 +43,7 @@ app.UseRateLimiter();
 
 app.MapHealthChecks("/health/live");
 app.MapHealthChecks("/health/ready");
+app.MapHub<OpsHub>("/hubs/ops", options => options.CloseOnAuthenticationExpiration = true);
 app.MapPost("/api/v1/auth/login", Login.Handle).RequireRateLimiting(AuthRateLimitingExtensions.PolicyName);
 app.MapPost("/api/v1/auth/refresh", Refresh.Handle).RequireRateLimiting(AuthRateLimitingExtensions.PolicyName);
 app.MapPost("/api/v1/auth/logout", Logout.Handle).RequireAuthorization();
