@@ -125,12 +125,21 @@ part of this Compose startup; do not start its Production services. The target i
 currently publishes linux/amd64 only; the executor retries with that platform when
 the default pull fails on arm64.
 
+The Worker passes the target environment name to new containers as both
+`DOTNET_ENVIRONMENT` and `ASPNETCORE_ENVIRONMENT`. `site-service` reads this via
+ASP.NET for `/version`; an already-running Staging container will continue to say
+Production until a new authorized Staging deployment replaces it. This does not
+modify running containers or the Production target.
+
 Compose mounts the host Docker socket **only into the Worker** so it can manage
 containers. `DOCKER_HEALTH_HOST=host.docker.internal` lets the Worker probe host
 published port 8101 (its own loopback is not the Docker host). This assumes Docker
 Desktop; another Docker host needs an operator-configured reachable address. The
-API does not have socket access, so its Docker runtime-inspection endpoint may be
-unavailable, while deployment timeline and host `/health` and `/version` remain usable.
+API does not have socket access. Its Docker runtime endpoint reports
+`inspectionAvailable: false` and `containers: null` when no Docker socket exists,
+rather than returning 503 or pretending that no containers are running. The
+deployment timeline and host `/health` and `/version` remain usable. Other Docker
+errors can still return 503; no socket access is added to the API.
 The Docker socket grants effective root-equivalent control over the host Docker daemon
 and all containers/volumes, despite being mounted only in the Worker. Run this
 Development stack only on a trusted local machine, restrict access to AegisOps

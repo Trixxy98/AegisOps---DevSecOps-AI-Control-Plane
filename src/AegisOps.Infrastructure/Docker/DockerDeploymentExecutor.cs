@@ -73,6 +73,7 @@ public static class DockerDeploymentExecutor {
                 Name = name,
                 Image = image,
                 Platform = platform,
+                Env = ContainerEnvironment(environmentName),
                 Labels = new Dictionary<string, string> {
                     ["aegisops.project"] = projectSlug,
                     ["aegisops.environment"] = environmentName,
@@ -180,6 +181,16 @@ public static class DockerDeploymentExecutor {
             && labels.TryGetValue("aegisops.project", out var project) && project == projectSlug
             && labels.TryGetValue("aegisops.environment", out var environment) && environment == environmentName
             && labels.ContainsKey("aegisops.deployment");
+    }
+
+    // Use the environment of the deployment, not the Worker's own Development environment.
+    // Set both names because DOTNET_ENVIRONMENT takes precedence for WebApplication.
+    public static IList<string> ContainerEnvironment(string environmentName) {
+        if (string.IsNullOrWhiteSpace(environmentName) || environmentName.Contains('=')) {
+            throw new ArgumentException("A valid deployment environment name is required.", nameof(environmentName));
+        }
+
+        return [$"DOTNET_ENVIRONMENT={environmentName}", $"ASPNETCORE_ENVIRONMENT={environmentName}"];
     }
 
     private static async Task<ContainerListResponse?> FindAsync(DockerClient client, string name, CancellationToken cancellationToken) {
