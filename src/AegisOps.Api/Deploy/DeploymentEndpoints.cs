@@ -175,6 +175,30 @@ public static class DeploymentEndpoints {
         return Results.Ok(items);
     }
 
+    // Only actionable rows are returned; the same access rules guard the decision and live hint.
+    public static async Task<IResult> ApprovalQueue(ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, HttpContext http) {
+        if (principal.FindFirst("actor_type") is not null) return DeploymentAccess.Forbidden();
+        var access = await DeploymentAccess.ResolveAsync(principal, users);
+        if (access.Error is not null) return access.Error;
+        var actor = await ActorResult.ResolveAsync(principal, users);
+        if (actor.Error is not null) return actor.Error;
+        var items = new List<object>();
+        var query = access.Scope(db.Deployments.AsNoTracking(), db)
+            .Where(item => item.Status == DeploymentStatus.AwaitingApproval && item.RequestedById != actor.UserId)
+            .OrderByDescending(item => item.RequestedAt);
+        for (var offset = 0; items.Count < 100; offset += 100) {
+            var batch = await query.Skip(offset).Take(100).ToListAsync(http.RequestAborted);
+            foreach (var item in batch) {
+                if (!await access.CanApproveAsync(item, db, http.RequestAborted) ||
+                    await db.Approvals.AsNoTracking().AnyAsync(approval => approval.DeploymentId == item.Id && approval.ApproverId == actor.UserId, http.RequestAborted)) continue;
+                items.Add(new { item.Id, item.ProjectId, item.RequestedAt, status = item.Status.ToString() });
+                if (items.Count == 100) break;
+            }
+            if (batch.Count < 100) break;
+        }
+        return Results.Ok(items);
+    }
+
     public static async Task<IResult> Get(Guid id, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, HttpContext http) {
         var access = await DeploymentAccess.ResolveAsync(principal, users);
         if (access.Error is not null) return access.Error;
