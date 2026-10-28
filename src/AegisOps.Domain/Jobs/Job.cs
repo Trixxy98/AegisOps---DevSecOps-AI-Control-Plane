@@ -11,6 +11,7 @@ public enum JobType {
     EvaluateDeployment = 1,
     ExecuteDeployment = 2,
     ParseScanReport = 3,
+    SendNotification = 4,
 }
 
 public sealed class Job {

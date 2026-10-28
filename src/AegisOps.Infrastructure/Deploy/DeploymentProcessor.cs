@@ -9,6 +9,7 @@ using AegisOps.Infrastructure.Persistence;
 using AegisOps.Infrastructure.Scanning;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using StackExchange.Redis;
 
 namespace AegisOps.Infrastructure.Deploy;
@@ -29,7 +30,11 @@ public static class DeploymentProcessor {
         using var lost = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var heartbeat = RenewAsync(scopes, job.Id, token, time, lost);
         try {
-            if (job.Type == JobType.ParseScanReport) {
+            if (job.Type == JobType.SendNotification) {
+                var eventId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("eventId").GetGuid();
+                await using var configScope = scopes.CreateAsyncScope();
+                await TeamWebhookSender.SendAsync(db, configScope.ServiceProvider.GetRequiredService<IConfiguration>(), eventId, lost.Token);
+            } else if (job.Type == JobType.ParseScanReport) {
                 var scanId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("scanId").GetGuid();
                 await ScanReportStore.ParseQueuedAsync(db, scanId, time.GetUtcNow(), lost.Token);
             } else {
@@ -51,7 +56,9 @@ public static class DeploymentProcessor {
         } catch (OperationCanceledException) when (lost.IsCancellationRequested) {
             return true;
         } catch (Exception exception) {
-            await FinishAsync(db, job, token, time, exception.Message, lost.Token);
+            // HTTP/DNS exceptions may contain the URL (including query tokens). Never persist
+            // them in jobs.last_error or expose them through the admin jobs API.
+            await FinishAsync(db, job, token, time, job.Type == JobType.SendNotification ? "Webhook delivery failed." : exception.Message, lost.Token);
             return true;
         } finally {
             lost.Cancel();
