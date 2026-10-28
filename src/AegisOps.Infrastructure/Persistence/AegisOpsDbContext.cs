@@ -8,6 +8,7 @@ using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Jobs;
 using AegisOps.Domain.Policy;
 using AegisOps.Domain.Security;
+using System.Text.Json;
 
 namespace AegisOps.Infrastructure.Persistence;
 
@@ -45,4 +46,17 @@ public sealed class AegisOpsDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<Approval> Approvals => Set<Approval>();
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+
+    // The notification outbox is written in the same transaction as each timeline event.
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => SaveChangesAsync(true, cancellationToken);
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default) {
+        foreach (var entry in ChangeTracker.Entries<DeploymentEvent>().Where(e => e.State == EntityState.Added).ToArray()) {
+            var id = entry.Entity.Id;
+            if (!ChangeTracker.Entries<Job>().Any(e => e.State == EntityState.Added && e.Entity.Type == JobType.SendNotification && e.Entity.Payload.Contains(id.ToString("D"), StringComparison.OrdinalIgnoreCase))) {
+                Jobs.Add(Job.Enqueue(JobType.SendNotification, JsonSerializer.Serialize(new { eventId = id }), entry.Entity.Timestamp, Guid.CreateVersion7().ToString("N")));
+            }
+        }
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
 }

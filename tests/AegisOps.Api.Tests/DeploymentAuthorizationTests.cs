@@ -3,6 +3,7 @@ using AegisOps.Api.Deploy;
 using AegisOps.Application.Idempotency;
 using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Identity;
+using AegisOps.Domain.Jobs;
 using AegisOps.Domain.Organization;
 using AegisOps.Domain.Policy;
 using AegisOps.Domain.Security;
@@ -269,7 +270,8 @@ public sealed class DeploymentAuthorizationTests {
         Assert.Equal(202, await fixture.Request(principal));
         fixture.Replay.Stored = null;
         Assert.Equal(409, await fixture.Rollback(principal));
-        Assert.Single(fixture.Db.Jobs);
+        Assert.Single(fixture.Db.Jobs.Where(job => job.Type == JobType.EvaluateDeployment));
+        Assert.Single(fixture.Db.Jobs.Where(job => job.Type == JobType.SendNotification));
     }
 
     [Fact]
@@ -290,7 +292,7 @@ public sealed class DeploymentAuthorizationTests {
         Assert.Null(rollback.RequestedByApiKeyId);
         Assert.Equal($"rollback of {fixture.Source.Id:D}", rollback.Reason);
         Assert.Equal(DeploymentStatus.Requested, rollback.Status);
-        Assert.Single(fixture.Db.Jobs);
+        Assert.Single(fixture.Db.Jobs.Where(job => job.Type == JobType.EvaluateDeployment));
         Assert.Equal(1, fixture.Replay.Claims);
     }
 
@@ -305,7 +307,7 @@ public sealed class DeploymentAuthorizationTests {
         Assert.Equal(fixture.Source.ArtifactId, rollback.PreviousArtifactId);
         Assert.Null(rollback.RequestedById);
         Assert.NotNull(rollback.RequestedByApiKeyId);
-        Assert.Single(fixture.Db.Jobs);
+        Assert.Single(fixture.Db.Jobs.Where(job => job.Type == JobType.EvaluateDeployment));
         Assert.Equal(1, fixture.Replay.Claims);
 
         fixture.Environment.Retarget(DeploymentTarget.Noop());
@@ -313,7 +315,7 @@ public sealed class DeploymentAuthorizationTests {
         Assert.Equal(403, await fixture.Rollback(key));
         Assert.Equal(1, fixture.Replay.Lookups);
         Assert.Equal(1, fixture.Replay.Claims);
-        Assert.Single(fixture.Db.Jobs);
+        Assert.Single(fixture.Db.Jobs.Where(job => job.Type == JobType.EvaluateDeployment));
         Assert.Equal(2, fixture.Db.Deployments.Count());
     }
 
@@ -337,7 +339,7 @@ public sealed class DeploymentAuthorizationTests {
         var rollbackId = Assert.Single(fixture.Db.Deployments.Where(item => item.Id != fixture.Source.Id)).Id;
         Assert.Equal(202, await fixture.Rollback(principal));
         Assert.Equal(rollbackId, Assert.Single(fixture.Db.Deployments.Where(item => item.Id != fixture.Source.Id)).Id);
-        Assert.Single(fixture.Db.Jobs);
+        Assert.Single(fixture.Db.Jobs.Where(job => job.Type == JobType.EvaluateDeployment));
         Assert.Equal(1, fixture.Replay.Claims);
     }
 
@@ -396,7 +398,7 @@ public sealed class DeploymentAuthorizationTests {
         fixture.Db.Environments.Add(secondEnvironment);
         fixture.Db.SaveChanges();
         Assert.Equal(409, await fixture.Request(principal, new RequestDeploymentRequest(fixture.Artifact.Id, secondEnvironment.Id, null, null)));
-        Assert.Single(fixture.Db.Jobs);
+        Assert.Single(fixture.Db.Jobs.Where(job => job.Type == JobType.EvaluateDeployment));
         Assert.Equal(1, fixture.Replay.Claims);
     }
 
@@ -420,7 +422,7 @@ public sealed class DeploymentAuthorizationTests {
         fixture.Db.Deployments.Add(other);
         fixture.Db.SaveChanges();
         Assert.Equal(409, await fixture.Rollback(principal, other.Id));
-        Assert.Single(fixture.Db.Jobs);
+        Assert.Single(fixture.Db.Jobs.Where(job => job.Type == JobType.EvaluateDeployment));
         Assert.Equal(1, fixture.Replay.Claims);
     }
 
