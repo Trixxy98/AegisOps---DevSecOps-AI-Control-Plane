@@ -120,6 +120,8 @@ app.MapPost("/api/v1/deployments", DeploymentEndpoints.Request)
     .RequireAuthorization(Permissions.DeploymentsRequest);
 app.MapGet("/api/v1/deployments", DeploymentEndpoints.List)
     .RequireAuthorization(Permissions.DeploymentsRead);
+app.MapGet("/api/v1/deployments/approval-queue", DeploymentEndpoints.ApprovalQueue)
+    .RequireAuthorization(Permissions.DeploymentsApprove);
 app.MapGet("/api/v1/deployments/{id:guid}", DeploymentEndpoints.Get)
     .RequireAuthorization(Permissions.DeploymentsRead);
 app.MapGet("/api/v1/deployments/{id:guid}/events", DeploymentEndpoints.Events)

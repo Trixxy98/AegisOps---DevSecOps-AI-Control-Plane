@@ -30,10 +30,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .nav-item.is-active { background: #28364a; border-color: #384c67; color: #eff5ff; }
 .sidebar-footer { margin-top: auto; padding: 15px 12px 0; border-top: 1px solid #252c36; color: #8b99ab; font-size: 12px; display: flex; align-items: center; gap: 9px; }
 .status-dot { width: 7px; height: 7px; flex: 0 0 7px; display: inline-block; border-radius: 50%; background: #79b9a0; box-shadow: 0 0 0 3px #79b9a020; }
+.status-dot-muted { background: #aeb8c6; box-shadow: none; }
 .main-column { min-width: 0; flex: 1; }
 .topbar { height: 70px; padding: 0 clamp(22px, 4vw, 56px); display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #252c36; }
 .topbar-label { color: #d6dde6; font-size: 12px; font-weight: 550; }
 .topbar-label span { color: #647081; padding: 0 7px; }
+.topbar-actions { display: flex; align-items: center; gap: 16px; }
+.update-status { display: inline-flex; align-items: center; gap: 8px; color: #aab7c7; font-size: 11px; white-space: nowrap; }
 .logout-button, .secondary-button, .danger-button { border: 1px solid #394352; border-radius: 7px; background: #202833; color: #e2e8f0; font-size: 12px; font-weight: 600; padding: 9px 13px; white-space: nowrap; }
 .logout-button:hover, .secondary-button:hover { background: #2a3542; border-color: #536376; }
 .mobile-navigation { display: none; }
@@ -44,6 +47,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .page-description { margin: 8px 0 0; color: #99a5b5; font-size: 14px; }
 .heading-badge { display: inline-flex; align-items: center; gap: 9px; color: #b5c1ce; border: 1px solid #2d3845; border-radius: 100px; padding: 8px 12px; font-size: 11px; white-space: nowrap; }
 .error-banner { background: #371d25; border: 1px solid #784452; color: #ffd4dc; padding: 12px 15px; border-radius: 8px; margin: 0 0 20px; font-size: 13px; overflow-wrap: anywhere; }
+.deployment-toast { position: fixed; z-index: 10; right: 20px; bottom: 20px; width: min(420px, calc(100vw - 40px)); display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 14px 16px; border: 1px solid #407765; border-radius: 8px; background: #193329; color: #dcf8eb; box-shadow: 0 12px 35px #0008; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.deployment-toast-error { border-color: #784452; background: #371d25; color: #ffd4dc; }
+.toast-dismiss { flex: 0 0 auto; border: 0; background: transparent; color: inherit; font-size: 20px; line-height: 1; padding: 0 2px; }
+.button-spinner { display: inline-block; width: 12px; height: 12px; margin-right: 5px; vertical-align: -2px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .button-spinner { animation: none; } }
 .panel, .stat-card { min-width: 0; background: #141920; border: 1px solid #2a323d; border-radius: 11px; padding: 20px; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .panel-heading h2, .panel-heading h3 { margin: 0; color: #f0f3f7; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
@@ -63,6 +72,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .list-button span { color: #9aa8b9; font-size: 12px; }
 .list-button:hover, .list-button.is-selected { border-color: #56749a; background: #243247; }
 .list-button .warning-text { color: #e8bd89; }
+.deployment-list-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.deployment-list-button .latest-marker { display: inline-flex; align-items: center; border: 1px solid #517b70; border-radius: 100px; background: #203b33; color: #b9ead9; padding: 2px 8px; font-size: 11px; font-weight: 650; }
+.deployment-list-button .deployment-list-time { color: #c2cedb; line-height: 1.4; }
 .list-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .list-row > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .empty-state { color: #97a5b7; font-size: 13px; line-height: 1.6; margin: 0; }

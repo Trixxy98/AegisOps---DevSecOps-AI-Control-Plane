@@ -56,11 +56,114 @@ public sealed class DeploymentAuthorizationTests {
         Assert.Empty(hub.Sent);
     }
 
+    [Fact]
+    public async Task LiveDeliveryDoesNotLeakAcrossProjectsOrSessions() {
+        using var fixture = new Fixture();
+        var member = fixture.AddUser("Developer");
+        var otherMember = fixture.AddUser("Developer");
+        fixture.Join(member);
+        var otherTeam = Team.Create("Other", "other", fixture.Now);
+        var otherProject = Project.Create(otherTeam.Id, "Other", "other", fixture.Now);
+        var otherEnvironment = ProjectEnvironment.Create(otherProject.Id, "Other", EnvironmentTier.Development, 0, DeploymentTarget.Noop());
+        var otherArtifact = Artifact.Create(otherProject.Id, "1.0.0", new string('b', 40), "main", "image:other",
+            CheckStatus.Passed, CheckStatus.Passed, fixture.Now, createdById: otherMember.Id);
+        var otherDeployment = Deployment.Request(otherProject.Id, otherEnvironment.Id, otherArtifact.Id,
+            fixture.Now, "other", otherMember.Id, null, null, null);
+        fixture.Db.AddRange(otherTeam, otherProject, otherEnvironment, otherArtifact, otherDeployment,
+            TeamMember.Create(otherTeam.Id, otherMember.Id, TeamRole.Member, fixture.Now));
+        fixture.Db.SaveChanges();
+
+        var connections = new DeploymentConnections();
+        connections.Add("member-tab-1", Fixture.UserPrincipal(member));
+        connections.Add("member-tab-2", Fixture.UserPrincipal(member));
+        connections.Add("other-tab", Fixture.UserPrincipal(otherMember));
+        var hub = new RecordingHub();
+        var listener = new DeploymentUpdateListener(null!, fixture.Services.GetRequiredService<IServiceScopeFactory>(), hub,
+            connections, NullLogger<DeploymentUpdateListener>.Instance);
+
+        await listener.DispatchAsync(fixture.Source.Id, TestContext.Current.CancellationToken);
+        Assert.Equal(2, hub.Sent.Count);
+        Assert.Contains("member-tab-1", hub.Sent);
+        Assert.Contains("member-tab-2", hub.Sent);
+        hub.Sent.Clear();
+        await listener.DispatchAsync(otherDeployment.Id, TestContext.Current.CancellationToken);
+        Assert.Equal("other-tab", Assert.Single(hub.Sent));
+    }
+
+    [Fact]
+    public async Task ApprovalHintsAndQueueRequireCurrentProjectRoleAndUnvotedNonrequester() {
+        using var fixture = new Fixture();
+        var reviewer = fixture.AddUser("Security");
+        var developer = fixture.AddUser("Developer");
+        var outsider = fixture.AddUser("Approver");
+        fixture.Join(reviewer);
+        fixture.Join(developer);
+        fixture.Join(fixture.Creator);
+        fixture.Source.BeginEvaluation();
+        var evaluation = fixture.AddEvaluation("Security");
+        fixture.Source.ApplyDecision(new PolicyOutcome(PolicyDecision.RequireApproval, evaluation.Id, 2, null), fixture.Now);
+        fixture.Db.SaveChanges();
+        var connections = new DeploymentConnections();
+        connections.Add("reviewer", Fixture.UserPrincipal(reviewer));
+        connections.Add("developer", Fixture.UserPrincipal(developer));
+        connections.Add("outsider", Fixture.UserPrincipal(outsider));
+        connections.Add("requester", Fixture.UserPrincipal(fixture.Creator));
+        connections.Add("key", Fixture.KeyPrincipal(fixture.Project.Id, "deployments:approve"));
+        var hub = new RecordingHub();
+        var listener = new DeploymentUpdateListener(null!, fixture.Services.GetRequiredService<IServiceScopeFactory>(), hub,
+            connections, NullLogger<DeploymentUpdateListener>.Instance);
+
+        Assert.Equal(fixture.Source.Id, Assert.Single(await fixture.ApprovalQueue(Fixture.UserPrincipal(reviewer))));
+        Assert.Empty(await fixture.ApprovalQueue(Fixture.UserPrincipal(developer)));
+        Assert.Empty(await fixture.ApprovalQueue(Fixture.UserPrincipal(outsider)));
+        Assert.Empty(await fixture.ApprovalQueue(Fixture.UserPrincipal(fixture.Creator)));
+        Assert.Equal(403, ((IStatusCodeHttpResult)await fixture.ApprovalQueueResult(Fixture.KeyPrincipal(fixture.Project.Id, "deployments:approve"))).StatusCode);
+        await listener.DispatchAsync(fixture.Source.Id, TestContext.Current.CancellationToken);
+        Assert.Equal("reviewer", Assert.Single(hub.ApprovalHints));
+        Assert.DoesNotContain("key", hub.Sent);
+        hub.ApprovalHints.Clear();
+
+        fixture.Db.TeamMembers.Remove(fixture.Db.TeamMembers.Single(item => item.UserId == reviewer.Id));
+        fixture.Db.SaveChanges();
+        Assert.Empty(await fixture.ApprovalQueue(Fixture.UserPrincipal(reviewer)));
+        await listener.DispatchAsync(fixture.Source.Id, TestContext.Current.CancellationToken);
+        Assert.Empty(hub.ApprovalHints);
+
+        var otherTeam = Team.Create("Other", "other", fixture.Now);
+        var otherProject = Project.Create(otherTeam.Id, "Other", "other", fixture.Now);
+        var otherEnvironment = ProjectEnvironment.Create(otherProject.Id, "Other", EnvironmentTier.Development, 0, DeploymentTarget.Noop());
+        var otherArtifact = Artifact.Create(otherProject.Id, "2.0.0", new string('c', 40), "main", "image:other",
+            CheckStatus.Passed, CheckStatus.Passed, fixture.Now, createdById: fixture.Creator.Id);
+        var otherDeployment = Deployment.Request(otherProject.Id, otherEnvironment.Id, otherArtifact.Id,
+            fixture.Now, "other", fixture.Creator.Id, null, null, null);
+        otherDeployment.BeginEvaluation();
+        var otherEvaluation = PolicyEvaluation.Create(otherDeployment.Id, PolicyDecision.RequireApproval, 1, fixture.Now,
+            """[{"Type":"RequireApprovals","RequiredRoles":["Security"]}]""");
+        otherDeployment.ApplyDecision(new PolicyOutcome(PolicyDecision.RequireApproval, otherEvaluation.Id, 1, null), fixture.Now);
+        fixture.Db.AddRange(otherTeam, otherProject, otherEnvironment, otherArtifact, otherDeployment, otherEvaluation);
+        fixture.Db.SaveChanges();
+        Assert.Empty(await fixture.ApprovalQueue(Fixture.UserPrincipal(reviewer)));
+        await listener.DispatchAsync(otherDeployment.Id, TestContext.Current.CancellationToken);
+        Assert.Empty(hub.ApprovalHints);
+
+        fixture.Join(reviewer);
+        Assert.Equal(204, await fixture.Decide(Fixture.UserPrincipal(reviewer), "Approved"));
+        Assert.Empty(await fixture.ApprovalQueue(Fixture.UserPrincipal(reviewer)));
+        await listener.DispatchAsync(fixture.Source.Id, TestContext.Current.CancellationToken);
+        Assert.Empty(hub.ApprovalHints);
+        reviewer.Deactived();
+        fixture.Db.SaveChanges();
+        Assert.Equal(401, ((IStatusCodeHttpResult)await fixture.ApprovalQueueResult(Fixture.UserPrincipal(reviewer))).StatusCode);
+        await listener.DispatchAsync(fixture.Source.Id, TestContext.Current.CancellationToken);
+        Assert.Empty(hub.ApprovalHints);
+    }
+
     private sealed class RecordingHub : IHubContext<OpsHub>, IHubClients {
         public List<string> Sent { get; } = [];
+        public List<string> ApprovalHints { get; } = [];
         public IHubClients Clients => this;
         public IGroupManager Groups => throw new NotSupportedException();
-        public IClientProxy Client(string connectionId) => new RecordingClient(connectionId, Sent);
+        public IClientProxy Client(string connectionId) => new RecordingClient(connectionId, Sent, ApprovalHints);
         public IClientProxy All => throw new NotSupportedException();
         public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => throw new NotSupportedException();
         IClientProxy IHubClients<IClientProxy>.Clients(IReadOnlyList<string> connectionIds) => throw new NotSupportedException();
@@ -71,11 +174,11 @@ public sealed class DeploymentAuthorizationTests {
         public IClientProxy Users(IReadOnlyList<string> userIds) => throw new NotSupportedException();
     }
 
-    private sealed class RecordingClient(string id, List<string> sent) : IClientProxy {
+    private sealed class RecordingClient(string id, List<string> sent, List<string> approvalHints) : IClientProxy {
         public Task SendCoreAsync(string method, object?[] args, CancellationToken cancellationToken = default) {
-            Assert.Equal("DeploymentChanged", method);
             Assert.Single(args);
-            sent.Add(id);
+            if (method == "ApprovalQueueChanged") approvalHints.Add(id);
+            else { Assert.Equal("DeploymentChanged", method); sent.Add(id); }
             return Task.CompletedTask;
         }
     }
@@ -521,6 +624,13 @@ public sealed class DeploymentAuthorizationTests {
         public async Task<object[]> List(ClaimsPrincipal principal, Guid? projectId = null) {
             var result = await DeploymentEndpoints.List(Db, principal, Users, Context(), projectId);
             return Assert.IsAssignableFrom<IEnumerable<object>>(Assert.IsAssignableFrom<IValueHttpResult>(result).Value).ToArray();
+        }
+
+        public Task<IResult> ApprovalQueueResult(ClaimsPrincipal principal) => DeploymentEndpoints.ApprovalQueue(principal, Users, Db, Context());
+        public async Task<Guid[]> ApprovalQueue(ClaimsPrincipal principal) {
+            var result = await ApprovalQueueResult(principal);
+            var rows = Assert.IsAssignableFrom<IEnumerable<object>>(Assert.IsAssignableFrom<IValueHttpResult>(result).Value);
+            return rows.Select(row => (Guid)row.GetType().GetProperty("Id")!.GetValue(row)!).ToArray();
         }
 
         public async Task<int> Read(string action, ClaimsPrincipal principal, bool evaluationExists = false) {

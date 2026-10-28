@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
+using AegisOps.Domain.Deploy;
 using AegisOps.Infrastructure.Deploy;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -66,9 +67,15 @@ public sealed partial class DeploymentUpdateListener(
             var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
             var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
             var access = await DeploymentAccess.ResolveAsync(principal, users);
-            if (access.Error is not null || !await access.Scope(db.Deployments.AsNoTracking(), db)
-                    .AnyAsync(item => item.Id == id, token)) continue;
+            if (access.Error is not null) continue;
+            var source = await access.Scope(db.Deployments.AsNoTracking(), db)
+                .SingleOrDefaultAsync(item => item.Id == id, token);
+            if (source is null) continue;
             await hub.Clients.Client(connectionId).SendCoreAsync("DeploymentChanged", [id], token);
+            if (source.Status == DeploymentStatus.AwaitingApproval && Guid.TryParse(principal.FindFirst("sub")?.Value, out var userId) && source.RequestedById != userId &&
+                await access.CanApproveAsync(source, db, token) &&
+                !await db.Approvals.AsNoTracking().AnyAsync(item => item.DeploymentId == id && item.ApproverId == userId, token))
+                await hub.Clients.Client(connectionId).SendCoreAsync("ApprovalQueueChanged", [id], token);
         }
     }
 

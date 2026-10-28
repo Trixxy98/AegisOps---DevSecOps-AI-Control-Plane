@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
-import { connectDeploymentUpdates } from "./deploymentUpdates";
+import { useEffect, useRef, useState } from "react";
+import { connectDeploymentUpdates, type UpdateConnectionStatus } from "./deploymentUpdates";
 
 type View = "dashboard" | "projects" | "deployments" | "approvals" | "policies" | "audit" | "admin";
+type DeployTarget = { id: string; name: string; tier: string };
+type DeploymentToast = { id: number; message: string; type: "success" | "error"; approvalId?: string };
+type ApprovalItem = { id: string; projectId: string; requestedAt: string; status: string };
+const approvalQueuePath = "/api/v1/deployments/approval-queue";
 
 const navigation: Array<{ id: View; label: string; description: string }> = [
   { id: "dashboard", label: "Overview", description: "Deployment activity at a glance" },
@@ -37,8 +41,83 @@ export function App() {
   const [view, setView] = useState<View>("dashboard");
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [updateStatus, setUpdateStatus] = useState<UpdateConnectionStatus>("connecting");
+  const [pendingDeployments, setPendingDeployments] = useState<string[]>([]);
+  const pendingDeploymentsRef = useRef(new Set<string>());
+  const [deploymentToast, setDeploymentToast] = useState<DeploymentToast | null>(null);
+  const toastId = useRef(0);
+  const [approvalItems, setApprovalItems] = useState<ApprovalItem[]>([]);
+  const approvalHint = useRef<(id?: string) => void>(() => {});
 
-  useEffect(() => token ? connectDeploymentUpdates(token, () => setRevision((value) => value + 1)) : undefined, [token]);
+  useEffect(() => {
+    if (!deploymentToast) return;
+    const timer = setTimeout(() => setDeploymentToast((current) => current?.id === deploymentToast.id ? null : current), 8000);
+    return () => clearTimeout(timer);
+  }, [deploymentToast]);
+
+  async function requestDeployment(artifact: { id: string; version: string }, environment: DeployTarget) {
+    if (!token) return;
+    const key = `${artifact.id}:${environment.id}`;
+    if (pendingDeploymentsRef.current.has(key)) return;
+    if (["staging", "production"].includes(environment.tier.toLowerCase()) &&
+        !window.confirm(`Deploy ${artifact.version} to ${environment.name} (${environment.tier})?`)) return;
+
+    pendingDeploymentsRef.current.add(key);
+    setPendingDeployments((current) => [...current, key]);
+    try {
+      const deployment = await api<{ id: string; status: string }>("/api/v1/deployments", token, {
+        method: "POST",
+        body: JSON.stringify({ artifactId: artifact.id, environmentId: environment.id, reason: "UI request" }),
+      });
+      setDeploymentToast({ id: ++toastId.current, type: "success", message: `Deployment requested for ${artifact.version} to ${environment.name}. ID: ${deployment.id} · Status: ${deployment.status}` });
+      setError(null);
+    } catch (error) {
+      setDeploymentToast({ id: ++toastId.current, type: "error", message: `Could not request deployment of ${artifact.version} to ${environment.name}: ${error instanceof Error ? error.message : "Please try again."}` });
+    } finally {
+      pendingDeploymentsRef.current.delete(key);
+      setPendingDeployments((current) => current.filter((item) => item !== key));
+    }
+  }
+
+  useEffect(() => {
+    if (!token) return;
+    setUpdateStatus("connecting");
+    return connectDeploymentUpdates(token, () => { setRevision((value) => value + 1); approvalHint.current(); }, (status) => { setUpdateStatus(status); if (status === "live") approvalHint.current(); }, (id) => approvalHint.current(id));
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) { setApprovalItems([]); setDeploymentToast(null); return; }
+    let active = true;
+    let initialized = false;
+    let sequence = 0;
+    const seen = new Set<string>();
+    const refresh = async (hint?: string) => {
+      const current = ++sequence;
+      try {
+        const items = await api<ApprovalItem[]>(approvalQueuePath, token);
+        if (!active || current !== sequence) return;
+        setApprovalItems(items);
+        const available = new Set(items.map((item) => item.id));
+        setDeploymentToast((toast) => toast?.approvalId && !available.has(toast.approvalId) ? null : toast);
+        const fresh = initialized ? items.find((item) => !seen.has(item.id) && (!hint || item.id === hint)) : undefined;
+        if (fresh) {
+          setDeploymentToast({ id: ++toastId.current, type: "success", approvalId: fresh.id, message: `Approval needed for deployment ${fresh.id} (project ${fresh.projectId}).` });
+        }
+        items.forEach((item) => seen.add(item.id));
+        initialized = true;
+      } catch {
+        if (active && current === sequence) { setApprovalItems([]); setDeploymentToast((toast) => toast?.approvalId ? null : toast); }
+      }
+    };
+    approvalHint.current = (id) => void refresh(id);
+    void refresh();
+    const timer = setInterval(() => void refresh(), 10000);
+    const onFocus = () => void refresh();
+    const onVisibility = () => { if (document.visibilityState === "visible") void refresh(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { active = false; approvalHint.current = () => {}; clearInterval(timer); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVisibility); };
+  }, [token]);
 
   if (!token) {
     return <Login onToken={setToken} />;
@@ -57,7 +136,7 @@ export function App() {
         <div className="sidebar-footer"><span className="status-dot" /> System workspace</div>
       </aside>
       <div className="main-column">
-        <header className="topbar"><span className="topbar-label">Workspace <span>/</span> {navigation.find((item) => item.id === view)?.label}</span><button className="logout-button" type="button" onClick={() => setToken(null)}>Sign out</button></header>
+        <header className="topbar"><span className="topbar-label">Workspace <span>/</span> {navigation.find((item) => item.id === view)?.label}</span><div className="topbar-actions"><span className="update-status" role="status"><span className={`status-dot ${updateStatus !== "live" ? "status-dot-muted" : ""}`} /> {updateStatus === "live" ? "Live updates" : updateStatus === "polling" ? "Polling (10s)" : "Connecting"}</span><button className="logout-button" type="button" onClick={() => { setDeploymentToast(null); setToken(null); }}>Sign out</button></div></header>
         <div className="mobile-navigation"><nav className="navigation" aria-label="Main navigation">
           {navigation.map((item) => <button key={item.id} className={`nav-item ${view === item.id ? "is-active" : ""}`} aria-current={view === item.id ? "page" : undefined} onClick={() => { setView(item.id); setError(null); }} type="button">{item.label}</button>)}
         </nav></div>
@@ -65,14 +144,18 @@ export function App() {
         <div className="page-heading"><div><p className="eyebrow">AEGISOPS / WORKSPACE</p><h1>{navigation.find((item) => item.id === view)?.label}</h1><p className="page-description">{navigation.find((item) => item.id === view)?.description}</p></div><span className="heading-badge"><span className="status-dot" /> Live workspace</span></div>
         {error && <p role="alert" className="error-banner">{error}</p>}
          {view === "dashboard" && <Dashboard token={token} onError={setError} revision={revision} />}
-        {view === "projects" && <Projects token={token} onError={setError} />}
+        {view === "projects" && <Projects token={token} onError={setError} pendingDeployments={pendingDeployments} onDeploy={requestDeployment} />}
          {view === "deployments" && <Deployments token={token} onError={setError} revision={revision} />}
-         {view === "approvals" && <Approvals token={token} onError={setError} revision={revision} />}
+          {view === "approvals" && <Approvals token={token} onError={setError} items={approvalItems} refresh={() => approvalHint.current()} />}
         {view === "policies" && <Policies token={token} onError={setError} />}
         {view === "audit" && <Audit token={token} onError={setError} />}
         {view === "admin" && <Admin token={token} onError={setError} />}
         </section>
       </div>
+      {deploymentToast && <div className={`deployment-toast deployment-toast-${deploymentToast.type}`} role={deploymentToast.type === "error" ? "alert" : "status"}>
+        <span>{deploymentToast.message}</span>
+        <button type="button" className="toast-dismiss" aria-label="Dismiss deployment notification" onClick={() => setDeploymentToast(null)}>×</button>
+      </div>}
     </main>
   );
 }
@@ -110,7 +193,7 @@ function Login({ onToken }: { onToken: (token: string) => void }) {
 function Dashboard({ token, onError, revision }: { token: string; onError: (value: string | null) => void; revision: number }) {
   const [counts, setCounts] = useState<Record<string, number>>({});
   useEffect(() => {
-    api<Array<{ status: string }>>("/api/v1/deployments", token)
+    const load = () => api<Array<{ status: string }>>("/api/v1/deployments", token)
       .then((items) => {
         const next: Record<string, number> = {};
         for (const item of items) {
@@ -119,6 +202,9 @@ function Dashboard({ token, onError, revision }: { token: string; onError: (valu
         setCounts(next);
       })
       .catch((error: Error) => onError(error.message));
+    void load();
+    const timer = setInterval(() => void load(), 10000);
+    return () => clearInterval(timer);
   }, [token, onError, revision]);
 
   return (
@@ -134,7 +220,7 @@ function Dashboard({ token, onError, revision }: { token: string; onError: (valu
   );
 }
 
-function Projects({ token, onError }: { token: string; onError: (value: string | null) => void }) {
+function Projects({ token, onError, pendingDeployments, onDeploy }: { token: string; onError: (value: string | null) => void; pendingDeployments: string[]; onDeploy: (artifact: { id: string; version: string }, environment: DeployTarget) => Promise<void> }) {
   const [projects, setProjects] = useState<Array<{ slug: string; name: string }>>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ environments: Array<{ id: string; name: string; tier: string; targetType: string; containerName?: string; network?: string; hostPort: number; containerPort: number; healthPath?: string; healthTimeoutSeconds: number }> } | null>(null);
@@ -258,8 +344,8 @@ function Projects({ token, onError }: { token: string; onError: (value: string |
               <p><strong>{artifact.version}</strong><span> · {artifact.branch}</span></p>
               <div className="action-row">
                 {detail.environments.map((environment) => (
-                  <button key={environment.id} className="secondary-button" type="button" onClick={() => void api("/api/v1/deployments", token, { method: "POST", body: JSON.stringify({ artifactId: artifact.id, environmentId: environment.id, reason: "UI request" }) }).then(() => onError(null)).catch((error: Error) => onError(error.message))}>
-                    Deploy {environment.name}
+                  <button key={environment.id} className="secondary-button" type="button" disabled={pendingDeployments.includes(`${artifact.id}:${environment.id}`)} onClick={() => void onDeploy(artifact, environment)}>
+                    {pendingDeployments.includes(`${artifact.id}:${environment.id}`) ? <><span className="button-spinner" aria-hidden="true" /> Requesting {environment.name}…</> : `Deploy ${environment.name}`}
                   </button>
                 ))}
               </div>
@@ -272,8 +358,16 @@ function Projects({ token, onError }: { token: string; onError: (value: string |
   );
 }
 
+type DeploymentListItem = { id: string; status: string; approvalsReceived: number; approvalsRequired: number; requestedAt?: string | null; failureReason?: string };
+
+function requestTime(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
 function Deployments({ token, onError, revision }: { token: string; onError: (value: string | null) => void; revision: number }) {
-  const [items, setItems] = useState<Array<{ id: string; status: string; approvalsReceived: number; approvalsRequired: number; failureReason?: string }>>([]);
+  const [items, setItems] = useState<DeploymentListItem[]>([]);
   const [events, setEvents] = useState<Array<{ sequence: number; type: string; message: string }>>([]);
   const [rules, setRules] = useState<Array<{ type: string; passed: boolean; message: string }>>([]);
   const [findings, setFindings] = useState<Array<{ id: string; severity: string; title: string; cve?: string; packageName?: string; status: string }>>([]);
@@ -325,13 +419,19 @@ function Deployments({ token, onError, revision }: { token: string; onError: (va
     }));
   }
 
+  // Keep the API's order for equal or missing dates; never present an undated row as the latest.
+  const recentItems = items.map((item, index) => ({ item, index, timestamp: requestTime(item.requestedAt) }))
+    .sort((a, b) => (b.timestamp ?? -Infinity) - (a.timestamp ?? -Infinity) || a.index - b.index);
+
   return (
     <div className="split-layout">
       <section className="panel"><div className="panel-heading"><h2>Recent deployments</h2><span>{items.length} total</span></div><ul className="item-list">
-        {items.map((item) => (
+        {recentItems.map(({ item, timestamp }, index) => (
           <li key={item.id}>
-            <button className={`list-button ${selected === item.id ? "is-selected" : ""}`} type="button" onClick={() => void open(item.id).catch((error: Error) => onError(error.message))}>
-              <strong>{item.status}</strong><span>Approvals {item.approvalsReceived}/{item.approvalsRequired}</span>
+            <button className={`list-button deployment-list-button ${selected === item.id ? "is-selected" : ""}`} type="button" onClick={() => void open(item.id).catch((error: Error) => onError(error.message))}>
+              <span className="deployment-list-heading"><strong>{item.status}</strong>{index === 0 && timestamp !== null && <span className="latest-marker">Latest</span>}</span>
+              <span className="deployment-list-time">Requested: {timestamp !== null ? <time dateTime={item.requestedAt ?? undefined}>{new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp)}</time> : "time unavailable"}</span>
+              <span>Approvals {item.approvalsReceived}/{item.approvalsRequired}</span>
               {item.failureReason && <span className="warning-text">{item.failureReason}</span>}
             </button>
           </li>
@@ -360,15 +460,10 @@ function Deployments({ token, onError, revision }: { token: string; onError: (va
   );
 }
 
-function Approvals({ token, onError, revision }: { token: string; onError: (value: string | null) => void; revision: number }) {
-  const [items, setItems] = useState<Array<{ id: string; status: string }>>([]);
-  useEffect(() => {
-    api<Array<{ id: string; status: string }>>("/api/v1/deployments?status=AwaitingApproval", token).then(setItems).catch((error: Error) => onError(error.message));
-  }, [token, onError, revision]);
-
+function Approvals({ token, onError, items, refresh }: { token: string; onError: (value: string | null) => void; items: ApprovalItem[]; refresh: () => void }) {
   async function decide(id: string, decision: "Approved" | "Rejected") {
     await api(`/api/v1/deployments/${id}/approvals`, token, { method: "POST", body: JSON.stringify({ decision, comment: decision }) });
-    setItems(await api("/api/v1/deployments?status=AwaitingApproval", token));
+    refresh();
   }
 
   return (
