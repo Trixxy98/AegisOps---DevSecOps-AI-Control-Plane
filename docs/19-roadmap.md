@@ -127,8 +127,8 @@ full Phase 5 done criterion.
 | --- | --- |
 | Hub | `OpsHub`, groups, authorization on join; Redis pub/sub bridge Worker → Api |
 | Frontend | Connection lifecycle, invalidation map, live timeline, approval toasts, connection status indicator, polling fallback |
-| Notifications | `SendNotification` job; team outbound webhook with HMAC |
-| Tests | Hub authorization; invalidation hook |
+| Notifications | `SendNotification` job; team outbound webhook with HMAC (opt-in delivery implemented; owner management, encrypted secrets/rotation, selective event subscriptions, delivery history/metrics, external-receiver integration and historical replay remain) |
+| Tests | Hub authorization, invalidation hook, multi-session deployment and approval hint delivery; browser-level two-session SignalR test remains |
 
 **Done when:** two browser sessions see the same deployment timeline update live; an approver gets a toast within a second of `AwaitingApproval`.
 
