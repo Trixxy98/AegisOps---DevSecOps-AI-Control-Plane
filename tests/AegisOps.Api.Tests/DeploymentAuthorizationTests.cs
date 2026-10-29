@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Encodings.Web;
 using AegisOps.Api.Deploy;
 using AegisOps.Application.Idempotency;
 using AegisOps.Domain.Deploy;
@@ -10,17 +11,114 @@ using AegisOps.Domain.Security;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Options;
 using ProjectEnvironment = AegisOps.Domain.Organization.Environment;
 
 namespace AegisOps.Api.Tests;
 
 public sealed class DeploymentAuthorizationTests {
+    [Fact]
+    public async Task TwoAuthenticatedSignalRClientsReceiveDeploymentUpdates() {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var databasePath = Path.Combine(Path.GetTempPath(), $"aegisops-realtime-{Guid.NewGuid():N}.db");
+        var connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString();
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
+        builder.WebHost.UseTestServer();
+        builder.Services.AddLogging();
+        builder.Services.AddAuthentication("Test")
+            .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("Test", _ => { });
+        builder.Services.AddAuthorization();
+        builder.Services.AddSignalR();
+        builder.Services.AddSingleton<DeploymentConnections>();
+        builder.Services.AddDbContext<AegisOpsDbContext>(options => options.UseSqlite(connectionString)
+            .UseSnakeCaseNamingConvention().ReplaceService<IModelCustomizer, SqliteModelCustomizer>());
+        builder.Services.AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
+        await using var app = builder.Build();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapHub<OpsHub>("/hubs/ops");
+        await app.StartAsync(cancellationToken);
+
+        var (userId, deploymentId) = await SeedRealtimeProject(app.Services, cancellationToken);
+        var server = app.GetTestServer();
+        HubConnection CreateClient() => new HubConnectionBuilder()
+            .WithUrl("http://localhost/hubs/ops", options => {
+                options.Transports = HttpTransportType.LongPolling;
+                options.HttpMessageHandlerFactory = _ => server.CreateHandler();
+                options.Headers["X-Test-User"] = userId.ToString();
+            }).Build();
+
+        await using var first = CreateClient();
+        await using var second = CreateClient();
+        var firstReceived = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondReceived = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var firstSubscription = first.On<Guid>("DeploymentChanged", id => firstReceived.TrySetResult(id));
+        using var secondSubscription = second.On<Guid>("DeploymentChanged", id => secondReceived.TrySetResult(id));
+        await first.StartAsync(cancellationToken);
+        await second.StartAsync(cancellationToken);
+        Assert.NotEqual(first.ConnectionId, second.ConnectionId);
+
+        var connections = app.Services.GetRequiredService<DeploymentConnections>();
+        var registrationDeadline = DateTime.UtcNow.AddSeconds(5);
+        while (connections.Snapshot().Length != 2 && DateTime.UtcNow < registrationDeadline)
+            await Task.Delay(20, cancellationToken);
+        Assert.Equal(2, connections.Snapshot().Length);
+        var listener = new DeploymentUpdateListener(null!, app.Services.GetRequiredService<IServiceScopeFactory>(),
+            app.Services.GetRequiredService<IHubContext<OpsHub>>(), connections, NullLogger<DeploymentUpdateListener>.Instance);
+        await listener.DispatchAsync(deploymentId, cancellationToken);
+
+        Assert.Equal(deploymentId, await firstReceived.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken));
+        Assert.Equal(deploymentId, await secondReceived.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken));
+    }
+
+    private static async Task<(Guid UserId, Guid DeploymentId)> SeedRealtimeProject(IServiceProvider services, CancellationToken token) {
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
+        await db.Database.EnsureCreatedAsync(token);
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+        var now = DateTimeOffset.UtcNow;
+        var user = User.Create("member@example.test", "Member", now);
+        Assert.True((await users.CreateAsync(user)).Succeeded);
+        var role = new IdentityRole<Guid> { Id = Guid.NewGuid(), Name = "Developer", NormalizedName = "DEVELOPER" };
+        db.Roles.Add(role);
+        await db.SaveChangesAsync(token);
+        Assert.True((await users.AddToRoleAsync(user, role.Name!)).Succeeded);
+
+        var team = Team.Create("Integration", "integration", now);
+        var project = Project.Create(team.Id, "Integration", "integration", now);
+        var environment = ProjectEnvironment.Create(project.Id, "Development", EnvironmentTier.Development, 0);
+        var artifact = Artifact.Create(project.Id, "1.0.0", new string('a', 40), "main", "example/image:1.0.0",
+            CheckStatus.Passed, CheckStatus.Passed, now, createdById: user.Id);
+        var deployment = Deployment.Request(project.Id, environment.Id, artifact.Id, now, "integration test", user.Id, null, null, null);
+        db.AddRange(team, project, environment, artifact, deployment,
+            TeamMember.Create(team.Id, user.Id, TeamRole.Member, now));
+        await db.SaveChangesAsync(token);
+        return (user.Id, deployment.Id);
+    }
+
+    private sealed class TestAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options,
+        ILoggerFactory logger, UrlEncoder encoder) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder) {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync() {
+            if (!Guid.TryParse(Request.Headers["X-Test-User"], out var userId))
+                return Task.FromResult(AuthenticateResult.Fail("Missing test user."));
+            var identity = new ClaimsIdentity([new Claim("sub", userId.ToString())], Scheme.Name);
+            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));
+        }
+    }
+
     [Fact]
     public async Task LiveDeliveryRechecksMembershipRolesAndActiveUserBeforeSending() {
         using var fixture = new Fixture();
