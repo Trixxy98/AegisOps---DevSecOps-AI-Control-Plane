@@ -92,6 +92,29 @@ public sealed class DeploymentAuthorizationTests {
     }
 
     [Fact]
+    public async Task ApprovalHintIsSentToEveryEligibleSession() {
+        using var fixture = new Fixture();
+        var reviewer = fixture.AddUser("Security");
+        fixture.Join(reviewer);
+        fixture.Source.BeginEvaluation();
+        var evaluation = fixture.AddEvaluation("Security");
+        fixture.Source.ApplyDecision(new PolicyOutcome(PolicyDecision.RequireApproval, evaluation.Id, 2, null), fixture.Now);
+        fixture.Db.SaveChanges();
+        var connections = new DeploymentConnections();
+        connections.Add("reviewer-tab-1", Fixture.UserPrincipal(reviewer));
+        connections.Add("reviewer-tab-2", Fixture.UserPrincipal(reviewer));
+        var hub = new RecordingHub();
+        var listener = new DeploymentUpdateListener(null!, fixture.Services.GetRequiredService<IServiceScopeFactory>(), hub,
+            connections, NullLogger<DeploymentUpdateListener>.Instance);
+
+        await listener.DispatchAsync(fixture.Source.Id, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, hub.ApprovalHints.Count);
+        Assert.Contains("reviewer-tab-1", hub.ApprovalHints);
+        Assert.Contains("reviewer-tab-2", hub.ApprovalHints);
+    }
+
+    [Fact]
     public async Task ApprovalHintsAndQueueRequireCurrentProjectRoleAndUnvotedNonrequester() {
         using var fixture = new Fixture();
         var reviewer = fixture.AddUser("Security");
