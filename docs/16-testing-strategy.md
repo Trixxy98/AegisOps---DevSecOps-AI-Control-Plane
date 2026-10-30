@@ -13,6 +13,7 @@ and the deployment state machine get the deepest coverage; CRUD gets smoke cover
 | Integration (API) | `AegisOps.Api.IntegrationTests` | `WebApplicationFactory`, Testcontainers (PostgreSQL, Redis), Respawn | s | Endpoints end-to-end through real DB: auth, authorization, idempotency, scan ingestion, deployment flow with `noop` executor + in-process worker loop |
 | Integration (Infra) | `AegisOps.Infrastructure.Tests` | Testcontainers | s | Job queue claim semantics (`SKIP LOCKED`), SARIF parsers on real fixture files, Redis rate limiter Lua script |
 | Frontend unit | `AegisOps.Web` | Vitest, Testing Library, MSW | ms | `PolicyEvaluationPanel`, `RuleBuilder`, auth interceptor refresh logic |
+| Frontend browser E2E | `src/AegisOps.Web/e2e` | Playwright, Chromium | seconds | Two isolated browser contexts log in against mocked auth, negotiate a mocked SignalR socket, and both reload deployment summaries after a pushed update; no real backend or deployment side effects |
 | E2E (V2) | `tests/e2e` | Playwright | min | The four journeys against the Compose stack |
 
 Targets: Domain ≥ 90% line / ≥ 95% branch on `Policies` namespace; overall backend ≥ 75%.
@@ -132,7 +133,8 @@ Types.That().Inherit(typeof(BackgroundService)).Should().ResideInNamespaceStarti
 ```bash
 dotnet test                                   # all backend (integration tests need Docker)
 dotnet test --filter Category!=Integration    # fast loop
-npm --prefix src/AegisOps.Web test            # frontend
+npm --prefix src/AegisOps.Web run build       # frontend typecheck/build
+npm --prefix src/AegisOps.Web run test:e2e    # deterministic browser/SignalR UI test (mock API + socket)
 ```
 
 CI runs everything on every PR; integration tests use Testcontainers on `ubuntu-latest`.
