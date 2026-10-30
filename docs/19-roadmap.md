@@ -120,7 +120,9 @@ existing 10-second polling remains a fallback (including selected deployment det
 messages are ephemeral hints, not a durable event log. Remaining Phase 5: scoped groups if
 needed for scale, approval toasts, generic notifications/outbound HMAC webhooks, connection
 status indicator, streaming of intermediate Docker timeline steps (currently persisted at job
-completion), and browser UI end-to-end multi-session coverage. This slice does **not** meet the
+completion), and Compose-backed browser validation with a real deployment. A deterministic
+Playwright UI test now covers two isolated sessions, mocked SignalR delivery and REST
+invalidation without touching deployment data. This slice does **not** meet the
 full Phase 5 done criterion.
 
 | Deliverable | Detail |
@@ -128,7 +130,7 @@ full Phase 5 done criterion.
 | Hub | `OpsHub`, groups, authorization on join; Redis pub/sub bridge Worker → Api |
 | Frontend | Connection lifecycle, invalidation map, live timeline, approval toasts, connection status indicator, polling fallback |
 | Notifications | `SendNotification` job; team outbound webhook with HMAC (opt-in delivery implemented; owner management, encrypted secrets/rotation, selective event subscriptions, delivery history/metrics, external-receiver integration and historical replay remain) |
-| Tests | Hub authorization, invalidation hook, and TestServer integration with two authenticated SignalR clients through the deployment listener; browser UI end-to-end test remains |
+| Tests | Hub authorization, invalidation hook, TestServer integration with two authenticated SignalR clients through the deployment listener, and deterministic two-context Playwright UI test; Compose-backed browser test with a real deployment remains |
 
 **Done when:** two browser sessions see the same deployment timeline update live; an approver gets a toast within a second of `AwaitingApproval`.
 

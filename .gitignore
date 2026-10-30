@@ -7,6 +7,8 @@ obj/
 TestResults/
 coverage/
 *.nupkg
+playwright-report/
+test-results/
 
 # Node / Vite
 node_modules/
