@@ -11,7 +11,17 @@ namespace AegisOps.Infrastructure.Deploy;
 
 /// <summary>Worker-only, operator-configured team webhooks. Never persist URLs, keys or response bodies in jobs.</summary>
 public static class TeamWebhookSender {
-    public static async Task SendAsync(AegisOpsDbContext db, IConfiguration config, Guid eventId, CancellationToken ct) {
+    public static Task SendAsync(AegisOpsDbContext db, IConfiguration config, Guid eventId, CancellationToken ct) =>
+        SendAsync(db, config, eventId, null, ct);
+
+    // Internal override supports local TLS integration tests; the worker always uses the hardened handler below.
+    internal static async Task SendAsync(
+        AegisOpsDbContext db,
+        IConfiguration config,
+        Guid eventId,
+        HttpMessageHandler? handlerOverride,
+        CancellationToken ct
+    ) {
         var item = await db.DeploymentEvents.AsNoTracking().SingleOrDefaultAsync(e => e.Id == eventId, ct);
         if (item is null) return;
         var deployment = await db.Deployments.AsNoTracking().SingleOrDefaultAsync(d => d.Id == item.DeploymentId, ct);
@@ -29,12 +39,12 @@ public static class TeamWebhookSender {
         // No free-form reason, comments, event message, user data or destination in the outbound payload.
         var body = JsonSerializer.Serialize(new {
             id = item.Id, eventType = item.Type.ToString(), occurredAt = item.Timestamp,
-            deploymentId = deployment.Id, deployment.ProjectId, deployment.EnvironmentId,
-            deployment.ArtifactId, sequence = item.Sequence,
+            deploymentId = deployment.Id, projectId = deployment.ProjectId, environmentId = deployment.EnvironmentId,
+            artifactId = deployment.ArtifactId, sequence = item.Sequence,
         });
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
         var signature = Sign(key, timestamp, body);
-        using var handler = new SocketsHttpHandler {
+        var handler = handlerOverride ?? new SocketsHttpHandler {
             UseProxy = false, AllowAutoRedirect = false, UseCookies = false,
             ConnectCallback = async (context, token) => {
                 var host = context.DnsEndPoint.Host;

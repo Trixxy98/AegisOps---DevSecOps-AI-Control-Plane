@@ -33,6 +33,8 @@ IPv6, non-443 ports and local/private/special-purpose addresses are unsupported.
 
 **Remaining work:** authenticated team-owner management UI/API, secret encryption and
 rotation, selective event subscriptions, delivery history/metrics, integration testing
-against an external HTTPS receiver, and historical replay. This implementation does
-not attempt to provide exactly-once delivery or a reliable receiver acknowledgement
-beyond a 2xx response.
+against an externally hosted HTTPS receiver, and historical replay. Automated tests now
+exercise the signed request and non-2xx handling against a local TLS receiver; they do
+not verify public DNS resolution, IP pinning, or the production certificate-validation
+path. This implementation does not attempt to provide exactly-once delivery or a reliable
+receiver acknowledgement beyond a 2xx response.
