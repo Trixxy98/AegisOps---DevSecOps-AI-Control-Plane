@@ -92,6 +92,7 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/src" \
             -w /src \
             semgrep/semgrep:1.177.0 \
+            semgrep \
             scan \
             --config p/default \
             --config p/security-audit \
