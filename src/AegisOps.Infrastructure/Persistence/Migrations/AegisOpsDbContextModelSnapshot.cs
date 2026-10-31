@@ -209,11 +209,11 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                     b.HasIndex("ArtifactId")
                         .HasDatabaseName("ix_deployments_artifact_id");
 
-                    b.HasIndex("EnvironmentId", "Status")
-                        .HasDatabaseName("ix_deployments_environment_id_status");
-
                     b.HasIndex("PreviousArtifactId")
                         .HasDatabaseName("ix_deployments_previous_artifact_id");
+
+                    b.HasIndex("EnvironmentId", "Status")
+                        .HasDatabaseName("ix_deployments_environment_id_status");
 
                     b.HasIndex("ProjectId", "RequestedAt")
                         .HasDatabaseName("ix_deployments_project_id_requested_at");
@@ -773,6 +773,34 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_team_members_role", "role IN ('Owner', 'Member')");
                         });
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Organization.TeamWebhookSettings", b =>
+                {
+                    b.Property<Guid>("TeamId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("team_id");
+
+                    b.Property<string>("EncryptedSecret")
+                        .IsRequired()
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("encrypted_secret");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("url");
+
+                    b.HasKey("TeamId")
+                        .HasName("pk_team_webhook_settings");
+
+                    b.ToTable("team_webhook_settings", "org");
                 });
 
             modelBuilder.Entity("AegisOps.Domain.Policy.Policy", b =>
@@ -1458,12 +1486,6 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("AegisOps.Domain.Security.Artifact", null)
                         .WithMany()
-                        .HasForeignKey("PreviousArtifactId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_deployments_artifacts_previous_artifact_id");
-
-                    b.HasOne("AegisOps.Domain.Security.Artifact", null)
-                        .WithMany()
                         .HasForeignKey("ArtifactId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
@@ -1475,6 +1497,12 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_deployments_environments_environment_id");
+
+                    b.HasOne("AegisOps.Domain.Security.Artifact", null)
+                        .WithMany()
+                        .HasForeignKey("PreviousArtifactId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_deployments_artifacts_previous_artifact_id");
 
                     b.HasOne("AegisOps.Domain.Organization.Project", null)
                         .WithMany()
@@ -1536,6 +1564,18 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
 
                             b1.Property<bool>("AllowApiKeyProduction");
 
+                            b1.Property<string>("ContainerName");
+
+                            b1.Property<int>("ContainerPort");
+
+                            b1.Property<string>("HealthPath");
+
+                            b1.Property<int>("HealthTimeoutSeconds");
+
+                            b1.Property<int>("HostPort");
+
+                            b1.Property<string>("Network");
+
                             b1.Property<string>("Type")
                                 .IsRequired();
 
@@ -1591,6 +1631,16 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_team_members_asp_net_users_user_id");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Organization.TeamWebhookSettings", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Organization.Team", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_team_webhook_settings_teams_team_id");
                 });
 
             modelBuilder.Entity("AegisOps.Domain.Policy.Policy", b =>
