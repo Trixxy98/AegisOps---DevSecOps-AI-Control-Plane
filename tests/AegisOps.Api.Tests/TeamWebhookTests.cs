@@ -140,6 +140,53 @@ public sealed class TeamWebhookTests {
         Assert.Equal("private response detail", requests[1].ResponseBody);
     }
 
+    [Fact]
+    public async Task Send_prefers_encrypted_database_settings_to_legacy_worker_configuration() {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(cancellationToken);
+        var options = new DbContextOptionsBuilder<AegisOpsDbContext>()
+            .UseSqlite(connection).UseSnakeCaseNamingConvention()
+            .ReplaceService<IModelCustomizer, SqliteModelCustomizer>().Options;
+        await using var db = new AegisOpsDbContext(options);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+        var team = Team.Create("Webhook Team", "webhook-team", now);
+        var project = Project.Create(team.Id, "Webhook Project", "webhook-project", now);
+        var environment = ProjectEnvironment.Create(project.Id, "Staging", EnvironmentTier.Staging, 0);
+        var user = User.Create("webhook@example.test", "Webhook Test", now);
+        var artifact = Artifact.Create(project.Id, "1.2.3", new string('a', 40), "main", "example/image:1.2.3",
+            CheckStatus.Passed, CheckStatus.Passed, now, createdById: user.Id);
+        var deployment = Deployment.Request(project.Id, environment.Id, artifact.Id, now, "webhook-test", user.Id, null, null);
+        var deploymentEvent = DeploymentEvent.Create(deployment.Id, 1, now, DeploymentEventType.Succeeded, "done");
+        db.AddRange(team, project, environment, user, artifact, deployment, deploymentEvent);
+
+        var signingKey = Enumerable.Repeat((byte)17, 32).ToArray();
+        var encryptionKey = Enumerable.Repeat((byte)29, 32).ToArray();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+            ["WebhookSecrets:Enabled"] = "true",
+            ["WebhookSecrets:CurrentKeyId"] = "primary",
+            ["WebhookSecrets:Keys:primary"] = Convert.ToBase64String(encryptionKey),
+            [$"Webhooks:Teams:{team.Id:D}:Url"] = "https://example.com/legacy",
+            [$"Webhooks:Teams:{team.Id:D}:Secret"] = Convert.ToBase64String(Enumerable.Repeat((byte)42, 32).ToArray()),
+        }).Build();
+        var protector = new TeamWebhookSecretProtector(configuration);
+        db.TeamWebhookSettings.Add(TeamWebhookSettings.Create(team.Id, "https://example.com/database", protector.Protect(team.Id, signingKey), now));
+        await db.SaveChangesAsync(cancellationToken);
+
+        await using var receiver = new LocalHttpsReceiver([HttpStatusCode.Accepted], string.Empty);
+        var receivedRequests = receiver.ReceiveRequestsAsync(1, cancellationToken);
+        await TeamWebhookSender.SendAsync(db, configuration, deploymentEvent.Id, receiver.CreateClientHandler(), cancellationToken);
+
+        var request = Assert.Single(await receivedRequests);
+        Assert.Equal("/database", request.Path);
+        using var body = JsonDocument.Parse(request.Body);
+        var timestamp = request.Headers["X-AegisOps-Timestamp"];
+        Assert.Equal("sha256=" + TeamWebhookSender.Sign(signingKey, timestamp, request.Body), request.Headers["X-AegisOps-Signature"]);
+        Assert.Equal(deploymentEvent.Id, body.RootElement.GetProperty("id").GetGuid());
+    }
+
     private sealed class LocalHttpsReceiver(HttpStatusCode[] statuses, string failureBody) : IAsyncDisposable {
         private readonly TcpListener listener = new(IPAddress.Loopback, 0);
         private readonly X509Certificate2 certificate = CreateCertificate();

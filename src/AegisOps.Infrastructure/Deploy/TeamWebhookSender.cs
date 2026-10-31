@@ -27,14 +27,28 @@ public static class TeamWebhookSender {
         var deployment = await db.Deployments.AsNoTracking().SingleOrDefaultAsync(d => d.Id == item.DeploymentId, ct);
         if (deployment is null) return;
         var teamId = await db.Projects.AsNoTracking().Where(p => p.Id == deployment.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
+        var storedSettings = await db.TeamWebhookSettings.AsNoTracking().SingleOrDefaultAsync(settings => settings.TeamId == teamId, ct);
         var section = config.GetSection($"Webhooks:Teams:{teamId:D}");
-        var address = section["Url"];
+        var address = storedSettings?.Url ?? section["Url"];
         if (string.IsNullOrEmpty(address)) return; // Opt-in only. No untrusted API can configure a destination.
         if (!TryValidateUrl(address, out var uri)) throw new InvalidOperationException("Webhook configuration is invalid.");
         byte[] key;
-        try { key = Convert.FromBase64String(section["Secret"] ?? ""); }
-        catch (FormatException) { throw new InvalidOperationException("Webhook configuration is invalid."); }
-        if (key.Length < 32) throw new InvalidOperationException("Webhook configuration is invalid.");
+        if (storedSettings is not null) {
+            try {
+                key = new TeamWebhookSecretProtector(config).Unprotect(teamId, storedSettings.EncryptedSecret);
+            } catch (CryptographicException) {
+                throw new InvalidOperationException("Webhook configuration is invalid.");
+            } catch (InvalidOperationException) {
+                throw new InvalidOperationException("Webhook configuration is invalid.");
+            }
+        } else {
+            try { key = Convert.FromBase64String(section["Secret"] ?? ""); }
+            catch (FormatException) { throw new InvalidOperationException("Webhook configuration is invalid."); }
+            if (key.Length < 32) {
+                CryptographicOperations.ZeroMemory(key);
+                throw new InvalidOperationException("Webhook configuration is invalid.");
+            }
+        }
 
         // No free-form reason, comments, event message, user data or destination in the outbound payload.
         var body = JsonSerializer.Serialize(new {
@@ -43,7 +57,9 @@ public static class TeamWebhookSender {
             artifactId = deployment.ArtifactId, sequence = item.Sequence,
         });
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
-        var signature = Sign(key, timestamp, body);
+        string signature;
+        try { signature = Sign(key, timestamp, body); }
+        finally { CryptographicOperations.ZeroMemory(key); }
         var handler = handlerOverride ?? new SocketsHttpHandler {
             UseProxy = false, AllowAutoRedirect = false, UseCookies = false,
             ConnectCallback = async (context, token) => {

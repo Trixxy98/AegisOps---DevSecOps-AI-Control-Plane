@@ -17,6 +17,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHealthChecks();
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddIdentityStore(builder.Configuration);
+builder.Services.AddSingleton<TeamWebhookSecretProtector>();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<DeploymentConnections>();
 builder.Services.AddAuthRateLimiting();
@@ -61,6 +62,12 @@ app.MapGet("/api/v1/teams/{slug}", GetTeam.Handle)
     .RequireAuthorization(Permissions.TeamsRead);
 app.MapPatch("/api/v1/teams/{slug}", UpdateTeam.Handle)
     .RequireAuthorization(Permissions.TeamsWrite);
+app.MapGet("/api/v1/teams/{slug}/webhook", TeamWebhookSettingsEndpoints.Get)
+    .RequireAuthorization();
+app.MapPut("/api/v1/teams/{slug}/webhook", TeamWebhookSettingsEndpoints.Set)
+    .RequireAuthorization();
+app.MapPost("/api/v1/admin/webhooks/rewrap", TeamWebhookSettingsEndpoints.Rewrap)
+    .RequireAuthorization(Permissions.UsersManage);
 app.MapPut("/api/v1/teams/{slug}/members/{userId:guid}", UpsertTeamMember.Handle)
     .RequireAuthorization(Permissions.TeamsWrite);
 app.MapDelete("/api/v1/teams/{slug}/members/{userId:guid}", RemoveTeamMember.Handle)

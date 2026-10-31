@@ -39,6 +39,10 @@ services:
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=aegisops;Username=aegisops;Password=${POSTGRES_PASSWORD:-aegisops_dev}
       ConnectionStrings__Redis: redis:6379
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env (at least 32 bytes)}
+      WebhookSecrets__Enabled: ${WEBHOOK_SECRETS_ENABLED:-false}
+      WebhookSecrets__CurrentKeyId: ${WEBHOOK_SECRETS_CURRENT_KEY_ID:-key1}
+      WebhookSecrets__Keys__key1: ${WEBHOOK_SECRETS_KEY_1:-}
+      WebhookSecrets__Keys__key2: ${WEBHOOK_SECRETS_KEY_2:-}
       Database__MigrateOnStartup: "true"
       Storage__ReportsPath: /app/reports
     volumes:
@@ -61,6 +65,10 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=aegisops;Username=aegisops;Password=${POSTGRES_PASSWORD:-aegisops_dev}
       ConnectionStrings__Redis: redis:6379
+      WebhookSecrets__Enabled: ${WEBHOOK_SECRETS_ENABLED:-false}
+      WebhookSecrets__CurrentKeyId: ${WEBHOOK_SECRETS_CURRENT_KEY_ID:-key1}
+      WebhookSecrets__Keys__key1: ${WEBHOOK_SECRETS_KEY_1:-}
+      WebhookSecrets__Keys__key2: ${WEBHOOK_SECRETS_KEY_2:-}
       DOCKER_HEALTH_HOST: host.docker.internal
     volumes:
       - reports:/app/reports
