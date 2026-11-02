@@ -88,6 +88,10 @@ public static class DeploymentProcessor {
                     item.Abandon("Execution lease expired; inspect the Docker target before retrying.", now);
                 } else {
                     item.Fail("Worker lease expired.", now);
+                    if (item.Type == JobType.SendNotification) {
+                        var attempt = await db.WebhookDeliveryAttempts.SingleOrDefaultAsync(record => record.JobId == item.Id && record.AttemptNumber == item.Attempts, cancellationToken);
+                        attempt?.Fail(now);
+                    }
                 }
             }
 
@@ -142,6 +146,8 @@ public static class DeploymentProcessor {
             }
 
             job.MarkRunning(now, workerId);
+            if (job.Type == JobType.SendNotification)
+                db.WebhookDeliveryAttempts.Add(WebhookDeliveryAttempt.Start(job.Id, job.Attempts, now));
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
@@ -189,6 +195,10 @@ public static class DeploymentProcessor {
                         entry.State = EntityState.Detached;
                 }
             }
+        }
+        if (job.Type == JobType.SendNotification) {
+            var attempt = await db.WebhookDeliveryAttempts.SingleAsync(item => item.JobId == job.Id && item.AttemptNumber == current.Attempts, ct);
+            if (error is null) attempt.Succeed(time.GetUtcNow()); else attempt.Fail(time.GetUtcNow());
         }
         if (error is null) job.Succeed(time.GetUtcNow());
         else {

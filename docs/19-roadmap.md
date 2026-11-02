@@ -5,6 +5,23 @@ scanning → worker & Docker execution → real-time → AI gateway → observab
 Every phase ends with something demonstrable. Durations assume a solo developer working
 part-time (~10–15 h/week); adjust freely — the *order* matters more than the dates.
 
+## Measuring v1 completion
+
+Measure progress against the planned v1 scope in Phases 0–8; exclude the V2 backlog.
+Use the estimated phase durations above as phase weights (Phase 0: 1 week; Phases 1–8:
+3, 1.5, 2, 2, 1, 2, 1.5, and 1.5 weeks respectively; 15.5 planned weeks total).
+Within each phase, split every listed deliverable and its “Done when” statement into
+small, independently verifiable acceptance checks. Count each check equally within its
+phase. A check earns credit only when implementation exists and its stated test, build,
+or demo evidence passes; planned, partially implemented, or unverified work earns no
+credit. Re-baseline weights or checks only when v1 scope changes, and record the change.
+
+Overall completion = sum across phases of (phase duration / 15.5) × (verified checks /
+total checks in that phase) × 100. Report changes as percentage points (e.g. 40% → 50%
+is +10 percentage points), not relative percent growth. Do not report a precise current
+percentage until the checks have been enumerated and audited against the repository and
+its passing verification evidence.
+
 ```mermaid
 gantt
     title AegisOps build plan (indicative)
@@ -129,8 +146,8 @@ full Phase 5 done criterion.
 | --- | --- |
 | Hub | `OpsHub`, groups, authorization on join; Redis pub/sub bridge Worker → Api |
 | Frontend | Connection lifecycle, invalidation map, live timeline, approval toasts, connection status indicator, polling fallback |
-| Notifications | `SendNotification` job; team outbound webhook with HMAC (opt-in delivery implemented; owner management, encrypted secrets/rotation, selective event subscriptions, delivery history/metrics, external-receiver integration and historical replay remain) |
-| Tests | Hub authorization, invalidation hook, TestServer integration with two authenticated SignalR clients through the deployment listener, and deterministic two-context Playwright UI test; Compose-backed browser test with a real deployment remains |
+| Notifications | `SendNotification` job; opt-in team HMAC webhooks with encrypted settings/key rotation, owner management UI, selective event subscriptions, durable per-attempt delivery history, and recent-window UI summaries. All-time/telemetry metrics, external-receiver integration and historical replay remain |
+| Tests | Hub authorization, invalidation hook, TestServer integration with two authenticated SignalR clients through the deployment listener, deterministic two-context Playwright UI test, webhook signature/TLS and attempt-history tests; Compose-backed browser test with a real deployment remains |
 
 **Done when:** two browser sessions see the same deployment timeline update live; an approver gets a toast within a second of `AwaitingApproval`.
 

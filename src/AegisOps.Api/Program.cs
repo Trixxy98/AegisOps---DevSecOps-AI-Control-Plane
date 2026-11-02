@@ -5,6 +5,9 @@ using AegisOps.Application.Idempotency;
 using AegisOps.Api.Organization;
 using AegisOps.Api.Deploy;
 using AegisOps.Api.Jobs;
+using AegisOps.Api.Ai;
+using AegisOps.Infrastructure.Ai;
+using AegisOps.Domain.Ai;
 using AegisOps.Infrastructure.Deploy;
 using AegisOps.Infrastructure.Redis;
 using AegisOps.Infrastructure.Persistence;
@@ -18,6 +21,17 @@ builder.Services.AddHealthChecks();
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddIdentityStore(builder.Configuration);
 builder.Services.AddSingleton<TeamWebhookSecretProtector>();
+builder.Services.AddSingleton<ISensitiveDataDetector, RegexSensitiveDataDetector>();
+builder.Services.AddSingleton<IAiRateLimiter>(services => new RedisAiRateLimiter(
+    services.GetService<IConnectionMultiplexer>(), services.GetRequiredService<TimeProvider>()));
+builder.Services.AddScoped<AiGateway>();
+builder.Services.AddHttpClient<ILlmClient, OllamaLlmClient>((services, client) => {
+    var configuration = services.GetRequiredService<IConfiguration>();
+    var baseUrl = configuration["Ai:Ollama:BaseUrl"] ?? "http://ollama:11434/";
+    if (!baseUrl.EndsWith('/')) baseUrl += "/";
+    client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("Ai:Ollama:TimeoutSeconds", 120), 1, 600));
+});
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<DeploymentConnections>();
 builder.Services.AddAuthRateLimiting();
@@ -50,6 +64,12 @@ app.MapPost("/api/v1/auth/refresh", Refresh.Handle).RequireRateLimiting(AuthRate
 app.MapPost("/api/v1/auth/logout", Logout.Handle).RequireAuthorization();
 app.MapGet("/api/v1/auth/me", CurrentUser.Handle).RequireAuthorization();
 app.MapPost("/api/v1/auth/change-password", ChangePassword.Handle).RequireAuthorization();
+app.MapPost("/api/v1/ai/chat", AiEndpoints.Chat).RequireAuthorization(Permissions.AiChat);
+app.MapGet("/api/v1/ai/models", AiEndpoints.Models).RequireAuthorization(Permissions.AiChat);
+app.MapGet("/api/v1/ai/requests", AiEndpoints.Requests).RequireAuthorization(Permissions.AiRequestsRead);
+app.MapGet("/api/v1/ai/policies", AiEndpoints.Policies).RequireAuthorization(Permissions.AiPoliciesWrite);
+app.MapPut("/api/v1/ai/policies", AiEndpoints.SavePolicy).RequireAuthorization(Permissions.AiPoliciesWrite);
+app.MapPost("/api/v1/admin/ai/models/sync", AiEndpoints.SyncModels).RequireAuthorization(Permissions.ModelsManage);
 app.MapGet("/api/v1/admin/ping", () => Results.NoContent())
     .RequireAuthorization(Permissions.UsersManage);
 app.MapGet("/api/v1/admin/users", ListUsers.Handle)
@@ -63,6 +83,8 @@ app.MapGet("/api/v1/teams/{slug}", GetTeam.Handle)
 app.MapPatch("/api/v1/teams/{slug}", UpdateTeam.Handle)
     .RequireAuthorization(Permissions.TeamsWrite);
 app.MapGet("/api/v1/teams/{slug}/webhook", TeamWebhookSettingsEndpoints.Get)
+    .RequireAuthorization();
+app.MapGet("/api/v1/teams/{slug}/webhook/deliveries", TeamWebhookSettingsEndpoints.Deliveries)
     .RequireAuthorization();
 app.MapPut("/api/v1/teams/{slug}/webhook", TeamWebhookSettingsEndpoints.Set)
     .RequireAuthorization();

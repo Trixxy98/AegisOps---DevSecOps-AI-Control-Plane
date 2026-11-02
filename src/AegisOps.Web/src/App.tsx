@@ -536,22 +536,64 @@ function Policies({ token, onError }: { token: string; onError: (value: string |
 
 function Admin({ token, onError }: { token: string; onError: (value: string | null) => void }) {
   const [users, setUsers] = useState<Array<{ id: string; email: string; displayName: string; roles: string[] }>>([]);
-  const [teams, setTeams] = useState<Array<{ slug: string; name: string }>>([]);
+  const [teams, setTeams] = useState<Array<{ slug: string; name: string; myRole?: string | null }>>([]);
+  const [webhooks, setWebhooks] = useState<Record<string, { url: string; configured: boolean; eventTypes: string[] }>>({});
+  const [webhookUrls, setWebhookUrls] = useState<Record<string, string>>({});
+  const [webhookSecrets, setWebhookSecrets] = useState<Record<string, string>>({});
+  const [savingWebhook, setSavingWebhook] = useState<string | null>(null);
+  const [webhookMessages, setWebhookMessages] = useState<Record<string, string>>({});
+  const eventTypes = ["Requested", "PolicyEvaluated", "ApprovalRequested", "ApprovalReceived", "Approved", "Rejected", "Denied", "DeployStarted", "Succeeded", "Failed", "Cancelled", "ImagePulled", "ContainerStarted", "HealthCheckPassed", "HealthCheckFailed", "RolledBack"];
+  const [webhookEvents, setWebhookEvents] = useState<Record<string, string[]>>({});
+  const [webhookDeliveries, setWebhookDeliveries] = useState<Record<string, Array<{ eventId: string; eventType: string; occurredAt: string; status: string; attempts: number; maxAttempts: number; completedAt: string | null; lastError: string | null }>>>({});
   const [jobs, setJobs] = useState<Array<{ id: string; type: string; status: string; lastError?: string }>>([]);
   const [queue, setQueue] = useState<{ pending: number; running: number; deadLettered: number } | null>(null);
   useEffect(() => {
     Promise.all([
       api<Array<{ id: string; email: string; displayName: string; roles: string[] }>>("/api/v1/admin/users", token),
-      api<Array<{ slug: string; name: string }>>("/api/v1/teams", token),
+      api<Array<{ slug: string; name: string; myRole?: string | null }>>("/api/v1/teams", token),
       api<Array<{ id: string; type: string; status: string; lastError?: string }>>("/api/v1/admin/jobs?status=DeadLettered", token).catch(() => []),
       api<{ pending: number; running: number; deadLettered: number }>("/api/v1/admin/jobs/summary", token).catch(() => null),
     ]).then(([accounts, groups, dead, depth]) => {
       setUsers(accounts);
       setTeams(groups);
+      void Promise.all(groups.map(async (team) => {
+        try {
+          const settings = await api<{ url: string | null; secretConfigured: boolean; eventTypes: string[] }>(`/api/v1/teams/${encodeURIComponent(team.slug)}/webhook`, token);
+          setWebhooks((current) => ({ ...current, [team.slug]: { url: settings.url ?? "", configured: settings.secretConfigured, eventTypes: settings.eventTypes } }));
+          setWebhookUrls((current) => ({ ...current, [team.slug]: settings.url ?? "" }));
+          setWebhookEvents((current) => ({ ...current, [team.slug]: settings.eventTypes }));
+          const deliveries = await api<typeof webhookDeliveries[string]>(`/api/v1/teams/${encodeURIComponent(team.slug)}/webhook/deliveries`, token);
+          setWebhookDeliveries((current) => ({ ...current, [team.slug]: deliveries }));
+        } catch {
+          setWebhookMessages((current) => ({ ...current, [team.slug]: "Webhook settings are available to team owners and admins." }));
+        }
+      }));
       setJobs(dead);
       setQueue(depth);
     }).catch((error: Error) => onError(error.message));
   }, [token, onError]);
+
+  async function saveWebhook(slug: string) {
+    const url = webhookUrls[slug]?.trim() ?? "";
+    const secret = webhookSecrets[slug] ?? "";
+    if (!url || new TextEncoder().encode(secret).length < 32) {
+      setWebhookMessages((current) => ({ ...current, [slug]: "Enter an HTTPS endpoint and a signing secret of at least 32 bytes." }));
+      return;
+    }
+    setSavingWebhook(slug);
+    setWebhookMessages((current) => ({ ...current, [slug]: "" }));
+    try {
+      const secretBase64 = btoa(String.fromCharCode(...new TextEncoder().encode(secret)));
+      const settings = await api<{ url: string; secretConfigured: boolean; eventTypes: string[] }>(`/api/v1/teams/${encodeURIComponent(slug)}/webhook`, token, { method: "PUT", body: JSON.stringify({ url, secretBase64, eventTypes: webhookEvents[slug] ?? eventTypes }) });
+      setWebhooks((current) => ({ ...current, [slug]: { url: settings.url, configured: settings.secretConfigured, eventTypes: settings.eventTypes } }));
+      setWebhookSecrets((current) => ({ ...current, [slug]: "" }));
+      setWebhookMessages((current) => ({ ...current, [slug]: "Webhook settings saved. The signing secret is not shown again." }));
+    } catch (error) {
+      setWebhookMessages((current) => ({ ...current, [slug]: error instanceof Error ? error.message : "Could not save webhook settings." }));
+    } finally {
+      setSavingWebhook(null);
+    }
+  }
 
   return (
     <div className="admin-grid">
@@ -564,7 +606,33 @@ function Admin({ token, onError }: { token: string; onError: (value: string | nu
       <section className="panel">
         <div className="panel-heading"><h2>Teams</h2><span>{teams.length} total</span></div>
         <ul className="item-list">
-          {teams.map((team) => <li key={team.slug} className="detail-row">{team.name}</li>)}
+          {teams.map((team) => <li key={team.slug} className="team-admin-row">
+            <strong>{team.name}</strong><span className="team-slug">{team.slug}</span>
+            {team.myRole === "Owner" || !team.myRole ? <div className="team-webhook-settings">
+              <div className="panel-heading"><h3>Outbound webhook</h3><span>{webhooks[team.slug]?.configured ? "Configured" : "Not configured"}</span></div>
+              <p className="empty-state">Send signed deployment events to a public HTTPS endpoint on port 443. Saving a new secret replaces the existing one.</p>
+              <label className="field-label" htmlFor={`webhook-url-${team.slug}`}>HTTPS endpoint</label>
+              <input id={`webhook-url-${team.slug}`} type="url" placeholder="https://hooks.example.com/aegisops" value={webhookUrls[team.slug] ?? ""} onChange={(event) => setWebhookUrls((current) => ({ ...current, [team.slug]: event.target.value }))} />
+              <label className="field-label" htmlFor={`webhook-secret-${team.slug}`}>Signing secret (32–1024 bytes)</label>
+              <input id={`webhook-secret-${team.slug}`} type="password" autoComplete="new-password" value={webhookSecrets[team.slug] ?? ""} onChange={(event) => setWebhookSecrets((current) => ({ ...current, [team.slug]: event.target.value }))} />
+              <fieldset className="webhook-events"><legend>Subscribed events</legend>{eventTypes.map((eventType) => <label key={eventType}><input type="checkbox" checked={(webhookEvents[team.slug] ?? eventTypes).includes(eventType)} onChange={(event) => setWebhookEvents((current) => {
+                const selected = current[team.slug] ?? eventTypes;
+                return { ...current, [team.slug]: event.target.checked ? [...selected, eventType] : selected.filter((item) => item !== eventType) };
+              })} />{eventType}</label>)}</fieldset>
+              {webhookMessages[team.slug] && <p className="webhook-message" role="status">{webhookMessages[team.slug]}</p>}
+              <button className="primary-button" type="button" disabled={savingWebhook === team.slug} onClick={() => void saveWebhook(team.slug)}>{savingWebhook === team.slug ? "Saving…" : "Save webhook"}</button>
+              <div className="webhook-history"><div className="panel-heading"><h3>Recent delivery activity</h3><span>{webhookDeliveries[team.slug]?.length ?? 0} events</span></div>
+                {webhookDeliveries[team.slug]?.length ? <div className="webhook-metrics" aria-label="Recent delivery metrics">
+                  <span><strong>{webhookDeliveries[team.slug].filter((item) => item.status === "Succeeded").length}</strong> delivered</span>
+                  <span><strong>{webhookDeliveries[team.slug].filter((item) => item.status === "DeadLettered").length}</strong> dead-lettered</span>
+                  <span><strong>{webhookDeliveries[team.slug].filter((item) => item.status === "Pending" || item.status === "Running").length}</strong> queued</span>
+                  <span><strong>{webhookDeliveries[team.slug].filter((item) => item.status === "NotQueued").length}</strong> not queued</span>
+                  <span><strong>{webhookDeliveries[team.slug].reduce((sum, item) => sum + item.attempts, 0)}</strong> attempts</span>
+                </div> : null}
+                {!webhookDeliveries[team.slug]?.length ? <p className="empty-state">No recent deployment events.</p> : <ul className="item-list">{webhookDeliveries[team.slug].slice(0, 10).map((delivery) => <li className="webhook-delivery" key={delivery.eventId}><span><strong>{delivery.eventType}</strong><small>{new Date(delivery.occurredAt).toLocaleString()}</small></span><span className={`delivery-status delivery-${delivery.status.toLowerCase()}`}>{delivery.status}{delivery.maxAttempts > 0 ? ` · ${delivery.attempts}/${delivery.maxAttempts} attempts` : ""}</span>{delivery.lastError && <small>{delivery.lastError}</small>}</li>)}</ul>}
+              </div>
+            </div> : <p className="empty-state">Webhook settings are visible to team owners and admins only.</p>}
+          </li>)}
         </ul>
       </section>
       <section className="panel jobs-panel">
