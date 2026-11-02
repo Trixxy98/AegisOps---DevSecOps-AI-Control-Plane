@@ -13,9 +13,12 @@ Supply it through a secret manager or untracked local `.env` file, never source 
 containers. The feature is disabled by default. When enabled, the API accepts
 `PUT /api/v1/teams/{slug}/webhook` with JSON `{ "url": "https://…", "secretBase64": "…" }`;
 the URL must be HTTPS on port 443 and the base64 secret must decode to 32–1024 bytes.
-`GET /api/v1/teams/{slug}/webhook` returns only the URL, configured flag and update time;
-it never returns the signing secret or ciphertext. Only an active team owner or admin
-can use these endpoints. A stored database setting takes precedence over legacy worker
+`GET /api/v1/teams/{slug}/webhook` returns only the URL, configured flag, update time
+and selected event types; it never returns the signing secret or ciphertext. `PUT` may
+include `eventTypes`, a non-empty array of deployment event names; omitting it subscribes
+to all current event types for backwards compatibility. Only an active team owner or admin
+can use these endpoints. `GET /api/v1/teams/{slug}/webhook/deliveries` returns up to 100
+recent team deployment events with delivery status and durable per-attempt history. A stored database setting takes precedence over legacy worker
 configuration. For teams without a database setting, the worker continues to support
 `Webhooks__Teams__<team-guid>__Url` and `Webhooks__Teams__<team-guid>__Secret` for
 backwards compatibility.
@@ -55,9 +58,18 @@ with normal certificate/hostname verification, redirects and proxies disabled; e
 DNS answer is checked for public IPv4 and the vetted IP is pinned for the connection.
 IPv6, non-443 ports and local/private/special-purpose addresses are unsupported.
 
-**Remaining work:** team-owner management UI, selective event subscriptions, delivery
-history/metrics, integration testing against an externally hosted HTTPS receiver, and
-historical replay. Automated tests exercise signed delivery and non-2xx handling against
-a local TLS receiver; they do not verify public DNS resolution, IP pinning, or the
-production certificate-validation path. This implementation does not provide
-exactly-once delivery or a reliable receiver acknowledgement beyond a 2xx response.
+**Implemented:** team-owner management UI, selective event subscriptions, recent delivery
+history with durable per-attempt status, timestamps and generic failure text. Each webhook
+job claim and attempt row are committed atomically; attempt completion is committed with
+the job result, and stale lease recovery marks the attempt failed. Failed-attempt details
+never include the destination, secret, response body, or transport exception.
+
+The team panel also summarizes delivered, dead-lettered, queued, not-queued events and
+attempt counts across its 100 most recent deployment events; these are a recent-window
+summary, not all-time metrics.
+
+**Remaining work:** all-time/telemetry delivery metrics, integration testing against an
+externally hosted HTTPS receiver, and historical replay. Automated tests exercise signed
+delivery and non-2xx handling against a local TLS receiver; they do not verify public DNS
+resolution, IP pinning, or the production certificate-validation path. This implementation
+does not provide exactly-once delivery or a reliable receiver acknowledgement beyond a 2xx response.

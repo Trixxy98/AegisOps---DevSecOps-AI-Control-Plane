@@ -1,3 +1,4 @@
+using AegisOps.Domain.Ai;
 using AegisOps.Domain.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -46,6 +47,10 @@ public sealed class AegisOpsDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<DeploymentEvent> DeploymentEvents => Set<DeploymentEvent>();
     public DbSet<Approval> Approvals => Set<Approval>();
     public DbSet<Job> Jobs => Set<Job>();
+    public DbSet<WebhookDeliveryAttempt> WebhookDeliveryAttempts => Set<WebhookDeliveryAttempt>();
+    public DbSet<AiModel> AiModels => Set<AiModel>();
+    public DbSet<AiPolicy> AiPolicies => Set<AiPolicy>();
+    public DbSet<AiRequest> AiRequests => Set<AiRequest>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
     // The notification outbox is written in the same transaction as each timeline event.

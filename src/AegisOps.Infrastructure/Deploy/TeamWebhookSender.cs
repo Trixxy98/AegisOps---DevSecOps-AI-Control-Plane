@@ -28,6 +28,7 @@ public static class TeamWebhookSender {
         if (deployment is null) return;
         var teamId = await db.Projects.AsNoTracking().Where(p => p.Id == deployment.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
         var storedSettings = await db.TeamWebhookSettings.AsNoTracking().SingleOrDefaultAsync(settings => settings.TeamId == teamId, ct);
+        if (storedSettings is not null && !storedSettings.SubscribesTo(item.Type.ToString())) return;
         var section = config.GetSection($"Webhooks:Teams:{teamId:D}");
         var address = storedSettings?.Url ?? section["Url"];
         if (string.IsNullOrEmpty(address)) return; // Opt-in only. No untrusted API can configure a destination.

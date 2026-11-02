@@ -23,6 +23,270 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("AegisOps.Domain.Ai.AiModel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CapabilitiesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("capabilities_json");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("display_name");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<int>("MaxContextTokens")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_context_tokens");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("provider");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ai_models");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_ai_models_name");
+
+                    b.ToTable("ai_models", "ai");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Ai.AiPolicy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AllowedModelIdsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("allowed_model_ids_json");
+
+                    b.Property<string>("BlockedPatternsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("blocked_patterns_json");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<int>("MaxPromptChars")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_prompt_chars");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<bool>("RedactPii")
+                        .HasColumnType("boolean")
+                        .HasColumnName("redact_pii");
+
+                    b.Property<int>("RequestsPerDay")
+                        .HasColumnType("integer")
+                        .HasColumnName("requests_per_day");
+
+                    b.Property<int>("RequestsPerMinute")
+                        .HasColumnType("integer")
+                        .HasColumnName("requests_per_minute");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("scope");
+
+                    b.Property<Guid?>("ScopeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("scope_id");
+
+                    b.Property<string>("SensitiveDataAction")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("sensitive_data_action");
+
+                    b.Property<bool>("StoreContent")
+                        .HasColumnType("boolean")
+                        .HasColumnName("store_content");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ai_policies");
+
+                    b.HasIndex("ScopeId")
+                        .HasDatabaseName("ix_ai_policies_scope_id");
+
+                    b.HasIndex("UpdatedById")
+                        .HasDatabaseName("ix_ai_policies_updated_by_id");
+
+                    b.HasIndex("Scope", "ScopeId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_ai_policies_scope_scope_id")
+                        .HasFilter("is_enabled = true");
+
+                    b.ToTable("ai_policies", "ai");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Ai.AiRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AiModelId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ai_model_id");
+
+                    b.Property<Guid?>("AiPolicyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ai_policy_id");
+
+                    b.Property<string>("BlockReason")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("block_reason");
+
+                    b.Property<int?>("CompletionTokens")
+                        .HasColumnType("integer")
+                        .HasColumnName("completion_tokens");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DetectedSensitiveTypesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("detected_sensitive_types_json");
+
+                    b.Property<long>("LatencyMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("latency_ms");
+
+                    b.Property<int>("PromptChars")
+                        .HasColumnType("integer")
+                        .HasColumnName("prompt_chars");
+
+                    b.Property<string>("PromptContent")
+                        .HasColumnType("text")
+                        .HasColumnName("prompt_content");
+
+                    b.Property<string>("PromptHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("prompt_hash");
+
+                    b.Property<string>("PromptPreview")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("prompt_preview");
+
+                    b.Property<int?>("PromptTokens")
+                        .HasColumnType("integer")
+                        .HasColumnName("prompt_tokens");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("purpose");
+
+                    b.Property<int>("RedactionsApplied")
+                        .HasColumnType("integer")
+                        .HasColumnName("redactions_applied");
+
+                    b.Property<int>("ResponseChars")
+                        .HasColumnType("integer")
+                        .HasColumnName("response_chars");
+
+                    b.Property<string>("ResponseContent")
+                        .HasColumnType("text")
+                        .HasColumnName("response_content");
+
+                    b.Property<string>("ResponsePreview")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("response_preview");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("TeamId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("team_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ai_requests");
+
+                    b.HasIndex("AiModelId")
+                        .HasDatabaseName("ix_ai_requests_ai_model_id");
+
+                    b.HasIndex("AiPolicyId")
+                        .HasDatabaseName("ix_ai_requests_ai_policy_id");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_ai_requests_created_at");
+
+                    b.HasIndex("TeamId")
+                        .HasDatabaseName("ix_ai_requests_team_id");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("ix_ai_requests_user_id_created_at");
+
+                    b.ToTable("ai_requests", "ai");
+                });
+
             modelBuilder.Entity("AegisOps.Domain.Audit.AuditEvent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -560,6 +824,53 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                     b.ToTable("jobs", "jobs");
                 });
 
+            modelBuilder.Entity("AegisOps.Domain.Jobs.WebhookDeliveryAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_number");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("error");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("job_id");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_webhook_delivery_attempts");
+
+                    b.HasIndex("StartedAt")
+                        .HasDatabaseName("ix_webhook_delivery_attempts_started_at");
+
+                    b.HasIndex("JobId", "AttemptNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_webhook_delivery_attempts_job_id_attempt_number");
+
+                    b.ToTable("webhook_delivery_attempts", "jobs");
+                });
+
             modelBuilder.Entity("AegisOps.Domain.Organization.Environment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -786,6 +1097,14 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         .HasMaxLength(4096)
                         .HasColumnType("character varying(4096)")
                         .HasColumnName("encrypted_secret");
+
+                    b.Property<string>("EventTypes")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasDefaultValue("*")
+                        .HasColumnName("event_types");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1472,6 +1791,50 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", "identity");
                 });
 
+            modelBuilder.Entity("AegisOps.Domain.Ai.AiPolicy", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Organization.Team", null)
+                        .WithMany()
+                        .HasForeignKey("ScopeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_ai_policies_teams_scope_id");
+
+                    b.HasOne("AegisOps.Domain.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_ai_policies_asp_net_users_updated_by_id");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Ai.AiRequest", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Ai.AiModel", null)
+                        .WithMany()
+                        .HasForeignKey("AiModelId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_ai_requests_ai_models_ai_model_id");
+
+                    b.HasOne("AegisOps.Domain.Ai.AiPolicy", null)
+                        .WithMany()
+                        .HasForeignKey("AiPolicyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_ai_requests_ai_policies_ai_policy_id");
+
+                    b.HasOne("AegisOps.Domain.Organization.Team", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_ai_requests_teams_team_id");
+
+                    b.HasOne("AegisOps.Domain.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_ai_requests_asp_net_users_user_id");
+                });
+
             modelBuilder.Entity("AegisOps.Domain.Deploy.Approval", b =>
                 {
                     b.HasOne("AegisOps.Domain.Deploy.Deployment", null)
@@ -1547,6 +1910,16 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_refresh_tokens_asp_net_users_user_id");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Jobs.WebhookDeliveryAttempt", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Jobs.Job", null)
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_webhook_delivery_attempts_jobs_job_id");
                 });
 
             modelBuilder.Entity("AegisOps.Domain.Organization.Environment", b =>

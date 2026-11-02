@@ -66,6 +66,70 @@ public sealed class TeamWebhookManagementTests {
     }
 
     [Fact]
+    public async Task Set_rejects_unknown_or_empty_event_subscriptions() {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var fixture = await Fixture.Create(cancellationToken);
+        var protector = new TeamWebhookSecretProtector(Configuration("new", ("new", Key(1))));
+        foreach (var eventTypes in new[] { new[] { "NotADeploymentEvent" }, Array.Empty<string>() }) {
+            var result = await TeamWebhookSettingsEndpoints.Set(fixture.Team.Slug,
+                new SetTeamWebhookRequest("https://example.com/hook", Convert.ToBase64String(Key(8)), eventTypes),
+                Principal(fixture.Owner.Id), fixture.Users, fixture.Db, protector, Context(cancellationToken));
+            Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        }
+        Assert.Empty(await fixture.Db.TeamWebhookSettings.ToListAsync(cancellationToken));
+    }
+
+    [Fact]
+    public void Webhook_settings_match_only_selected_event_names_and_star_means_all() {
+        var settings = TeamWebhookSettings.Create(Guid.NewGuid(), "https://example.com/hook", "encrypted", DateTimeOffset.UtcNow, "Failed,Succeeded");
+        Assert.True(settings.SubscribesTo("Failed"));
+        Assert.False(settings.SubscribesTo("Requested"));
+        var legacySettings = TeamWebhookSettings.Create(Guid.NewGuid(), "https://example.com/hook", "encrypted", DateTimeOffset.UtcNow);
+        Assert.True(legacySettings.SubscribesTo("Requested"));
+        Assert.True(legacySettings.SubscribesTo("Failed"));
+    }
+
+    [Fact]
+    public async Task Delivery_history_is_team_owner_only_and_empty_when_no_events_exist() {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var fixture = await Fixture.Create(cancellationToken);
+        var teamId = fixture.Team.Id;
+        var project = Project.Create(teamId, "Delivery project", $"delivery-{Guid.NewGuid():N}", DateTimeOffset.UtcNow);
+        fixture.Db.Projects.Add(project);
+        var artifact = Artifact.Create(project.Id, "1.0.0", "abcdef1234567", "main", "example/image:1", CheckStatus.Passed, CheckStatus.Passed, DateTimeOffset.UtcNow, createdById: fixture.Owner.Id);
+        fixture.Db.Artifacts.Add(artifact);
+        var environment = AegisOps.Domain.Organization.Environment.Create(project.Id, "dev", EnvironmentTier.Development, 1, DeploymentTarget.Noop());
+        fixture.Db.Environments.Add(environment);
+        var deployment = Deployment.Request(project.Id, environment.Id, artifact.Id, DateTimeOffset.UtcNow, "test", fixture.Owner.Id, null, "test");
+        fixture.Db.Deployments.Add(deployment);
+        await fixture.Db.SaveChangesAsync(cancellationToken);
+        var eventItem = DeploymentEvent.Create(deployment.Id, 1, DateTimeOffset.UtcNow, DeploymentEventType.Failed, "failed");
+        fixture.Db.DeploymentEvents.Add(eventItem);
+        var job = AegisOps.Domain.Jobs.Job.Enqueue(AegisOps.Domain.Jobs.JobType.SendNotification,
+            JsonSerializer.Serialize(new { eventId = eventItem.Id }), DateTimeOffset.UtcNow, "test");
+        fixture.Db.Jobs.Add(job);
+        await fixture.Db.SaveChangesAsync(cancellationToken);
+        var attempt = AegisOps.Domain.Jobs.WebhookDeliveryAttempt.Start(job.Id, 1, DateTimeOffset.UtcNow);
+        attempt.Fail(DateTimeOffset.UtcNow);
+        fixture.Db.WebhookDeliveryAttempts.Add(attempt);
+        await fixture.Db.SaveChangesAsync(cancellationToken);
+        fixture.Db.ChangeTracker.Clear();
+        var persistedAttempt = await fixture.Db.WebhookDeliveryAttempts.SingleAsync(cancellationToken);
+        var ownerResult = await TeamWebhookSettingsEndpoints.Deliveries(fixture.Team.Slug, Principal(fixture.Owner.Id), fixture.Users, fixture.Db, Context(cancellationToken));
+        var memberResult = await TeamWebhookSettingsEndpoints.Deliveries(fixture.Team.Slug, Principal(fixture.Member.Id), fixture.Users, fixture.Db, Context(cancellationToken));
+
+        Assert.Equal(StatusCodes.Status200OK, Status(ownerResult));
+        var delivery = Assert.Single(Assert.IsAssignableFrom<IEnumerable<TeamWebhookDeliveryResponse>>(Assert.IsAssignableFrom<IValueHttpResult>(ownerResult).Value));
+        Assert.Equal("Pending", delivery.Status);
+        Assert.Collection(delivery.AttemptHistory!, item => {
+            Assert.Equal(1, item.AttemptNumber);
+            Assert.Equal("Failed", item.Status);
+            Assert.Equal("Webhook delivery failed.", item.Error);
+        });
+        Assert.Equal(StatusCodes.Status404NotFound, Status(memberResult));
+    }
+
+    [Fact]
     public async Task Non_owner_cannot_read_or_update_team_webhook_settings() {
         var cancellationToken = TestContext.Current.CancellationToken;
         await using var fixture = await Fixture.Create(cancellationToken);

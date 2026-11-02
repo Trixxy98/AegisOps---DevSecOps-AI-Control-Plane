@@ -4,14 +4,16 @@ public sealed class TeamWebhookSettings {
     public Guid TeamId { get; private set; }
     public string Url { get; private set; }
     public string EncryptedSecret { get; private set; }
+    public string EventTypes { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
     private TeamWebhookSettings() {
         Url = string.Empty;
         EncryptedSecret = string.Empty;
+        EventTypes = "*";
     }
 
-    public static TeamWebhookSettings Create(Guid teamId, string url, string encryptedSecret, DateTimeOffset updatedAt) {
+    public static TeamWebhookSettings Create(Guid teamId, string url, string encryptedSecret, DateTimeOffset updatedAt, string eventTypes = "*") {
         if (teamId == Guid.Empty) throw new ArgumentException("Team ID is required.", nameof(teamId));
         if (string.IsNullOrWhiteSpace(url)) throw new ArgumentException("Webhook URL is required.", nameof(url));
         if (string.IsNullOrWhiteSpace(encryptedSecret)) throw new ArgumentException("Encrypted webhook secret is required.", nameof(encryptedSecret));
@@ -19,17 +21,23 @@ public sealed class TeamWebhookSettings {
             TeamId = teamId,
             Url = url.Trim(),
             EncryptedSecret = encryptedSecret,
+            EventTypes = eventTypes,
             UpdatedAt = updatedAt,
         };
     }
 
-    public void Update(string url, string encryptedSecret, DateTimeOffset updatedAt) {
+    public void Update(string url, string encryptedSecret, DateTimeOffset updatedAt, string eventTypes = "*") {
         if (string.IsNullOrWhiteSpace(url)) throw new ArgumentException("Webhook URL is required.", nameof(url));
         if (string.IsNullOrWhiteSpace(encryptedSecret)) throw new ArgumentException("Encrypted webhook secret is required.", nameof(encryptedSecret));
         Url = url.Trim();
         EncryptedSecret = encryptedSecret;
+        EventTypes = eventTypes;
         UpdatedAt = updatedAt;
     }
+
+    public bool SubscribesTo(string eventType) => EventTypes == "*" ||
+        EventTypes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Contains(eventType, StringComparer.Ordinal);
 
     public bool RewrapSecret(string encryptedSecret, DateTimeOffset updatedAt) {
         if (string.IsNullOrWhiteSpace(encryptedSecret)) throw new ArgumentException("Encrypted webhook secret is required.", nameof(encryptedSecret));

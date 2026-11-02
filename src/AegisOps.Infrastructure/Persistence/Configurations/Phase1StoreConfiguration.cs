@@ -74,6 +74,18 @@ public sealed class JobConfiguration : IEntityTypeConfiguration<Job> {
     }
 }
 
+public sealed class WebhookDeliveryAttemptConfiguration : IEntityTypeConfiguration<WebhookDeliveryAttempt> {
+    public void Configure(EntityTypeBuilder<WebhookDeliveryAttempt> builder) {
+        builder.ToTable("webhook_delivery_attempts", "jobs");
+        builder.HasKey(item => item.Id);
+        builder.Property(item => item.Status).HasMaxLength(32).IsRequired();
+        builder.Property(item => item.Error).HasMaxLength(2000);
+        builder.HasIndex(item => new { item.JobId, item.AttemptNumber }).IsUnique();
+        builder.HasIndex(item => item.StartedAt);
+        builder.HasOne<Job>().WithMany().HasForeignKey(item => item.JobId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
 public sealed class AuditEventConfiguration : IEntityTypeConfiguration<AuditEvent> {
     public void Configure(EntityTypeBuilder<AuditEvent> builder) {
         builder.ToTable("audit_events", "audit");

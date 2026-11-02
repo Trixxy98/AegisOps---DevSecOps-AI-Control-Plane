@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using AegisOps.Domain.Ai;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
 using AegisOps.Domain.Policy;
@@ -51,6 +52,25 @@ public static partial class DevelopmentUserSeed {
         await EnsureScanPoliciesAsync(db, users, now);
         await EnsureCircuitStagingTargetAsync(db);
         await EnsureSiteStagingTargetAsync(db);
+        await EnsureAiDefaultsAsync(db, users, now);
+    }
+
+    private static async Task EnsureAiDefaultsAsync(AegisOpsDbContext db, UserManager<User> users, DateTimeOffset now) {
+        var admin = await users.FindByEmailAsync(Email);
+        if (admin is null) return;
+        var model = await db.AiModels.SingleOrDefaultAsync(item => item.Name == "llama3.2:3b");
+        if (model is null) {
+            model = AiModel.Create("llama3.2:3b");
+            model.SetEnabled(true);
+            db.AiModels.Add(model);
+        }
+        var policy = await db.AiPolicies.SingleOrDefaultAsync(item => item.Scope == PolicyScope.Global && item.IsEnabled);
+        if (policy is null) {
+            policy = AiPolicy.Create("Global baseline", PolicyScope.Global, null, admin.Id, now);
+            policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, [], true, false, true, admin.Id, now);
+            db.AiPolicies.Add(policy);
+        }
+        await db.SaveChangesAsync();
     }
 
     private sealed record DemoAccount(string Email, string DisplayName, string[] Roles);

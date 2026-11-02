@@ -10,6 +10,7 @@ public sealed class TeamWebhookSettingsConfiguration : IEntityTypeConfiguration<
         builder.HasKey(settings => settings.TeamId);
         builder.Property(settings => settings.Url).HasMaxLength(2048).IsRequired();
         builder.Property(settings => settings.EncryptedSecret).HasMaxLength(4096).IsRequired();
+        builder.Property(settings => settings.EventTypes).HasMaxLength(512).HasDefaultValue("*").IsRequired();
         builder.Property(settings => settings.UpdatedAt).IsRequired();
         builder.HasOne<Team>().WithMany().HasForeignKey(settings => settings.TeamId).OnDelete(DeleteBehavior.Cascade);
     }
