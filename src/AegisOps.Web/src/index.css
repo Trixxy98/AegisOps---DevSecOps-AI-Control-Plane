@@ -63,6 +63,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .stat-card strong { color: #f0f4fa; font-size: 32px; font-weight: 650; letter-spacing: -.05em; line-height: 1; }
 .split-layout { display: grid; grid-template-columns: minmax(250px, .83fr) minmax(0, 1.17fr); gap: 20px; align-items: start; }
 .detail-stack, .policy-list { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ai-action-group { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-width: 0; }
+.finding-ai-row { display: grid; gap: 10px; }
+.ai-result { width: 100%; min-width: 0; border: 1px solid #355c50; border-radius: 8px; background: #172922; padding: 13px 15px; color: #dceee6; overflow-wrap: anywhere; }
+.ai-result strong { color: #e7fff3; font-size: 13px; }
+.ai-result p { margin: 8px 0; line-height: 1.6; white-space: pre-wrap; }
+.ai-result small { color: #a9cbbb; font-size: 11px; }
+.ai-error { margin: 0; color: #ffd4dc; font-size: 12px; overflow-wrap: anywhere; }
 .detail-heading h2 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -.025em; overflow-wrap: anywhere; }
 .item-list, .policy-list { list-style: none; padding: 0; margin: 0; }
 .item-list { display: flex; flex-direction: column; gap: 8px; }

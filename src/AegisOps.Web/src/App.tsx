@@ -374,6 +374,12 @@ function Deployments({ token, onError, revision }: { token: string; onError: (va
   const [decision, setDecision] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [canRollback, setCanRollback] = useState(false);
+  const [aiSummary, setAiSummary] = useState<{ deploymentId: string; text: string } | null>(null);
+  const [summaryPendingId, setSummaryPendingId] = useState<string | null>(null);
+  const [summaryError, setSummaryError] = useState<{ deploymentId: string; message: string } | null>(null);
+  const [findingExplanation, setFindingExplanation] = useState<{ findingId: string; text: string } | null>(null);
+  const [explanationPendingId, setExplanationPendingId] = useState<string | null>(null);
+  const [explanationError, setExplanationError] = useState<{ findingId: string; message: string } | null>(null);
 
   async function load() {
     setItems(await api("/api/v1/deployments", token));
@@ -419,9 +425,42 @@ function Deployments({ token, onError, revision }: { token: string; onError: (va
     }));
   }
 
+  async function summarizeDeployment(id: string) {
+    setSummaryPendingId(id);
+    setSummaryError(null);
+    try {
+      const result = await api<{ summary: string }>(`/api/v1/deployments/${id}/ai-summary`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setAiSummary({ deploymentId: id, text: result.summary });
+    } catch (error) {
+      setSummaryError({ deploymentId: id, message: error instanceof Error ? error.message : "Could not generate a summary." });
+    } finally {
+      setSummaryPendingId((current) => current === id ? null : current);
+    }
+  }
+
+  async function explainFinding(id: string) {
+    setExplanationPendingId(id);
+    setExplanationError(null);
+    try {
+      const result = await api<{ explanation: string }>(`/api/v1/findings/${id}/ai-explain`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setFindingExplanation({ findingId: id, text: result.explanation });
+    } catch (error) {
+      setExplanationError({ findingId: id, message: error instanceof Error ? error.message : "Could not explain this finding." });
+    } finally {
+      setExplanationPendingId((current) => current === id ? null : current);
+    }
+  }
+
   // Keep the API's order for equal or missing dates; never present an undated row as the latest.
   const recentItems = items.map((item, index) => ({ item, index, timestamp: requestTime(item.requestedAt) }))
     .sort((a, b) => (b.timestamp ?? -Infinity) - (a.timestamp ?? -Infinity) || a.index - b.index);
+  const selectedDeployment = items.find((item) => item.id === selected);
 
   return (
     <div className="split-layout">
@@ -441,6 +480,16 @@ function Deployments({ token, onError, revision }: { token: string; onError: (va
         {selected && canRollback && (
           <button className="secondary-button" type="button" onClick={() => void api(`/api/v1/deployments/${selected}/rollback`, token, { method: "POST" }).then(() => load()).catch((error: Error) => onError(error.message))}>Rollback</button>
         )}
+        {selected && selectedDeployment?.status === "AwaitingApproval" && <div className="ai-action-group">
+          <button className="secondary-button" type="button" disabled={summaryPendingId === selected} aria-busy={summaryPendingId === selected}
+            onClick={() => void summarizeDeployment(selected)}>
+            {summaryPendingId === selected ? <><span className="button-spinner" aria-hidden="true" />Generating summary…</> : "Generate AI summary"}
+          </button>
+          {summaryError?.deploymentId === selected && <p className="ai-error" role="alert">{summaryError.message}</p>}
+          {aiSummary?.deploymentId === selected && <div className="ai-result" aria-live="polite">
+            <strong>Deployment summary</strong><p>{aiSummary.text}</p><small>AI-generated — verify before acting.</small>
+          </div>}
+        </div>}
         {decision && <p className="detail-row">Policy decision: <strong>{decision}</strong></p>}
         {rules.length > 0 && <h3 className="subheading">Policy checks</h3>}
         <ul className="item-list">
@@ -448,7 +497,17 @@ function Deployments({ token, onError, revision }: { token: string; onError: (va
         </ul>
         {findings.length > 0 && <h3 className="subheading">Findings</h3>}
         <ul className="item-list">
-          {findings.map((finding) => <li key={finding.id} className="detail-row">{finding.severity} · {finding.title}{finding.cve ? ` · ${finding.cve}` : ""}{finding.packageName ? ` · ${finding.packageName}` : ""} · {finding.status}</li>)}
+          {findings.map((finding) => <li key={finding.id} className="detail-row finding-ai-row">
+            <span>{finding.severity} · {finding.title}{finding.cve ? ` · ${finding.cve}` : ""}{finding.packageName ? ` · ${finding.packageName}` : ""} · {finding.status}</span>
+            <button className="secondary-button" type="button" disabled={explanationPendingId === finding.id} aria-busy={explanationPendingId === finding.id}
+              onClick={() => void explainFinding(finding.id)}>
+              {explanationPendingId === finding.id ? <><span className="button-spinner" aria-hidden="true" />Explaining…</> : "Explain with AI"}
+            </button>
+            {explanationError?.findingId === finding.id && <p className="ai-error" role="alert">{explanationError.message}</p>}
+            {findingExplanation?.findingId === finding.id && <div className="ai-result" aria-live="polite">
+              <strong>Finding explanation</strong><p>{findingExplanation.text}</p><small>AI-generated — verify before acting.</small>
+            </div>}
+          </li>)}
         </ul>
         {events.length > 0 && <h3 className="subheading">Timeline</h3>}
         <ol className="item-list">

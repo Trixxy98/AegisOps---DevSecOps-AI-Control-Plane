@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Organization;
+using AegisOps.Domain.Security;
 using AegisOps.Api.Ai;
 using AegisOps.Api.Identity;
 using AegisOps.Application.Authorization;
@@ -250,6 +251,136 @@ public sealed class AiGatewayTests {
         var denied = await app.GetTestClient().SendAsync(deniedRequest, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
         Assert.Equal(1, fake.Calls);
+    }
+
+    [Fact]
+    public async Task Finding_explanation_uses_governed_gateway_and_records_findings_purpose() {
+        await using var fixture = new GatewayFixture();
+        var (finding, model, _) = await SeedAiFinding(fixture);
+        var fake = new FakeLlm { Reply = "Upgrade the package to the fixed version." };
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", fixture.UserId.ToString())], "test"));
+        var http = new DefaultHttpContext();
+
+        var result = await AiEndpoints.ExplainFinding(finding.Id, new AiFeatureRequest(null), principal,
+            fixture.Users, fixture.Db, gateway, http);
+        var value = Assert.IsAssignableFrom<IValueHttpResult>(result).Value;
+
+        Assert.Equal(StatusCodes.Status200OK, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
+        Assert.Contains("AI-generated", JsonSerializer.Serialize(value));
+        Assert.Contains(finding.Title, string.Join("\n", fake.LastMessages.Select(message => message.Content)));
+        Assert.Equal(model.Name, fake.LastModel);
+        var audit = await fixture.Db.AiRequests.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(AiPurpose.FindingsExplanation, audit.Purpose);
+        Assert.Equal(fake.Reply, audit.ResponsePreview);
+    }
+
+    [Fact]
+    public async Task Finding_explanation_does_not_disclose_findings_outside_members_team() {
+        await using var fixture = new GatewayFixture();
+        var (finding, _, _) = await SeedAiFinding(fixture, addMember: false);
+        var fake = new FakeLlm();
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", fixture.UserId.ToString())], "test"));
+
+        var result = await AiEndpoints.ExplainFinding(finding.Id, new AiFeatureRequest(null), principal,
+            fixture.Users, fixture.Db, gateway, new DefaultHttpContext());
+
+        Assert.Equal(StatusCodes.Status404NotFound, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
+        Assert.Equal(0, fake.Calls);
+        Assert.Empty(await fixture.Db.AiRequests.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Deployment_summary_uses_governed_gateway_and_records_deployment_purpose() {
+        await using var fixture = new GatewayFixture();
+        var deployment = await SeedAiDeployment(fixture);
+        var fake = new FakeLlm { Reply = "Review the high-severity dependency before approving." };
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", fixture.UserId.ToString())], "test"));
+
+        var result = await AiEndpoints.SummarizeDeployment(deployment.Id, new AiFeatureRequest(null), principal,
+            fixture.Users, fixture.Db, gateway, new DefaultHttpContext());
+        var value = Assert.IsAssignableFrom<IValueHttpResult>(result).Value;
+
+        Assert.Equal(StatusCodes.Status200OK, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
+        Assert.Contains("AI-generated", JsonSerializer.Serialize(value));
+        var prompt = string.Join("\n", fake.LastMessages.Select(message => message.Content));
+        Assert.Contains("1.2.3", prompt);
+        Assert.Contains("Outdated vulnerable package", prompt);
+        Assert.Equal("finding-explanation-model", fake.LastModel);
+        var audit = await fixture.Db.AiRequests.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(AiPurpose.DeploymentSummary, audit.Purpose);
+    }
+
+    [Fact]
+    public async Task Deployment_summary_requires_awaiting_approval_before_calling_model() {
+        await using var fixture = new GatewayFixture();
+        var deployment = await SeedAiDeployment(fixture, awaitingApproval: false);
+        var fake = new FakeLlm();
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", fixture.UserId.ToString())], "test"));
+
+        var result = await AiEndpoints.SummarizeDeployment(deployment.Id, new AiFeatureRequest(null), principal,
+            fixture.Users, fixture.Db, gateway, new DefaultHttpContext());
+
+        Assert.Equal(StatusCodes.Status409Conflict, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
+        Assert.Equal(0, fake.Calls);
+        Assert.Empty(await fixture.Db.AiRequests.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    private static async Task<(SecurityFinding Finding, AiModel Model, Team Team)> SeedAiFinding(GatewayFixture fixture, bool addMember = true) {
+        var now = DateTimeOffset.UtcNow;
+        var team = Team.Create("AI finding team", $"ai-finding-{Guid.NewGuid():N}", now);
+        var project = Project.Create(team.Id, "AI finding project", $"ai-finding-{Guid.NewGuid():N}", now);
+        var artifact = Artifact.Create(project.Id, "1.2.3", new string('a', 40), "main", "registry/app:1.2.3",
+            CheckStatus.Passed, CheckStatus.Passed, now, createdById: fixture.UserId);
+        var scan = SecurityScan.Begin(artifact.Id, ScannerType.Trivy, ScanSource.CiUploaded, ReportFormat.TrivyJson,
+            now, "test", "test-report.json", parseInline: true);
+        scan.Complete(ScanSummary.Empty(), now);
+        var finding = SecurityFinding.Create(scan.Id, artifact.Id, Severity.High, "CVE-2026-1234",
+            "Outdated vulnerable package", "finding-fingerprint", description: "Upgrade to the fixed package release.",
+            packageName: "example-library", installedVersion: "1.0.0", fixedVersion: "1.0.1");
+        var model = AiModel.Create("finding-explanation-model");
+        model.SetEnabled(true);
+        var policy = AiPolicy.Create("finding-explanation-policy", PolicyScope.Global, null, fixture.UserId, now);
+        policy.Configure([model.Id], 20, 100, 16000, SensitiveDataAction.Redact, [], true, false, true, fixture.UserId, now);
+        fixture.Db.Teams.Add(team);
+        fixture.Db.Projects.Add(project);
+        fixture.Db.Artifacts.Add(artifact);
+        fixture.Db.SecurityScans.Add(scan);
+        fixture.Db.SecurityFindings.Add(finding);
+        if (addMember) fixture.Db.TeamMembers.Add(TeamMember.Create(team.Id, fixture.UserId, TeamRole.Member, now));
+        fixture.Db.AiModels.Add(model);
+        fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return (finding, model, team);
+    }
+
+    private static async Task<Deployment> SeedAiDeployment(GatewayFixture fixture, bool awaitingApproval = true) {
+        var (finding, _, _) = await SeedAiFinding(fixture);
+        var project = await fixture.Db.Projects.SingleAsync(TestContext.Current.CancellationToken);
+        var artifact = await fixture.Db.Artifacts.SingleAsync(item => item.Id == finding.ArtifactId, TestContext.Current.CancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var environment = AegisOps.Domain.Organization.Environment.Create(project.Id, "Production", EnvironmentTier.Production, 1);
+        var deployment = Deployment.Request(project.Id, environment.Id, artifact.Id, now, "ai-summary-test", fixture.UserId,
+            null, "Release 1.2.3 for approval.");
+        var role = new IdentityRole<Guid> { Id = Guid.NewGuid(), Name = "Developer", NormalizedName = "DEVELOPER" };
+        fixture.Db.Roles.Add(role);
+        fixture.Db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = fixture.UserId, RoleId = role.Id });
+        fixture.Db.Environments.Add(environment);
+        fixture.Db.Deployments.Add(deployment);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        if (!awaitingApproval) return deployment;
+
+        var evaluation = PolicyEvaluation.Create(deployment.Id, PolicyDecision.RequireApproval, 1, now,
+            "[{\"Type\":\"RequireApprovals\",\"Passed\":true},{\"Type\":\"MaxFindings\",\"Passed\":false,\"Message\":\"High severity finding present.\"}]");
+        fixture.Db.PolicyEvaluations.Add(evaluation);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        deployment.BeginEvaluation();
+        deployment.ApplyDecision(new PolicyOutcome(PolicyDecision.RequireApproval, evaluation.Id, 1, null), now);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return deployment;
     }
 
     [Fact]
@@ -575,11 +706,13 @@ public sealed class AiGatewayTests {
     private sealed class FakeLlm : ILlmClient {
         public int Calls;
         public string LastPrompt = "";
+        public string LastModel = "";
+        public IReadOnlyList<LlmMessage> LastMessages = [];
         public string Reply = "response";
         public Exception? Failure;
         public Task<LlmReply> Chat(string model, IReadOnlyList<LlmMessage> messages, CancellationToken ct) {
             if (Failure is not null) return Task.FromException<LlmReply>(Failure);
-            Calls++; LastPrompt = messages[0].Content;
+            Calls++; LastPrompt = messages[0].Content; LastModel = model; LastMessages = messages;
             return Task.FromResult(new LlmReply(Reply, 2, 3));
         }
         public Task<IReadOnlyList<string>> ListModels(CancellationToken ct) => Task.FromResult<IReadOnlyList<string>>(["llama3.2:3b"]);

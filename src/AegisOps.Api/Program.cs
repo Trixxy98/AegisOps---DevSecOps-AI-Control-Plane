@@ -127,6 +127,9 @@ app.MapPost("/api/v1/artifacts/{id:guid}/scans", UploadScan.Handle)
     .RequireAuthorization(Permissions.ScansWrite);
 app.MapGet("/api/v1/artifacts/{id:guid}/findings", ListFindings.Handle)
     .RequireAuthorization(Permissions.FindingsRead);
+app.MapPost("/api/v1/findings/{id:guid}/ai-explain", AiEndpoints.ExplainFinding)
+    .RequireAuthorization(Permissions.FindingsRead)
+    .RequireAuthorization(Permissions.AiChat);
 app.MapPost("/api/v1/projects/{slug}/finding-suppressions", SuppressFinding.Handle)
     .RequireAuthorization(Permissions.FindingsSuppress);
 app.MapPost("/api/v1/policies", CreatePolicy.Handle)
@@ -157,6 +160,9 @@ app.MapGet("/api/v1/deployments/{id:guid}/events", DeploymentEndpoints.Events)
     .RequireAuthorization(Permissions.DeploymentsRead);
 app.MapGet("/api/v1/deployments/{id:guid}/evaluation", DeploymentEndpoints.Evaluation)
     .RequireAuthorization(Permissions.DeploymentsRead);
+app.MapPost("/api/v1/deployments/{id:guid}/ai-summary", AiEndpoints.SummarizeDeployment)
+    .RequireAuthorization(Permissions.DeploymentsRead)
+    .RequireAuthorization(Permissions.AiChat);
 app.MapPost("/api/v1/deployments/{id:guid}/approvals", DeploymentEndpoints.Decide)
     .RequireAuthorization(Permissions.DeploymentsApprove);
 app.MapPost("/api/v1/deployments/{id:guid}/cancel", DeploymentEndpoints.Cancel)
