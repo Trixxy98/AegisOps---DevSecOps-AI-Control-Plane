@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { connectDeploymentUpdates, type UpdateConnectionStatus } from "./deploymentUpdates";
 
-type View = "dashboard" | "projects" | "deployments" | "approvals" | "policies" | "audit" | "admin";
+type View = "dashboard" | "projects" | "deployments" | "approvals" | "policies" | "ai" | "audit" | "admin";
 type DeployTarget = { id: string; name: string; tier: string };
 type DeploymentToast = { id: number; message: string; type: "success" | "error"; approvalId?: string };
 type ApprovalItem = { id: string; projectId: string; requestedAt: string; status: string };
@@ -13,6 +13,7 @@ const navigation: Array<{ id: View; label: string; description: string }> = [
   { id: "deployments", label: "Deployments", description: "Track releases and review outcomes" },
   { id: "approvals", label: "Approvals", description: "Review requests awaiting a decision" },
   { id: "policies", label: "Policies", description: "Manage deployment guardrails" },
+  { id: "ai", label: "AI Governance", description: "Review governed AI usage and controls" },
   { id: "audit", label: "Audit log", description: "A record of platform activity" },
   { id: "admin", label: "Administration", description: "People, teams, and background jobs" },
 ];
@@ -148,6 +149,7 @@ export function App() {
          {view === "deployments" && <Deployments token={token} onError={setError} revision={revision} />}
           {view === "approvals" && <Approvals token={token} onError={setError} items={approvalItems} refresh={() => approvalHint.current()} />}
         {view === "policies" && <Policies token={token} onError={setError} />}
+        {view === "ai" && <AiGovernance token={token} />}
         {view === "audit" && <Audit token={token} onError={setError} />}
         {view === "admin" && <Admin token={token} onError={setError} />}
         </section>
@@ -374,6 +376,12 @@ function Deployments({ token, onError, revision }: { token: string; onError: (va
   const [decision, setDecision] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [canRollback, setCanRollback] = useState(false);
+  const [aiSummary, setAiSummary] = useState<{ deploymentId: string; text: string } | null>(null);
+  const [summaryPendingId, setSummaryPendingId] = useState<string | null>(null);
+  const [summaryError, setSummaryError] = useState<{ deploymentId: string; message: string } | null>(null);
+  const [findingExplanation, setFindingExplanation] = useState<{ findingId: string; text: string } | null>(null);
+  const [explanationPendingId, setExplanationPendingId] = useState<string | null>(null);
+  const [explanationError, setExplanationError] = useState<{ findingId: string; message: string } | null>(null);
 
   async function load() {
     setItems(await api("/api/v1/deployments", token));
@@ -419,9 +427,42 @@ function Deployments({ token, onError, revision }: { token: string; onError: (va
     }));
   }
 
+  async function summarizeDeployment(id: string) {
+    setSummaryPendingId(id);
+    setSummaryError(null);
+    try {
+      const result = await api<{ summary: string }>(`/api/v1/deployments/${id}/ai-summary`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setAiSummary({ deploymentId: id, text: result.summary });
+    } catch (error) {
+      setSummaryError({ deploymentId: id, message: error instanceof Error ? error.message : "Could not generate a summary." });
+    } finally {
+      setSummaryPendingId((current) => current === id ? null : current);
+    }
+  }
+
+  async function explainFinding(id: string) {
+    setExplanationPendingId(id);
+    setExplanationError(null);
+    try {
+      const result = await api<{ explanation: string }>(`/api/v1/findings/${id}/ai-explain`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setFindingExplanation({ findingId: id, text: result.explanation });
+    } catch (error) {
+      setExplanationError({ findingId: id, message: error instanceof Error ? error.message : "Could not explain this finding." });
+    } finally {
+      setExplanationPendingId((current) => current === id ? null : current);
+    }
+  }
+
   // Keep the API's order for equal or missing dates; never present an undated row as the latest.
   const recentItems = items.map((item, index) => ({ item, index, timestamp: requestTime(item.requestedAt) }))
     .sort((a, b) => (b.timestamp ?? -Infinity) - (a.timestamp ?? -Infinity) || a.index - b.index);
+  const selectedDeployment = items.find((item) => item.id === selected);
 
   return (
     <div className="split-layout">
@@ -441,6 +482,16 @@ function Deployments({ token, onError, revision }: { token: string; onError: (va
         {selected && canRollback && (
           <button className="secondary-button" type="button" onClick={() => void api(`/api/v1/deployments/${selected}/rollback`, token, { method: "POST" }).then(() => load()).catch((error: Error) => onError(error.message))}>Rollback</button>
         )}
+        {selected && selectedDeployment?.status === "AwaitingApproval" && <div className="ai-action-group">
+          <button className="secondary-button" type="button" disabled={summaryPendingId === selected} aria-busy={summaryPendingId === selected}
+            onClick={() => void summarizeDeployment(selected)}>
+            {summaryPendingId === selected ? <><span className="button-spinner" aria-hidden="true" />Generating summary…</> : "Generate AI summary"}
+          </button>
+          {summaryError?.deploymentId === selected && <p className="ai-error" role="alert">{summaryError.message}</p>}
+          {aiSummary?.deploymentId === selected && <div className="ai-result" aria-live="polite">
+            <strong>Deployment summary</strong><p>{aiSummary.text}</p><small>AI-generated — verify before acting.</small>
+          </div>}
+        </div>}
         {decision && <p className="detail-row">Policy decision: <strong>{decision}</strong></p>}
         {rules.length > 0 && <h3 className="subheading">Policy checks</h3>}
         <ul className="item-list">
@@ -448,7 +499,17 @@ function Deployments({ token, onError, revision }: { token: string; onError: (va
         </ul>
         {findings.length > 0 && <h3 className="subheading">Findings</h3>}
         <ul className="item-list">
-          {findings.map((finding) => <li key={finding.id} className="detail-row">{finding.severity} · {finding.title}{finding.cve ? ` · ${finding.cve}` : ""}{finding.packageName ? ` · ${finding.packageName}` : ""} · {finding.status}</li>)}
+          {findings.map((finding) => <li key={finding.id} className="detail-row finding-ai-row">
+            <span>{finding.severity} · {finding.title}{finding.cve ? ` · ${finding.cve}` : ""}{finding.packageName ? ` · ${finding.packageName}` : ""} · {finding.status}</span>
+            <button className="secondary-button" type="button" disabled={explanationPendingId === finding.id} aria-busy={explanationPendingId === finding.id}
+              onClick={() => void explainFinding(finding.id)}>
+              {explanationPendingId === finding.id ? <><span className="button-spinner" aria-hidden="true" />Explaining…</> : "Explain with AI"}
+            </button>
+            {explanationError?.findingId === finding.id && <p className="ai-error" role="alert">{explanationError.message}</p>}
+            {findingExplanation?.findingId === finding.id && <div className="ai-result" aria-live="polite">
+              <strong>Finding explanation</strong><p>{findingExplanation.text}</p><small>AI-generated — verify before acting.</small>
+            </div>}
+          </li>)}
         </ul>
         {events.length > 0 && <h3 className="subheading">Timeline</h3>}
         <ol className="item-list">
@@ -530,6 +591,175 @@ function Policies({ token, onError }: { token: string; onError: (value: string |
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+type AiRequestItem = {
+  id: string; status: string; purpose: string; promptChars: number; responseChars: number;
+  promptTokens: number | null; completionTokens: number | null; latencyMs: number;
+  detectedSensitiveTypesJson: string; redactionsApplied: number; blockReason?: string | null;
+  createdAt: string;
+};
+type AiPolicyItem = {
+  id: string; name: string; scope: string; scopeId: string | null; allowedModelIds: string[];
+  requestsPerMinute: number; requestsPerDay: number; maxPromptChars: number;
+  sensitiveDataAction: string; blockedPatterns: string[]; redactPii: boolean;
+  storeContent: boolean; isEnabled: boolean; version: number;
+};
+type AiPolicyResponse = Omit<AiPolicyItem, "allowedModelIds" | "blockedPatterns"> & {
+  allowedModelIdsJson: string; blockedPatternsJson: string;
+};
+
+function jsonStringArray(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeAiPolicy(policy: AiPolicyResponse): AiPolicyItem {
+  return {
+    ...policy,
+    allowedModelIds: jsonStringArray(policy.allowedModelIdsJson),
+    blockedPatterns: jsonStringArray(policy.blockedPatternsJson),
+  };
+}
+
+function AiGovernance({ token }: { token: string }) {
+  const pageSize = 20;
+  const [page, setPage] = useState(1);
+  const [requests, setRequests] = useState<AiRequestItem[]>([]);
+  const [requestTotal, setRequestTotal] = useState(0);
+  const [requestLoading, setRequestLoading] = useState(true);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [policies, setPolicies] = useState<AiPolicyItem[]>([]);
+  const [selectedPolicyId, setSelectedPolicyId] = useState("");
+  const [policyLoading, setPolicyLoading] = useState(true);
+  const [policyError, setPolicyError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [policyMessage, setPolicyMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setRequestLoading(true);
+    setRequestError(null);
+    api<{ total: number; items: AiRequestItem[] }>(`/api/v1/ai/requests?page=${page}&pageSize=${pageSize}`, token)
+      .then((result) => {
+        if (!active) return;
+        setRequests(result.items);
+        setRequestTotal(result.total);
+      })
+      .catch((error: Error) => { if (active) setRequestError(error.message); })
+      .finally(() => { if (active) setRequestLoading(false); });
+    return () => { active = false; };
+  }, [page, token]);
+
+  useEffect(() => {
+    let active = true;
+    setPolicyLoading(true);
+    setPolicyError(null);
+    api<AiPolicyResponse[]>("/api/v1/ai/policies", token)
+      .then((result) => {
+        if (!active) return;
+        const loaded = result.map(normalizeAiPolicy);
+        setPolicies(loaded);
+        setSelectedPolicyId((current) => loaded.some((item) => item.id === current) ? current : loaded[0]?.id ?? "");
+      })
+      .catch((error: Error) => { if (active) setPolicyError(error.message); })
+      .finally(() => { if (active) setPolicyLoading(false); });
+    return () => { active = false; };
+  }, [token]);
+
+  const selectedPolicy = policies.find((item) => item.id === selectedPolicyId);
+  function updatePolicy(patch: Partial<AiPolicyItem>) {
+    if (!selectedPolicy) return;
+    setPolicies((current) => current.map((item) => item.id === selectedPolicy.id ? { ...item, ...patch } : item));
+    setPolicyMessage(null);
+  }
+
+  async function savePolicy() {
+    if (!selectedPolicy) return;
+    setSaving(true);
+    setPolicyError(null);
+    setPolicyMessage(null);
+    try {
+      await api("/api/v1/ai/policies", token, {
+        method: "PUT",
+        body: JSON.stringify({
+          id: selectedPolicy.id, name: selectedPolicy.name, scope: selectedPolicy.scope, scopeId: selectedPolicy.scopeId,
+          allowedModelIds: selectedPolicy.allowedModelIds, requestsPerMinute: selectedPolicy.requestsPerMinute,
+          requestsPerDay: selectedPolicy.requestsPerDay, maxPromptChars: selectedPolicy.maxPromptChars,
+          sensitiveDataAction: selectedPolicy.sensitiveDataAction, blockedPatterns: selectedPolicy.blockedPatterns,
+          redactPii: selectedPolicy.redactPii, storeContent: selectedPolicy.storeContent, isEnabled: selectedPolicy.isEnabled,
+        }),
+      });
+      const refreshed = (await api<AiPolicyResponse[]>("/api/v1/ai/policies", token)).map(normalizeAiPolicy);
+      setPolicies(refreshed);
+      setPolicyMessage("AI policy saved.");
+    } catch (error) {
+      setPolicyError(error instanceof Error ? error.message : "Could not save AI policy.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const pageCount = Math.max(1, Math.ceil(requestTotal / pageSize));
+  return (
+    <div className="ai-governance">
+      <section className="panel">
+        <div className="panel-heading"><h2>AI request history</h2><span>{requestTotal} total · page {page} of {pageCount}</span></div>
+        <p className="empty-state">Request previews are omitted here; sensitive-data detections, redactions, and outcome metadata are shown instead.</p>
+        {requestError && <p className="ai-error" role="alert">{requestError}</p>}
+        {requestLoading ? <p className="empty-state" role="status">Loading AI requests…</p> : <ul className="item-list ai-request-list">
+          {requests.map((request) => <li key={request.id} className="detail-row ai-request-row">
+            <div className="ai-request-heading"><strong>{request.purpose}</strong><span className={`ai-status ai-status-${request.status.toLowerCase()}`}>{request.status}</span><time dateTime={request.createdAt}>{new Date(request.createdAt).toLocaleString()}</time></div>
+            <span>{request.promptChars} prompt chars · {request.responseChars} response chars · {request.latencyMs} ms</span>
+            <span>Tokens {request.promptTokens ?? "—"}/{request.completionTokens ?? "—"} · {request.redactionsApplied} redactions</span>
+            {request.blockReason && <span>Block reason: {request.blockReason}</span>}
+            {!!jsonStringArray(request.detectedSensitiveTypesJson).length && <span>Detected: {jsonStringArray(request.detectedSensitiveTypesJson).join(", ")}</span>}
+          </li>)}
+          {!requests.length && <li className="empty-state">{requestTotal ? "No requests on this page." : "No AI requests recorded yet."}</li>}
+        </ul>}
+        <div className="action-row ai-pagination">
+          <button className="secondary-button" type="button" disabled={page <= 1 || requestLoading} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+          <button className="secondary-button" type="button" disabled={page >= pageCount || requestLoading} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Next</button>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-heading"><h2>AI policy controls</h2></div>
+        <p className="empty-state">Global policies are editable by Admin; team policies are editable by Security. Allowed model IDs are preserved when saving.</p>
+        {policyError && <p className="ai-error" role="alert">{policyError}</p>}
+        {policyMessage && <p className="policy-message" role="status">{policyMessage}</p>}
+        {policyLoading ? <p className="empty-state" role="status">Loading AI policies…</p> : policies.length === 0 ? <p className="empty-state">No AI policies are configured.</p> : <>
+          <label className="field-label" htmlFor="ai-policy-select">AI policy</label>
+          <select id="ai-policy-select" value={selectedPolicyId} onChange={(event) => { setSelectedPolicyId(event.target.value); setPolicyMessage(null); }}>
+            {policies.map((policy) => <option key={policy.id} value={policy.id}>{policy.scope} · {policy.name}</option>)}
+          </select>
+          {selectedPolicy && <div className="ai-policy-form">
+            <p className="empty-state">Version {selectedPolicy.version} · {selectedPolicy.allowedModelIds.length} allowed model(s)</p>
+            <div className="form-grid">
+              <label className="field-label">Requests per minute<input type="number" min="1" max="10000" value={selectedPolicy.requestsPerMinute} onChange={(event) => updatePolicy({ requestsPerMinute: Number(event.target.value) })} /></label>
+              <label className="field-label">Requests per day<input type="number" min="1" max="100000" value={selectedPolicy.requestsPerDay} onChange={(event) => updatePolicy({ requestsPerDay: Number(event.target.value) })} /></label>
+              <label className="field-label">Maximum prompt characters<input type="number" min="1" max="100000" value={selectedPolicy.maxPromptChars} onChange={(event) => updatePolicy({ maxPromptChars: Number(event.target.value) })} /></label>
+              <label className="field-label">Sensitive-data action<select value={selectedPolicy.sensitiveDataAction} onChange={(event) => updatePolicy({ sensitiveDataAction: event.target.value })}>
+                <option value="Allow">Allow</option><option value="Redact">Redact</option><option value="Block">Block</option>
+              </select></label>
+            </div>
+            <label className="field-label">Blocked patterns, one per line<textarea rows={4} value={selectedPolicy.blockedPatterns.join("\n")} onChange={(event) => updatePolicy({ blockedPatterns: event.target.value.split("\n").map((item) => item.trim()).filter(Boolean) })} /></label>
+            <div className="ai-policy-toggles">
+              <label><input type="checkbox" checked={selectedPolicy.redactPii} onChange={(event) => updatePolicy({ redactPii: event.target.checked })} /> Redact personal data</label>
+              <label><input type="checkbox" checked={selectedPolicy.storeContent} onChange={(event) => updatePolicy({ storeContent: event.target.checked })} /> Store prompt and response content</label>
+              <label><input type="checkbox" checked={selectedPolicy.isEnabled} onChange={(event) => updatePolicy({ isEnabled: event.target.checked })} /> Policy enabled</label>
+            </div>
+            {selectedPolicy.storeContent && <p className="policy-warning" role="note">Content storage retains full prompts and responses, which may contain sensitive information.</p>}
+            <button className="primary-button" type="button" disabled={saving} onClick={() => void savePolicy()}>{saving ? "Saving…" : "Save AI policy"}</button>
+          </div>}
+        </>}
+      </section>
     </div>
   );
 }
