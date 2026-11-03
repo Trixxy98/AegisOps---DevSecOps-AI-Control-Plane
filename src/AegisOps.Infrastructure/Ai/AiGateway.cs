@@ -29,7 +29,7 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
         RateLimitDecision? rate = null;
         SensitiveInspection inspection = new("", [], 0);
         // Cap the in-memory audit material; never persist uninspected input as a preview.
-        var raw = messages is null ? "" : string.Join("\n", messages.Select(m => m.Content ?? ""));
+        var raw = messages is null ? "" : string.Join("\n", messages.Where(m => m is not null).Select(m => m.Content ?? ""));
         var policy = teamId is null ? null : await db.AiPolicies.AsNoTracking().Where(p => p.Scope == PolicyScope.Team && p.ScopeId == teamId && p.IsEnabled).SingleOrDefaultAsync(ct);
         policy ??= await db.AiPolicies.AsNoTracking().Where(p => p.Scope == PolicyScope.Global && p.IsEnabled).SingleOrDefaultAsync(ct);
         var model = modelName is null ? null : await db.AiModels.AsNoTracking().SingleOrDefaultAsync(m => m.Name == modelName, ct);
