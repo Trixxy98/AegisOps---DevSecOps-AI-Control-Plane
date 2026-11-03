@@ -104,3 +104,51 @@ test("approvers can generate a deployment summary and explain findings", async (
   await page.getByRole("button", { name: "Explain with AI" }).click();
   await expect(page.getByText("Upgrade the package to the fixed release.")).toBeVisible();
 });
+
+test("AI governance shows request history and saves policy controls", async ({ page }) => {
+  let savedPolicy: Record<string, unknown> | undefined;
+  const policy = {
+    id: "00000000-0000-7000-8000-000000000404", name: "Global baseline", scope: "Global", scopeId: null,
+    allowedModelIdsJson: '["00000000-0000-7000-8000-000000000505"]',
+    requestsPerMinute: 20, requestsPerDay: 500, maxPromptChars: 16000,
+    sensitiveDataAction: "Redact", blockedPatternsJson: "[]", redactPii: true,
+    storeContent: false, isEnabled: true, version: 2, updatedAt: "2026-11-03T00:00:00Z",
+  };
+  await page.route("**/api/v1/auth/login", (route) => route.fulfill({
+    json: { accessToken: "e2e-session", expiresAt: "2030-01-01T00:00:00Z" },
+  }));
+  await page.route("**/api/v1/deployments/approval-queue", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/deployments", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/ai/requests*", (route) => route.fulfill({
+    json: { page: 1, pageSize: 20, total: 1, items: [{
+      id: "00000000-0000-7000-8000-000000000606", purpose: "Chat", status: "Blocked",
+      promptChars: 120, responseChars: 0, promptTokens: null, completionTokens: null,
+      latencyMs: 0, detectedSensitiveTypesJson: '["AWS_ACCESS_KEY"]', redactionsApplied: 0,
+      blockReason: "SensitiveData", createdAt: "2026-11-03T01:00:00Z",
+    }] },
+  }));
+  await page.route("**/api/v1/ai/policies", async (route) => {
+    if (route.request().method() === "PUT") {
+      savedPolicy = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({ json: { id: policy.id, name: policy.name, scope: policy.scope, scopeId: null, version: 3 } });
+      return;
+    }
+    await route.fulfill({ json: [policy] });
+  });
+  await page.route("**/hubs/ops/negotiate*", (route) => route.fulfill({
+    json: { connectionId: "e2e-connection", connectionToken: "e2e-connection-token", negotiateVersion: 1,
+      availableTransports: [{ transport: "WebSockets", transferFormats: ["Text"] }] },
+  }));
+  await page.routeWebSocket("**/hubs/ops*", (socket) => {
+    socket.onMessage((message) => { if (String(message).includes('"protocol":"json"')) socket.send("{}\u001e"); });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("Password").fill("not-a-real-password");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "AI Governance", exact: true }).click();
+  await expect(page.getByText("Block reason: SensitiveData", { exact: true })).toBeVisible();
+  await page.getByLabel("Requests per minute").fill("25");
+  await page.getByRole("button", { name: "Save AI policy" }).click();
+  await expect.poll(() => savedPolicy?.requestsPerMinute).toBe(25);
+});
