@@ -149,16 +149,18 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_ai_policies");
 
+                    b.HasIndex("Scope")
+                        .IsUnique()
+                        .HasDatabaseName("ix_ai_policies_scope")
+                        .HasFilter("scope = 'Global' AND is_enabled = true");
+
                     b.HasIndex("ScopeId")
-                        .HasDatabaseName("ix_ai_policies_scope_id");
+                        .IsUnique()
+                        .HasDatabaseName("ix_ai_policies_scope_id")
+                        .HasFilter("scope = 'Team' AND is_enabled = true");
 
                     b.HasIndex("UpdatedById")
                         .HasDatabaseName("ix_ai_policies_updated_by_id");
-
-                    b.HasIndex("Scope", "ScopeId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_ai_policies_scope_scope_id")
-                        .HasFilter("is_enabled = true");
 
                     b.ToTable("ai_policies", "ai");
                 });
