@@ -351,11 +351,69 @@ public sealed class AiGatewayTests {
         Assert.DoesNotContain(secret, row.ResponseContent);
     }
 
+    [Fact]
+    public async Task Gateway_records_generic_failure_when_provider_throws_without_exposing_exception() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("provider-failure"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("provider-failure-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, [], false, false, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var fake = new FakeLlm { Failure = new HttpRequestException("private endpoint detail") };
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+
+        var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")],
+            "provider-failure", TestContext.Current.CancellationToken);
+
+        Assert.Equal(503, result.StatusCode);
+        Assert.Null(result.Content);
+        Assert.Equal(AiRequestStatus.Failed, result.Request.Status);
+        Assert.Equal("ProviderUnavailable", result.Request.BlockReason);
+        Assert.DoesNotContain("private endpoint detail", JsonSerializer.Serialize(result.Request));
+    }
+
+    [Fact]
+    public async Task Gateway_propagates_provider_cancellation_without_fabricating_failure_audit() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("provider-cancel"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("provider-cancel-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, [], false, false, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var fake = new FakeLlm { Failure = new OperationCanceledException() };
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => gateway.Chat(fixture.UserId, null, model.Name,
+            [new LlmMessage("user", "hello")], "provider-cancel", TestContext.Current.CancellationToken));
+
+        Assert.Empty(await fixture.Db.AiRequests.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Gateway_rejects_null_message_items_as_prompt_errors() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("null-message-item"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("null-message-item-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, [], false, false, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var fake = new FakeLlm();
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+
+        var result = await gateway.Chat(fixture.UserId, null, model.Name, [null!], "null-message", TestContext.Current.CancellationToken);
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("PromptRejected", result.Request.BlockReason);
+        Assert.Equal(0, fake.Calls);
+    }
+
     private sealed class FakeLlm : ILlmClient {
         public int Calls;
         public string LastPrompt = "";
         public string Reply = "response";
+        public Exception? Failure;
         public Task<LlmReply> Chat(string model, IReadOnlyList<LlmMessage> messages, CancellationToken ct) {
+            if (Failure is not null) return Task.FromException<LlmReply>(Failure);
             Calls++; LastPrompt = messages[0].Content;
             return Task.FromResult(new LlmReply(Reply, 2, 3));
         }
