@@ -448,6 +448,28 @@ public sealed class AiGatewayTests {
         Assert.Empty(await fixture.Db.AuditEvents.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task Gateway_rejects_oversized_prompt_before_sensitive_inspection_and_persists_only_bounded_preview() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("oversized-prompt"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("oversized-prompt-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 32, SensitiveDataAction.Redact, [], false, true, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var detector = new TrackingDetector();
+        var gateway = new AiGateway(fixture.Db, new FakeLlm(), new FakeLimiter(), detector, TimeProvider.System);
+        var oversized = new string('a', 100_000);
+
+        var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", oversized)],
+            "oversized-prompt", TestContext.Current.CancellationToken);
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.False(detector.WasCalled);
+        Assert.Null(result.Request.PromptContent);
+        Assert.InRange(result.Request.PromptPreview?.Length ?? 0, 0, 500);
+        Assert.Equal(64, result.Request.PromptHash.Length);
+    }
+
     private sealed class FakeLlm : ILlmClient {
         public int Calls;
         public string LastPrompt = "";
@@ -468,6 +490,13 @@ public sealed class AiGatewayTests {
     private sealed class TimeoutDetector : ISensitiveDataDetector {
         public SensitiveInspection Inspect(string input, bool redactPii = false) =>
             throw new System.Text.RegularExpressions.RegexMatchTimeoutException();
+    }
+    private sealed class TrackingDetector : ISensitiveDataDetector {
+        public bool WasCalled { get; private set; }
+        public SensitiveInspection Inspect(string input, bool redactPii = false) {
+            WasCalled = true;
+            return new SensitiveInspection(input, [], 0);
+        }
     }
     private sealed class AiTestAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger, UrlEncoder encoder)

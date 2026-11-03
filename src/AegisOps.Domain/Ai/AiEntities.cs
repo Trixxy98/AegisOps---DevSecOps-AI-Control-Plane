@@ -93,14 +93,14 @@ public sealed class AiRequest {
     public static AiRequest Record(Guid userId, Guid? teamId, Guid? modelId, AiPolicy? policy, AiRequestStatus status,
         string? reason, string rawPrompt, string safePrompt, string? response, string[] detections, int redactions,
         int? promptTokens, int? completionTokens, long latencyMs, string correlationId, DateTimeOffset now,
-        AiPurpose purpose = AiPurpose.Chat, string? safeResponse = null) {
+        AiPurpose purpose = AiPurpose.Chat, string? safeResponse = null, bool storePromptContent = true) {
         return new AiRequest {
             Id = Guid.CreateVersion7(), UserId = userId, TeamId = teamId, AiModelId = modelId, AiPolicyId = policy?.Id,
             Status = status, Purpose = purpose, BlockReason = reason, PromptChars = rawPrompt.Length,
             PromptHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawPrompt))),
             PromptPreview = safePrompt[..Math.Min(500, safePrompt.Length)],
             ResponsePreview = safeResponse?[..Math.Min(500, safeResponse.Length)],
-            PromptContent = policy?.StoreContent == true ? rawPrompt : null,
+            PromptContent = policy?.StoreContent == true && storePromptContent ? rawPrompt : null,
             ResponseContent = policy?.StoreContent == true ? response : null,
             ResponseChars = response?.Length ?? 0, DetectedSensitiveTypesJson = JsonSerializer.Serialize(detections),
             RedactionsApplied = redactions, PromptTokens = promptTokens, CompletionTokens = completionTokens,
