@@ -407,6 +407,47 @@ public sealed class AiGatewayTests {
         Assert.Equal(0, fake.Calls);
     }
 
+    [Fact]
+    public async Task Gateway_turns_sensitive_inspection_timeout_into_generic_failure_audit() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("inspection-timeout"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("inspection-timeout-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, [], false, false, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var fake = new FakeLlm();
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new TimeoutDetector(), TimeProvider.System);
+
+        var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")],
+            "inspection-timeout", TestContext.Current.CancellationToken);
+
+        Assert.Equal(503, result.StatusCode);
+        Assert.Equal("InspectionUnavailable", result.Request.BlockReason);
+        Assert.Equal(AiRequestStatus.Failed, result.Request.Status);
+        Assert.Equal(0, fake.Calls);
+    }
+
+    [Fact]
+    public async Task Gateway_does_not_return_success_when_audit_persistence_fails() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("audit-store-failure"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("audit-store-failure-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, [], false, false, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await fixture.Db.Database.ExecuteSqlRawAsync("CREATE TRIGGER reject_ai_audit BEFORE INSERT ON ai_requests BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END",
+            TestContext.Current.CancellationToken);
+        var fake = new FakeLlm();
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+
+        await Assert.ThrowsAnyAsync<DbUpdateException>(() => gateway.Chat(fixture.UserId, null, model.Name,
+            [new LlmMessage("user", "hello")], "audit-store-failure", TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, fake.Calls);
+        Assert.Empty(await fixture.Db.AiRequests.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Empty(await fixture.Db.AuditEvents.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken));
+    }
+
     private sealed class FakeLlm : ILlmClient {
         public int Calls;
         public string LastPrompt = "";
@@ -423,6 +464,10 @@ public sealed class AiGatewayTests {
         public bool Allow = true;
         public Task<RateLimitDecision> Check(Guid userId, int minute, int day, CancellationToken ct) =>
             Task.FromResult(new RateLimitDecision(Allow, Allow ? 19 : 0, Allow ? 499 : 0));
+    }
+    private sealed class TimeoutDetector : ISensitiveDataDetector {
+        public SensitiveInspection Inspect(string input, bool redactPii = false) =>
+            throw new System.Text.RegularExpressions.RegexMatchTimeoutException();
     }
     private sealed class AiTestAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger, UrlEncoder encoder)
