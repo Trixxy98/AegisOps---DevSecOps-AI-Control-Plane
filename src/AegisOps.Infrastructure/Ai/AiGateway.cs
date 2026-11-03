@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using AegisOps.Domain.Ai;
 using AegisOps.Domain.Audit;
@@ -28,13 +30,23 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
         var watch = Stopwatch.StartNew();
         RateLimitDecision? rate = null;
         SensitiveInspection inspection = new("", [], 0);
-        // Cap the in-memory audit material; never persist uninspected input as a preview.
-        var raw = messages is null ? "" : string.Join("\n", messages.Where(m => m is not null).Select(m => m.Content ?? ""));
         var policy = teamId is null ? null : await db.AiPolicies.AsNoTracking().Where(p => p.Scope == PolicyScope.Team && p.ScopeId == teamId && p.IsEnabled).SingleOrDefaultAsync(ct);
         policy ??= await db.AiPolicies.AsNoTracking().Where(p => p.Scope == PolicyScope.Global && p.IsEnabled).SingleOrDefaultAsync(ct);
         var model = modelName is null ? null : await db.AiModels.AsNoTracking().SingleOrDefaultAsync(m => m.Name == modelName, ct);
-        if (policy is not null && raw.Length > policy.MaxPromptChars)
-            return await Finish(400, "PromptRejected", null, storePromptContent: false);
+        var raw = "";
+        if (messages is not null && messages.Count <= 32) {
+            var rawLength = messages.Where(m => m is not null).Sum(m => (long)(m.Content?.Length ?? 0)) +
+                Math.Max(0, messages.Count(m => m is not null) - 1);
+            if (policy is not null && rawLength > policy.MaxPromptChars) {
+                // Use a bounded sentinel for request content; hash the original incrementally.
+                // Do not concatenate, inspect, preview, or store the oversized prompt.
+                raw = "[OVERSIZED_PROMPT]";
+                var promptHash = HashPrompt(messages);
+                return await Finish(400, "PromptRejected", null, storePromptContent: false,
+                    promptChars: rawLength, promptHash: promptHash);
+            }
+            raw = string.Join("\n", messages.Where(m => m is not null).Select(m => m.Content ?? ""));
+        }
         try { inspection = detector.Inspect(raw, policy?.RedactPii ?? true); }
         catch (RegexMatchTimeoutException) { inspection = new SensitiveInspection("", [], 0); return await Finish(503, "InspectionUnavailable", null, storePromptContent: false); }
         var safePreview = inspection.Redacted;
@@ -54,9 +66,14 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
           catch (RegexMatchTimeoutException) { return await Finish(503, "PolicyInvalid", null); }
         if (inspection.Redactions > 0 && policy.SensitiveDataAction == SensitiveDataAction.Block)
             return await Finish(422, "SensitiveData", null);
-        IReadOnlyList<LlmMessage> forwarded = policy.SensitiveDataAction == SensitiveDataAction.Redact
-            ? messages.Select(m => new LlmMessage(m.Role, detector.Inspect(m.Content, policy.RedactPii).Redacted)).ToArray()
-            : messages;
+        IReadOnlyList<LlmMessage> forwarded;
+        try {
+            forwarded = policy.SensitiveDataAction == SensitiveDataAction.Redact
+                ? messages.Select(m => new LlmMessage(m.Role, detector.Inspect(m.Content, policy.RedactPii).Redacted)).ToArray()
+                : messages;
+        } catch (RegexMatchTimeoutException) {
+            return await Finish(503, "InspectionUnavailable", null, storePromptContent: false);
+        }
         try {
             var reply = await llm.Chat(model.Name, forwarded, ct);
             // Response previews are always secret-redacted even if the policy allows full responses.
@@ -66,13 +83,14 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
             return await Finish(503, "ProviderUnavailable", null);
         }
 
-        async Task<AiGatewayResult> Finish(int status, string? reason, LlmReply? reply, string? safeReply = null, bool storePromptContent = true) {
+        async Task<AiGatewayResult> Finish(int status, string? reason, LlmReply? reply, string? safeReply = null,
+            bool storePromptContent = true, long? promptChars = null, string? promptHash = null) {
             watch.Stop();
             var request = AiRequest.Record(userId, teamId, model?.Id, policy,
                 status == 200 ? AiRequestStatus.Completed : status == 503 ? AiRequestStatus.Failed : AiRequestStatus.Blocked,
                 reason, raw, safePreviewOrEmpty(), reply?.Content, inspectionOrEmpty().Types, inspectionOrEmpty().Redactions,
                 reply?.PromptTokens, reply?.CompletionTokens, watch.ElapsedMilliseconds, correlationId, now, purpose, safeReply,
-                storePromptContent);
+                storePromptContent, promptChars, promptHash);
             db.AiRequests.Add(request);
             db.AuditEvents.Add(AuditEvent.Record(now, "User", userId, "AI user", "ai.request", "AiRequest", request.Id,
                 status == 200 ? "Succeeded" : "Denied", correlationId[..Math.Min(64, correlationId.Length)]));
@@ -81,5 +99,24 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
         }
         string safePreviewOrEmpty() => inspection?.Redacted ?? "";
         SensitiveInspection inspectionOrEmpty() => inspection ?? new SensitiveInspection("", [], 0);
+    }
+
+    private static string HashPrompt(IReadOnlyList<LlmMessage> messages) {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Span<byte> buffer = stackalloc byte[4096];
+        var first = true;
+        foreach (var message in messages) {
+            if (message is null) continue;
+            if (!first) hash.AppendData("\n"u8);
+            first = false;
+            var encoder = Encoding.UTF8.GetEncoder();
+            var remaining = (message.Content ?? "").AsSpan();
+            do {
+                encoder.Convert(remaining, buffer, true, out var charsUsed, out var bytesUsed, out _);
+                hash.AppendData(buffer[..bytesUsed]);
+                remaining = remaining[charsUsed..];
+            } while (!remaining.IsEmpty);
+        }
+        return Convert.ToHexString(hash.GetHashAndReset());
     }
 }
