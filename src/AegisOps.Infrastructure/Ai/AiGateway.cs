@@ -33,8 +33,10 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
         var policy = teamId is null ? null : await db.AiPolicies.AsNoTracking().Where(p => p.Scope == PolicyScope.Team && p.ScopeId == teamId && p.IsEnabled).SingleOrDefaultAsync(ct);
         policy ??= await db.AiPolicies.AsNoTracking().Where(p => p.Scope == PolicyScope.Global && p.IsEnabled).SingleOrDefaultAsync(ct);
         var model = modelName is null ? null : await db.AiModels.AsNoTracking().SingleOrDefaultAsync(m => m.Name == modelName, ct);
+        if (policy is not null && raw.Length > policy.MaxPromptChars)
+            return await Finish(400, "PromptRejected", null, storePromptContent: false);
         try { inspection = detector.Inspect(raw, policy?.RedactPii ?? true); }
-        catch (RegexMatchTimeoutException) { inspection = new SensitiveInspection("", [], 0); return await Finish(503, "InspectionUnavailable", null); }
+        catch (RegexMatchTimeoutException) { inspection = new SensitiveInspection("", [], 0); return await Finish(503, "InspectionUnavailable", null, storePromptContent: false); }
         var safePreview = inspection.Redacted;
         if (policy is null) return await Finish(503, "PolicyUnavailable", null);
         if (model is null || !model.IsEnabled || !policy.AllowedModelIds.Contains(model.Id)) return await Finish(403, "ModelNotAllowed", null);
@@ -43,7 +45,7 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
         if (!rate.Allowed) return await Finish(429, "RateLimited", null);
         if (messages is null || messages.Count is < 1 or > 32 || messages.Any(m =>
                 m is null || m.Content is null || m.Role is not ("user" or "assistant" or "system")) ||
-            raw.Length == 0 || raw.Length > policy.MaxPromptChars) return await Finish(400, "PromptRejected", null);
+            raw.Length == 0) return await Finish(400, "PromptRejected", null);
         try {
             if (policy.BlockedPatterns.Any(pattern => Regex.IsMatch(raw, pattern,
                     RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100))))
@@ -64,12 +66,13 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
             return await Finish(503, "ProviderUnavailable", null);
         }
 
-        async Task<AiGatewayResult> Finish(int status, string? reason, LlmReply? reply, string? safeReply = null) {
+        async Task<AiGatewayResult> Finish(int status, string? reason, LlmReply? reply, string? safeReply = null, bool storePromptContent = true) {
             watch.Stop();
             var request = AiRequest.Record(userId, teamId, model?.Id, policy,
                 status == 200 ? AiRequestStatus.Completed : status == 503 ? AiRequestStatus.Failed : AiRequestStatus.Blocked,
                 reason, raw, safePreviewOrEmpty(), reply?.Content, inspectionOrEmpty().Types, inspectionOrEmpty().Redactions,
-                reply?.PromptTokens, reply?.CompletionTokens, watch.ElapsedMilliseconds, correlationId, now, purpose, safeReply);
+                reply?.PromptTokens, reply?.CompletionTokens, watch.ElapsedMilliseconds, correlationId, now, purpose, safeReply,
+                storePromptContent);
             db.AiRequests.Add(request);
             db.AuditEvents.Add(AuditEvent.Record(now, "User", userId, "AI user", "ai.request", "AiRequest", request.Id,
                 status == 200 ? "Succeeded" : "Denied", correlationId[..Math.Min(64, correlationId.Length)]));
