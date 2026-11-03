@@ -495,6 +495,28 @@ public sealed class AiGatewayTests {
         Assert.Equal(0, fake.Calls);
     }
 
+    [Fact]
+    public async Task Gateway_reports_response_inspection_timeout_without_returning_or_persisting_reply() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("response-inspection-timeout"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("response-inspection-timeout-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Allow, [], false, true, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var fake = new FakeLlm { Reply = "potentially sensitive reply" };
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new FailOnSecondInspectionDetector(), TimeProvider.System);
+
+        var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")],
+            "response-inspection-timeout", TestContext.Current.CancellationToken);
+
+        Assert.Equal(503, result.StatusCode);
+        Assert.Equal("InspectionUnavailable", result.Request.BlockReason);
+        Assert.Equal(AiRequestStatus.Failed, result.Request.Status);
+        Assert.Null(result.Content);
+        Assert.Null(result.Request.ResponseContent);
+        Assert.Equal(1, fake.Calls);
+    }
+
     private sealed class FakeLlm : ILlmClient {
         public int Calls;
         public string LastPrompt = "";

@@ -74,14 +74,17 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
         } catch (RegexMatchTimeoutException) {
             return await Finish(503, "InspectionUnavailable", null, storePromptContent: false);
         }
+        LlmReply reply;
         try {
-            var reply = await llm.Chat(model.Name, forwarded, ct);
-            // Response previews are always secret-redacted even if the policy allows full responses.
-            var safeReply = detector.Inspect(reply.Content, true).Redacted;
-            return await Finish(200, null, reply with { Content = safeReply }, safeReply);
+            reply = await llm.Chat(model.Name, forwarded, ct);
         } catch (Exception ex) when (ex is not OperationCanceledException) {
             return await Finish(503, "ProviderUnavailable", null);
         }
+        // Never return or persist the provider response until inspection succeeds.
+        string safeReply;
+        try { safeReply = detector.Inspect(reply.Content, true).Redacted; }
+        catch (RegexMatchTimeoutException) { return await Finish(503, "InspectionUnavailable", null); }
+        return await Finish(200, null, reply with { Content = safeReply }, safeReply);
 
         async Task<AiGatewayResult> Finish(int status, string? reason, LlmReply? reply, string? safeReply = null,
             bool storePromptContent = true, long? promptChars = null, string? promptHash = null) {
