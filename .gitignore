@@ -29,3 +29,6 @@ Thumbs.db
 # Runtime data
 backups/
 reports/
+
+# Local assistant session notes (never commit)
+/memory.md
