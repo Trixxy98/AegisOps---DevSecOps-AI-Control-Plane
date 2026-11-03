@@ -67,7 +67,7 @@ app.MapPost("/api/v1/auth/change-password", ChangePassword.Handle).RequireAuthor
 app.MapPost("/api/v1/ai/chat", AiEndpoints.Chat).RequireAuthorization(Permissions.AiChat);
 app.MapGet("/api/v1/ai/models", AiEndpoints.Models).RequireAuthorization(Permissions.AiChat);
 app.MapGet("/api/v1/ai/requests", AiEndpoints.Requests).RequireAuthorization(Permissions.AiRequestsRead);
-app.MapGet("/api/v1/ai/policies", AiEndpoints.Policies).RequireAuthorization(Permissions.AiPoliciesWrite);
+app.MapGet("/api/v1/ai/policies", AiEndpoints.Policies).RequireAuthorization("ai:policies:read");
 app.MapPut("/api/v1/ai/policies", AiEndpoints.SavePolicy).RequireAuthorization(Permissions.AiPoliciesWrite);
 app.MapPost("/api/v1/admin/ai/models/sync", AiEndpoints.SyncModels).RequireAuthorization(Permissions.ModelsManage);
 app.MapGet("/api/v1/admin/ping", () => Results.NoContent())

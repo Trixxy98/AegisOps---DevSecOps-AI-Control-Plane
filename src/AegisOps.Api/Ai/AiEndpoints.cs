@@ -127,6 +127,8 @@ public static class AiEndpoints {
     public static async Task<IResult> SavePolicy(
         AiPolicyRequest request, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, HttpContext http
     ) {
+        if (request is null || request.AllowedModelIds is null || request.BlockedPatterns is null)
+            return Results.Problem(title: "AI policy settings are invalid.", statusCode: StatusCodes.Status400BadRequest);
         var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
         if (!Guid.TryParse(subject, out var userId)) return Results.Problem(title: "Invalid credentials.", statusCode: StatusCodes.Status401Unauthorized);
         var actor = await users.FindByIdAsync(subject!);

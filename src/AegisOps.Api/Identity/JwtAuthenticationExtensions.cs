@@ -66,6 +66,8 @@ public static class JwtAuthenticationExtensions {
 
         services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
         services.AddAuthorization(authorization => {
+            authorization.AddPolicy("ai:policies:read", policy =>
+                policy.Requirements.Add(new PermissionRequirement(Permissions.AiPoliciesWrite)));
             foreach (var permission in Permissions.All) {
                 authorization.AddPolicy(
                     permission,
