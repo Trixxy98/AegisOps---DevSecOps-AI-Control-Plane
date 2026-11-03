@@ -24,7 +24,8 @@ public sealed class AiPolicyConfiguration : IEntityTypeConfiguration<AiPolicy> {
         builder.Property(x => x.SensitiveDataAction).HasConversion<string>().HasMaxLength(24);
         builder.Property(x => x.AllowedModelIdsJson).HasColumnType("jsonb").IsRequired();
         builder.Property(x => x.BlockedPatternsJson).HasColumnType("jsonb").IsRequired();
-        builder.HasIndex(x => new { x.Scope, x.ScopeId }).IsUnique().HasFilter("is_enabled = true");
+        builder.HasIndex(x => x.ScopeId).IsUnique().HasFilter("scope = 'Team' AND is_enabled = true");
+        builder.HasIndex(x => x.Scope).IsUnique().HasFilter("scope = 'Global' AND is_enabled = true");
         builder.HasOne<Team>().WithMany().HasForeignKey(x => x.ScopeId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<User>().WithMany().HasForeignKey(x => x.UpdatedById).OnDelete(DeleteBehavior.Restrict);
     }

@@ -145,13 +145,16 @@ public static class AiEndpoints {
 
         var policy = request.Id is null ? null : await db.AiPolicies.SingleOrDefaultAsync(item => item.Id == request.Id, http.RequestAborted);
         if (request.Id is not null && policy is null) return Results.Problem(title: "AI policy was not found.", statusCode: StatusCodes.Status404NotFound);
+        if (policy is not null && (policy.Scope != request.Scope || policy.ScopeId != request.ScopeId))
+            return Results.Problem(title: "An AI policy's scope cannot be changed.", statusCode: StatusCodes.Status400BadRequest);
+        if (request.IsEnabled && await db.AiPolicies.AsNoTracking().AnyAsync(item => item.IsEnabled &&
+            item.Scope == request.Scope && item.ScopeId == request.ScopeId && item.Id != (request.Id ?? Guid.Empty), http.RequestAborted))
+            return Results.Problem(title: "An enabled AI policy already exists for this scope.", statusCode: StatusCodes.Status409Conflict);
         var now = TimeProvider.System.GetUtcNow();
         try {
             if (policy is null) {
                 policy = AiPolicy.Create(request.Name, request.Scope, request.ScopeId, actor.Id, now);
                 db.AiPolicies.Add(policy);
-            } else if (policy.Scope != request.Scope || policy.ScopeId != request.ScopeId) {
-                return Results.Problem(title: "An AI policy's scope cannot be changed.", statusCode: StatusCodes.Status400BadRequest);
             }
             policy.Configure(request.AllowedModelIds, request.RequestsPerMinute, request.RequestsPerDay, request.MaxPromptChars,
                 request.SensitiveDataAction, request.BlockedPatterns, request.RedactPii, request.StoreContent,

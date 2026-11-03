@@ -28,6 +28,7 @@ using Xunit;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using StackExchange.Redis;
 
 namespace AegisOps.Api.Tests;
 
@@ -133,6 +134,35 @@ public sealed class AiGatewayTests {
 
         Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.ForbidHttpResult>(result);
         Assert.Empty(await fixture.Db.AiPolicies.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Save_policy_rejects_a_second_enabled_global_policy() {
+        await using var fixture = new GatewayFixture();
+        var adminRole = new IdentityRole<Guid> { Id = Guid.NewGuid(), Name = "Admin", NormalizedName = "ADMIN" };
+        fixture.Db.Roles.Add(adminRole);
+        fixture.Db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = fixture.UserId, RoleId = adminRole.Id });
+        var existing = AiPolicy.Create("existing", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiPolicies.Add(existing);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", fixture.UserId.ToString())], "test"));
+
+        var result = await AiEndpoints.SavePolicy(new AiPolicyRequest(null, "second", PolicyScope.Global, null, [],
+            20, 100, 4000, SensitiveDataAction.Redact, [], true, false, true),
+            principal, fixture.Users, fixture.Db, new DefaultHttpContext());
+
+        Assert.Equal(StatusCodes.Status409Conflict, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
+        Assert.Equal([existing.Id], (await fixture.Db.AiPolicies.ToListAsync(TestContext.Current.CancellationToken)).Select(policy => policy.Id));
+    }
+
+    [Fact]
+    public async Task Database_rejects_a_second_enabled_global_ai_policy() {
+        await using var fixture = new GatewayFixture();
+        fixture.Db.AiPolicies.Add(AiPolicy.Create("first", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow));
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        fixture.Db.AiPolicies.Add(AiPolicy.Create("second", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -515,6 +545,31 @@ public sealed class AiGatewayTests {
         Assert.Null(result.Content);
         Assert.Null(result.Request.ResponseContent);
         Assert.Equal(1, fake.Calls);
+    }
+
+    [Fact]
+    public async Task Redis_rate_limiter_atomically_enforces_both_windows_without_consuming_denied_calls() {
+        var connection = System.Environment.GetEnvironmentVariable("AEGISOPS_TEST_REDIS");
+        if (string.IsNullOrWhiteSpace(connection)) Assert.Skip("Set AEGISOPS_TEST_REDIS to run the Redis integration test.");
+        using var redis = await ConnectionMultiplexer.ConnectAsync(connection);
+        var userId = Guid.NewGuid();
+        var limiter = new RedisAiRateLimiter(redis, TimeProvider.System);
+        try {
+            var decisions = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ =>
+                limiter.Check(userId, 3, 5, TestContext.Current.CancellationToken)));
+
+            Assert.Equal(3, decisions.Count(decision => decision.Allowed));
+            var denied = decisions.Where(decision => !decision.Allowed).ToArray();
+            Assert.Equal(13, denied.Length);
+            Assert.All(denied, decision => {
+                Assert.Equal(0, decision.RemainingMinute);
+                Assert.Equal(2, decision.RemainingDay);
+            });
+        } finally {
+            var database = redis.GetDatabase();
+            await database.KeyDeleteAsync($"ai:rl:m:{userId:N}");
+            await database.KeyDeleteAsync($"ai:rl:d:{userId:N}");
+        }
     }
 
     private sealed class FakeLlm : ILlmClient {
