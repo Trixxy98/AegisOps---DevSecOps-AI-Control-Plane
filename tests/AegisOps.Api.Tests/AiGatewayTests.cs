@@ -458,16 +458,41 @@ public sealed class AiGatewayTests {
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var detector = new TrackingDetector();
         var gateway = new AiGateway(fixture.Db, new FakeLlm(), new FakeLimiter(), detector, TimeProvider.System);
-        var oversized = new string('a', 100_000);
+        var oversized = new[] { new string('a', 4095) + "🌐" + new string('a', 45_903), new string('b', 50_000) };
+        var joinedPrompt = string.Join("\n", oversized);
 
-        var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", oversized)],
+        var result = await gateway.Chat(fixture.UserId, null, model.Name,
+            [new LlmMessage("user", oversized[0]), new LlmMessage("assistant", oversized[1])],
             "oversized-prompt", TestContext.Current.CancellationToken);
 
         Assert.Equal(400, result.StatusCode);
         Assert.False(detector.WasCalled);
         Assert.Null(result.Request.PromptContent);
         Assert.InRange(result.Request.PromptPreview?.Length ?? 0, 0, 500);
-        Assert.Equal(64, result.Request.PromptHash.Length);
+        Assert.Equal(joinedPrompt.Length, result.Request.PromptChars);
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(joinedPrompt))),
+            result.Request.PromptHash);
+    }
+
+    [Fact]
+    public async Task Gateway_audits_timeout_while_redacting_forwarded_messages() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("message-redaction-timeout"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("message-redaction-timeout-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, [], false, false, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var fake = new FakeLlm();
+        var detector = new FailOnSecondInspectionDetector();
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), detector, TimeProvider.System);
+
+        var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")],
+            "message-redaction-timeout", TestContext.Current.CancellationToken);
+
+        Assert.Equal(503, result.StatusCode);
+        Assert.Equal("InspectionUnavailable", result.Request.BlockReason);
+        Assert.Equal(AiRequestStatus.Failed, result.Request.Status);
+        Assert.Equal(0, fake.Calls);
     }
 
     private sealed class FakeLlm : ILlmClient {
@@ -486,6 +511,13 @@ public sealed class AiGatewayTests {
         public bool Allow = true;
         public Task<RateLimitDecision> Check(Guid userId, int minute, int day, CancellationToken ct) =>
             Task.FromResult(new RateLimitDecision(Allow, Allow ? 19 : 0, Allow ? 499 : 0));
+    }
+    private sealed class FailOnSecondInspectionDetector : ISensitiveDataDetector {
+        private int calls;
+        public SensitiveInspection Inspect(string input, bool redactPii = false) {
+            if (++calls == 2) throw new System.Text.RegularExpressions.RegexMatchTimeoutException();
+            return new SensitiveInspection(input, [], 0);
+        }
     }
     private sealed class TimeoutDetector : ISensitiveDataDetector {
         public SensitiveInspection Inspect(string input, bool redactPii = false) =>
