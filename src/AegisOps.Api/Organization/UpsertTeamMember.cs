@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +20,7 @@ public static class UpsertTeamMember {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         HttpContext http
     ) {
@@ -102,7 +103,7 @@ public static class UpsertTeamMember {
             }
         }
 
-        AuditLog.Write(db, time.GetUtcNow(), actor.Id, actor.Email ?? actor.DisplayName, "team.member_upserted", "Team", team.Id);
+        audit.Write(time.GetUtcNow(), actor.Id, actor.Email ?? actor.DisplayName, "team.member_upserted", "Team", team.Id);
         await db.SaveChangesAsync(cancellationToken);
 
         return Results.Ok(new TeamMemberItem(

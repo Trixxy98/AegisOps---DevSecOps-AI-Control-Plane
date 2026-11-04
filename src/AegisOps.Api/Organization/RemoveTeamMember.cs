@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +16,7 @@ public static class RemoveTeamMember {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         HttpContext http
     ) {
         var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
@@ -94,7 +95,7 @@ public static class RemoveTeamMember {
         }
 
         db.TeamMembers.Remove(membership);
-        AuditLog.Write(db, TimeProvider.System.GetUtcNow(), actor.Id, actor.Email ?? actor.DisplayName, "team.member_removed", "Team", team.Id);
+        audit.Write(TimeProvider.System.GetUtcNow(), actor.Id, actor.Email ?? actor.DisplayName, "team.member_removed", "Team", team.Id);
         await db.SaveChangesAsync(cancellationToken);
         return Results.NoContent();
     }

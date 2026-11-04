@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using AegisOps.Domain.Security;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using AegisOps.Infrastructure.Scanning;
 using Microsoft.AspNetCore.Identity;
@@ -20,6 +20,7 @@ public static class UploadScan {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         IWebHostEnvironment environment,
         IConfiguration configuration
@@ -86,7 +87,7 @@ public static class UploadScan {
                 time.GetUtcNow(),
                 cancellationToken
             );
-            AuditLog.Write(db, time.GetUtcNow(), actor.UserId ?? actor.ApiKeyId, actor.Display, "scan.uploaded", "SecurityScan", scan.Id);
+            audit.Write(time.GetUtcNow(), actor.UserId ?? actor.ApiKeyId, actor.Display, "scan.uploaded", "SecurityScan", scan.Id);
             await db.SaveChangesAsync(cancellationToken);
             return Results.Json(new {
                 scan.Id,
@@ -144,6 +145,7 @@ public static class SuppressFinding {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         HttpContext http
     ) {
@@ -185,7 +187,7 @@ public static class SuppressFinding {
             finding.Suppress(actor.UserId.Value, request.Reason);
         }
 
-        AuditLog.Write(db, now, actor.UserId, actor.Display, "finding.suppressed", "FindingSuppression", suppression.Id);
+        audit.Write(now, actor.UserId, actor.Display, "finding.suppressed", "FindingSuppression", suppression.Id);
         await db.SaveChangesAsync(cancellationToken);
         return Results.Ok(new { suppression.Id, suppression.Fingerprint });
     }

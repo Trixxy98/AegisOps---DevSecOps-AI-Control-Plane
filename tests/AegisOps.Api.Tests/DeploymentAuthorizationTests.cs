@@ -9,6 +9,7 @@ using AegisOps.Domain.Organization;
 using AegisOps.Domain.Policy;
 using AegisOps.Domain.Security;
 using AegisOps.Infrastructure.Persistence;
+using AegisOps.Infrastructure.Audit;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authentication;
@@ -735,12 +736,12 @@ public sealed class DeploymentAuthorizationTests {
         }
 
         public async Task<int> Request(ClaimsPrincipal principal, RequestDeploymentRequest? request = null) {
-            var result = await DeploymentEndpoints.Request(request ?? new RequestDeploymentRequest(Artifact.Id, Environment.Id, null, null), principal, Users, Db, TimeProvider.System, Replay, Context());
+            var result = await DeploymentEndpoints.Request(request ?? new RequestDeploymentRequest(Artifact.Id, Environment.Id, null, null), principal, Users, Db, new EfAuditWriter(Db), TimeProvider.System, Replay, Context());
             return ((IStatusCodeHttpResult)result).StatusCode ?? 200;
         }
 
         public async Task<int> Rollback(ClaimsPrincipal principal, Guid? id = null) {
-            var result = await DeploymentEndpoints.Rollback(id ?? Source.Id, principal, Users, Db, TimeProvider.System, Replay, Context());
+            var result = await DeploymentEndpoints.Rollback(id ?? Source.Id, principal, Users, Db, new EfAuditWriter(Db), TimeProvider.System, Replay, Context());
             return ((IStatusCodeHttpResult)result).StatusCode ?? 200;
         }
 
@@ -767,10 +768,10 @@ public sealed class DeploymentAuthorizationTests {
         }
 
         public async Task<int> Decide(ClaimsPrincipal principal, string decision) =>
-            ((IStatusCodeHttpResult)await DeploymentEndpoints.Decide(Source.Id, new DeploymentDecisionRequest(decision, null), principal, Users, Db, TimeProvider.System, Context())).StatusCode ?? 200;
+            ((IStatusCodeHttpResult)await DeploymentEndpoints.Decide(Source.Id, new DeploymentDecisionRequest(decision, null), principal, Users, Db, new EfAuditWriter(Db), TimeProvider.System, Context())).StatusCode ?? 200;
 
         public async Task<int> Cancel(ClaimsPrincipal principal) =>
-            ((IStatusCodeHttpResult)await DeploymentEndpoints.Cancel(Source.Id, principal, Users, Db, TimeProvider.System, Context())).StatusCode ?? 200;
+            ((IStatusCodeHttpResult)await DeploymentEndpoints.Cancel(Source.Id, principal, Users, Db, new EfAuditWriter(Db), TimeProvider.System, Context())).StatusCode ?? 200;
 
         public void Dispose() {
             services.Dispose();

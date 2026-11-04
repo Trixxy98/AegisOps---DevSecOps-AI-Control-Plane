@@ -1,3 +1,4 @@
+using AegisOps.Application.Audit;
 using System.Security.Claims;
 using System.Text.Json;
 using AegisOps.Api.Idempotency;
@@ -25,6 +26,7 @@ public static class DeploymentEndpoints {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         IIdempotencyStore idempotency,
         HttpContext http
@@ -62,6 +64,7 @@ public static class DeploymentEndpoints {
         var now = time.GetUtcNow();
         var deployment = Enqueue(
             db,
+            audit,
             artifact,
             environment,
             now,
@@ -81,6 +84,7 @@ public static class DeploymentEndpoints {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         IIdempotencyStore idempotency,
         HttpContext http
@@ -128,6 +132,7 @@ public static class DeploymentEndpoints {
         var now = time.GetUtcNow();
         var deployment = Enqueue(
             db,
+            audit,
             artifact,
             environment,
             now,
@@ -264,6 +269,7 @@ public static class DeploymentEndpoints {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         HttpContext http
     ) {
@@ -285,12 +291,12 @@ public static class DeploymentEndpoints {
         var access = await DeploymentAccess.ResolveAsync(principal, users);
         if (access.Error is not null) return access.Error;
         if (!await access.CanSeeAsync(deployment.ProjectId, db, cancellationToken)) {
-            await AuditDeniedAsync(db, time, actor, deployment, "deployment.decision_denied", cancellationToken);
+            await AuditDeniedAsync(db, audit, time, actor, deployment, "deployment.decision_denied", cancellationToken);
             return DeploymentAccess.NotFound();
         }
         if (deployment.RequestedById == actor.UserId ||
             !await access.CanApproveAsync(deployment, db, cancellationToken)) {
-            await AuditDeniedAsync(db, time, actor, deployment, "deployment.decision_denied", cancellationToken);
+            await AuditDeniedAsync(db, audit, time, actor, deployment, "deployment.decision_denied", cancellationToken);
             return DeploymentAccess.Forbidden();
         }
         if (deployment.Status != DeploymentStatus.AwaitingApproval) return Results.Problem(title: "Deployment is not awaiting approval.", statusCode: StatusCodes.Status409Conflict);
@@ -308,7 +314,7 @@ public static class DeploymentEndpoints {
             db.Jobs.Add(Job.Enqueue(JobType.EvaluateDeployment, JsonSerializer.Serialize(new { deploymentId = deployment.Id }), now, deployment.CorrelationId));
         }
 
-        db.AuditEvents.Add(AuditEvent.Record(now, "User", actor.UserId, actor.Display, "deployment." + decision.ToString().ToLowerInvariant(), "Deployment", deployment.Id, decision.ToString(), deployment.CorrelationId));
+        audit.Write(AuditEvent.Record(now, "User", actor.UserId, actor.Display, "deployment." + decision.ToString().ToLowerInvariant(), "Deployment", deployment.Id, decision.ToString(), deployment.CorrelationId));
         await db.SaveChangesAsync(cancellationToken);
         await DeploymentUpdates.PublishAsync(http.RequestServices.GetService<IConnectionMultiplexer>(), deployment.Id);
         return Results.NoContent();
@@ -319,6 +325,7 @@ public static class DeploymentEndpoints {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         HttpContext http
     ) {
@@ -335,11 +342,11 @@ public static class DeploymentEndpoints {
         var access = await DeploymentAccess.ResolveAsync(principal, users);
         if (access.Error is not null) return access.Error;
         if (!await access.CanSeeAsync(deployment.ProjectId, db, http.RequestAborted)) {
-            await AuditDeniedAsync(db, time, actor, deployment, "deployment.cancel_denied", http.RequestAborted);
+            await AuditDeniedAsync(db, audit, time, actor, deployment, "deployment.cancel_denied", http.RequestAborted);
             return DeploymentAccess.NotFound();
         }
         if (!await access.CanCancelAsync(deployment, db, http.RequestAborted)) {
-            await AuditDeniedAsync(db, time, actor, deployment, "deployment.cancel_denied", http.RequestAborted);
+            await AuditDeniedAsync(db, audit, time, actor, deployment, "deployment.cancel_denied", http.RequestAborted);
             return DeploymentAccess.Forbidden();
         }
         if (deployment.Status is not DeploymentStatus.Requested and not DeploymentStatus.AwaitingApproval) return Results.Problem(title: "Deployment cannot be cancelled.", statusCode: StatusCodes.Status409Conflict);
@@ -348,7 +355,7 @@ public static class DeploymentEndpoints {
         deployment.Cancel(now);
         var sequence = await db.DeploymentEvents.CountAsync(item => item.DeploymentId == deployment.Id, http.RequestAborted) + 1;
         db.DeploymentEvents.Add(DeploymentEvent.Create(deployment.Id, sequence, now, DeploymentEventType.Cancelled, "Deployment cancelled."));
-        db.AuditEvents.Add(AuditEvent.Record(now, actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display, "deployment.cancelled", "Deployment", deployment.Id, "Cancelled", deployment.CorrelationId));
+        audit.Write(AuditEvent.Record(now, actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display, "deployment.cancelled", "Deployment", deployment.Id, "Cancelled", deployment.CorrelationId));
         await db.SaveChangesAsync(http.RequestAborted);
         await DeploymentUpdates.PublishAsync(http.RequestServices.GetService<IConnectionMultiplexer>(), deployment.Id);
         return Results.NoContent();
@@ -388,14 +395,15 @@ public static class DeploymentEndpoints {
         return null;
     }
 
-    private static async Task AuditDeniedAsync(AegisOpsDbContext db, TimeProvider time, ActorResult actor, Deployment deployment, string action, CancellationToken token) {
-        db.AuditEvents.Add(AuditEvent.Record(time.GetUtcNow(), actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display,
+    private static async Task AuditDeniedAsync(AegisOpsDbContext db, IAuditWriter audit, TimeProvider time, ActorResult actor, Deployment deployment, string action, CancellationToken token) {
+        audit.Write(AuditEvent.Record(time.GetUtcNow(), actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display,
             action, "Deployment", deployment.Id, "Denied", deployment.CorrelationId));
         await db.SaveChangesAsync(token);
     }
 
     private static Deployment Enqueue(
         AegisOpsDbContext db,
+        IAuditWriter audit,
         AegisOps.Domain.Security.Artifact artifact,
         AegisOps.Domain.Organization.Environment environment,
         DateTimeOffset now,
@@ -422,7 +430,7 @@ public static class DeploymentEndpoints {
             now,
             deployment.CorrelationId
         ));
-        db.AuditEvents.Add(AuditEvent.Record(now, actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display, "deployment.requested", "Deployment", deployment.Id, "Accepted", deployment.CorrelationId));
+        audit.Write(AuditEvent.Record(now, actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display, "deployment.requested", "Deployment", deployment.Id, "Accepted", deployment.CorrelationId));
         return deployment;
     }
 }

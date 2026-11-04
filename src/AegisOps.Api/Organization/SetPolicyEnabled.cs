@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +16,7 @@ public static class SetPolicyEnabled {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         HttpContext http
     ) {
@@ -55,7 +56,7 @@ public static class SetPolicyEnabled {
                 policy.Disable(userId, time.GetUtcNow());
             }
 
-            AuditLog.Write(db, time.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, request.IsEnabled ? "policy.enabled" : "policy.disabled", "Policy", policy.Id);
+            audit.Write(time.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, request.IsEnabled ? "policy.enabled" : "policy.disabled", "Policy", policy.Id);
             await db.SaveChangesAsync(cancellationToken);
         } catch (InvalidOperationException exception) {
             return Results.Problem(

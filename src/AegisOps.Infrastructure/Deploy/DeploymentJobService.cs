@@ -1,3 +1,4 @@
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -21,8 +22,10 @@ public sealed class DeploymentJobService : BackgroundService {
             try {
                 await using var scope = _scopes.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
+                var audit = scope.ServiceProvider.GetRequiredService<IAuditWriter>();
                 var worked = await DeploymentProcessor.TryProcessOneAsync(
                     db,
+                    audit,
                     _scopes,
                     _time,
                     Environment.MachineName,

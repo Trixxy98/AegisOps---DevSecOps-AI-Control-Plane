@@ -1,6 +1,6 @@
 # v1 progress audit
 
-Audit baseline: 2026-11-04, commit `6b2e894` on `dev`.
+Audit baseline: 2026-11-04, starting commit `bbf2a54` on `dev`; this refreshed estimate includes the local, uncommitted roadmap and `IAuditWriter` changes.
 
 Per `19-roadmap.md`, a check receives credit only when its implementation and the stated passing verification evidence are both established. All Phases 0–8 are enumerated below; unresolved scope mismatches are conservatively counted as zero.
 
@@ -22,7 +22,7 @@ Status meanings:
 | P0-06 | Infrastructure project is in the solution | Verified | Listed in `AegisOps.slnx`. |
 | P0-07 | API project is in the solution | Verified | Listed in `AegisOps.slnx`. |
 | P0-08 | Worker project is in the solution | Verified | Listed in `AegisOps.slnx`. |
-| P0-09 | Five test projects are in the solution | Scope mismatch | `AegisOps.slnx` lists three test projects, not five. Reconcile roadmap scope before scoring. |
+| P0-09 | Three test projects are in the solution | Verified | `AegisOps.slnx` lists the three agreed test projects; the full solution suite passed in the audit baseline. |
 | P0-10 | Architecture dependency tests exist and pass | Verified | `tests/AegisOps.Architecture.Tests`; latest full solution test run passed. |
 | P0-11 | React, Vite, and TypeScript frontend scaffold exists | Verified | Dependencies/configuration and source are tracked. |
 | P0-12 | Tailwind frontend integration exists | Verified | `@tailwindcss/vite` is configured in the frontend package. |
@@ -45,13 +45,13 @@ Status meanings:
 
 ### Verification evidence
 
-- `dotnet test AegisOps.slnx --no-restore`: 154 total, 153 passed, 0 failed, 1 skipped (Redis integration test skipped without `AEGISOPS_TEST_REDIS`).
+- `AEGISOPS_TEST_REDIS=localhost:6379 dotnet test AegisOps.slnx --no-restore`: 155 passed, 0 failed, 0 skipped.
 - `npm run build` in `src/AegisOps.Web`: passed.
 - Docker check earlier in this session: daemon unavailable; PostgreSQL port 5432 not listening. Redis is available locally and the focused Redis limiter integration test passed separately.
 
-### Phase 0 reconciliation needed
+### Phase 0 remaining gaps
 
-The roadmap currently promises five test projects, `scripts/dev-up.sh`, `gen-secrets.sh`, Dependabot, ESLint, and Prettier; the tracked repo does not currently satisfy those named items (and only three test projects are listed). Decide whether to add the deliverables or formally rebaseline the roadmap before treating those checks as scoped out.
+The roadmap has been rebaselined to the three test projects already in `AegisOps.slnx`. It still calls for `scripts/dev-up.sh`, `gen-secrets.sh`, Dependabot, ESLint, and Prettier, which are not tracked/configured.
 
 ## Phase 1 — Core control plane (weight: 3 / 15.5 weeks)
 
@@ -70,22 +70,23 @@ The roadmap currently promises five test projects, `scripts/dev-up.sh`, `gen-sec
 | P1-11 | Policy entities and the six Phase 1 rule behaviors are implemented and tested | Verified | `PolicyEngineTests` covers tests, approvals, branch, prior environment, digest, and deployment window; full suite passed. |
 | P1-12 | Rule-type catalogue and policy simulation endpoints work | Unverified | Routes and handlers exist; no endpoint-level verification was found. |
 | P1-13 | Deployment state transitions, approval quorum, and cancellation are tested | Verified | `DeploymentStateTests` exercises transitions; `DeploymentAuthorizationTests` covers approval/cancellation authorization; full suite passed. |
-| P1-14 | Request → evaluate → noop execute → succeeded runs through an in-process job loop | Scope mismatch | Current API does not register a job processor; the Worker registers `DeploymentJobService`. `JobDispatcherService` named in the roadmap is absent. Verify whether this was intentionally replaced by the separate Worker architecture. |
+| P1-14 | Request → durable PostgreSQL job → separate Worker `DeploymentJobService`/`DeploymentProcessor` → evaluate → noop execute → succeeded | Unverified | The API enqueues jobs and Worker code claims/processes them; PostgreSQL-backed end-to-end execution was not verified because PostgreSQL/Docker are unavailable. |
 | P1-15 | Separation of duties is enforced for approvals | Verified | `DeploymentAuthorizationTests` covers requester/non-requester and role restrictions; full suite passed. |
 | P1-16 | PostgreSQL jobs use `SKIP LOCKED`, retry/backoff, and stale-job recovery | Unverified | `DeploymentProcessor` uses `FOR UPDATE SKIP LOCKED`; `DeploymentLeaseTests` requires `AEGISOPS_TEST_POSTGRES` and returns without running when unset. PostgreSQL is unavailable here. |
-| P1-17 | An `IAuditWriter` abstraction is used for state changes | Scope mismatch | No `IAuditWriter` symbol exists; repo uses static `AuditLog` plus direct `AuditEvents.Add` calls. Reconcile implementation-vs-roadmap contract. |
+| P1-17 | An `IAuditWriter` abstraction is used for state changes | Verified | API, AI gateway, and Worker audit writes use the Application-layer contract; scoped `EfAuditWriter` adds to the existing context without saving independently. The focused unit-of-work test and full suite passed. |
 | P1-18 | Audit endpoint exposes records | Verified | `/api/v1/audit` is mapped and permission-protected. |
 | P1-19 | Audit coverage is tested for all Phase 1 actions | Unverified | Audit writes exist on key paths, but no audit-coverage test was found. |
 | P1-20 | Phase 1 frontend views are implemented: login/dashboard, project/artifact views, deployments, approvals, policies/rule editing, audit, and admin | Verified | Components are present in `src/AegisOps.Web/src/App.tsx`; `npm run build` passed. End-to-end seeded-data behavior is tracked separately in P1-24. |
-| P1-21 | Policy engine matrix and deployment state-machine tests pass | Verified | Included in the latest full solution run: 153 passed, 0 failed, 1 skipped. |
+| P1-21 | Policy engine matrix and deployment state-machine tests pass | Verified | Included in the latest full solution run with Redis enabled: 155 passed, 0 failed, 0 skipped. |
 | P1-22 | Integration flow tests exercise the full control-plane deployment loop | Unverified | Tests cover state and authorization seams; full request-to-noop-success flow was not run. |
 | P1-23 | ADR statuses are updated where decisions are implemented | Verified | `docs/adr/README.md` lists ADRs 0001–0011 as Accepted. |
 | P1-24 | Journey A and Journey D complete from the seeded UI, with every step in the audit log | Unverified | Requires a running seeded application and browser verification; Docker/PostgreSQL are unavailable. |
 
 ### Phase 1 verification caveats
 
-- The full test suite passed, but `DeploymentLeaseTests` silently returns when `AEGISOPS_TEST_POSTGRES` is absent. Therefore, the pass count does not prove PostgreSQL locking, migration, or lease behavior ran.
-- `IAuditWriter` is not merely untested; it is absent. Audit behavior is implemented through other mechanisms, so determine whether the abstraction is still required before scoring or refactoring.
+- The full test suite passed with Redis, but `DeploymentLeaseTests` silently returns when `AEGISOPS_TEST_POSTGRES` is absent. Therefore, the pass count does not prove PostgreSQL locking, migration, or lease behavior ran.
+- `EfAuditWriterTests` verifies that the scoped writer adds an event to the shared `AegisOpsDbContext` unit of work without saving independently; audit coverage for every Phase-1 action remains unverified (P1-19).
+- PostgreSQL-backed job claiming and end-to-end request-to-execution remain unverified in this environment; audit coverage is tracked separately in P1-19.
 
 ## Phase 2 — CI integration & target applications (weight: 1.5 / 15.5 weeks)
 
@@ -111,8 +112,6 @@ The roadmap currently promises five test projects, `scripts/dev-up.sh`, `gen-sec
 
 The audit inspected local `main` refs, which match their locally cached `origin/main` refs. `gh` is not installed, so remote state may have advanced since the last fetch and hosted Actions/GHCR publication could not be checked. Several sibling service worktrees have user-modified files; they were inspected read-only and not changed.
 
-## Next audit slice
-
 ## Phase 3 — Security scanning (weight: 2 / 15.5 weeks)
 
 | ID | Acceptance check | Status | Evidence / gap |
@@ -134,9 +133,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 ### Phase 3 verification evidence
 
 - Focused parser and policy tests: 21 passed, 0 failed, 0 skipped.
-- The previous complete solution test run passed 153 tests and skipped one Redis test, but did not exercise the PostgreSQL-backed scan upload/async parse path.
-
-## Next audit slice
+- The latest complete solution test run passed 155/155 with Redis enabled, but did not exercise the PostgreSQL-backed scan upload/async parse path.
 
 ## Phase 4 — Worker & Docker executor (weight: 2 / 15.5 weeks)
 
@@ -186,7 +183,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 
 - `npm run test:e2e`: 3 passed, 0 failed; the SignalR update scenario uses mocked WebSocket frames and REST responses.
 - `DeploymentAuthorizationTests`/`DockerTargetOwnershipTests`: 28 passed, 0 failed; includes TestServer SignalR client delivery and access checks, but not live Redis pub/sub.
-- Full solution run: 153 passed, 0 failed, 1 skipped. The Redis-specific AI rate limiter test was run separately against local Redis and passed.
+- Full solution run with local Redis: 155 passed, 0 failed, 0 skipped. PostgreSQL-backed Compose behavior remains unverified.
 
 ## Phase 6 — AI gateway (weight: 2 / 15.5 weeks)
 
@@ -260,8 +257,8 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 
 | Phase | Weight (weeks) | Verified / eligible checks | Weighted contribution |
 | --- | ---: | ---: | ---: |
-| 0 | 1 | 18 / 28 | 4.15 percentage points |
-| 1 | 3 | 8 / 24 | 6.45 percentage points |
+| 0 | 1 | 19 / 28 | 4.38 percentage points |
+| 1 | 3 | 9 / 24 | 7.26 percentage points |
 | 2 | 1.5 | 9 / 15 | 5.81 percentage points |
 | 3 | 2 | 5 / 13 | 4.96 percentage points |
 | 4 | 2 | 7 / 14 | 6.45 percentage points |
@@ -269,14 +266,14 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 6 | 2 | 8 / 13 | 7.94 percentage points |
 | 7 | 1.5 | 0 / 8 | 0.00 percentage points |
 | 8 | 1.5 | 2 / 16 | 1.21 percentage points |
-| **Total** | **15.5** | **62 / 144** | **39.45% complete** |
+| **Total** | **15.5** | **64 / 144** | **40.49% complete** |
 
-**Estimated remaining: 60.55%** by the same weighted, evidence-based measure. Status totals are 62 Verified, 43 Unverified, 36 Missing, and 3 Scope mismatch. The mismatches are P0-09 (five test projects vs. three), P1-14 (roadmap in-process job loop vs. separate Worker implementation), and P1-17 (`IAuditWriter` vs. current audit implementation). Resolve these by implementation or a recorded scope rebaseline; this estimate currently gives them no credit.
+**Estimated remaining: 59.51%** by the same weighted, evidence-based measure. Status totals are 64 Verified, 44 Unverified, 36 Missing, and 0 Scope mismatch. P0-09 and the deployment architecture criterion are rebaselined to match the agreed solution; `IAuditWriter` is now implemented and verified. The durable Worker flow remains unverified until PostgreSQL-backed execution can run.
 
 ### Highest-impact next steps
 
-1. Decide the three scope mismatches, then fix/rebaseline the foundation and core acceptance criteria.
-2. Restore runnable Compose/PostgreSQL and Ollama-backed demo paths; verify the real Journeys A–D rather than relying on mocks.
-3. Implement the hard Phase 7/8 gaps: observability, readiness checks, CSP/audit coverage, retention/cleanup, and a repeatable demo/release path.
+1. Run Compose with PostgreSQL and verify the durable Worker flow plus Journeys A and D end to end.
+2. Implement Phase 7 observability and service-specific readiness; it currently has 0/8 verified checks.
+3. Close Phase 8 gaps: CSP/audit coverage, retention/cleanup, AI demo assets, and a repeatable release path.
 
-The local audit changes are not committed. Once the roadmap wording and this evidence ledger are reviewed together, they are ready to commit as a documentation-only audit update.
+The roadmap/audit rebaseline and IAuditWriter implementation are not committed. Review the documentation and test output together before committing this combined change.

@@ -1,4 +1,5 @@
 using AegisOps.Infrastructure.Ai;
+using AegisOps.Infrastructure.Audit;
 using AegisOps.Domain.Ai;
 using AegisOps.Domain.Policy;
 using AegisOps.Infrastructure.Persistence;
@@ -213,7 +214,7 @@ public sealed class AiGatewayTests {
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         const string secret = "api_key=abcdefghijklmnopqrstuv";
         var fake = new FakeLlm { Reply = "provider echoed " + secret };
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddAuthentication("test").AddScheme<AuthenticationSchemeOptions, AiTestAuthenticationHandler>("test", _ => { });
@@ -258,7 +259,7 @@ public sealed class AiGatewayTests {
         await using var fixture = new GatewayFixture();
         var (finding, model, _) = await SeedAiFinding(fixture);
         var fake = new FakeLlm { Reply = "Upgrade the package to the fixed version." };
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
         var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", fixture.UserId.ToString())], "test"));
         var http = new DefaultHttpContext();
 
@@ -280,7 +281,7 @@ public sealed class AiGatewayTests {
         await using var fixture = new GatewayFixture();
         var (finding, _, _) = await SeedAiFinding(fixture, addMember: false);
         var fake = new FakeLlm();
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
         var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", fixture.UserId.ToString())], "test"));
 
         var result = await AiEndpoints.ExplainFinding(finding.Id, new AiFeatureRequest(null), principal,
@@ -296,7 +297,7 @@ public sealed class AiGatewayTests {
         await using var fixture = new GatewayFixture();
         var deployment = await SeedAiDeployment(fixture);
         var fake = new FakeLlm { Reply = "Review the high-severity dependency before approving." };
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
         var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", fixture.UserId.ToString())], "test"));
 
         var result = await AiEndpoints.SummarizeDeployment(deployment.Id, new AiFeatureRequest(null), principal,
@@ -318,7 +319,7 @@ public sealed class AiGatewayTests {
         await using var fixture = new GatewayFixture();
         var deployment = await SeedAiDeployment(fixture, awaitingApproval: false);
         var fake = new FakeLlm();
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
         var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", fixture.UserId.ToString())], "test"));
 
         var result = await AiEndpoints.SummarizeDeployment(deployment.Id, new AiFeatureRequest(null), principal,
@@ -459,7 +460,7 @@ public sealed class AiGatewayTests {
         fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var fake = new FakeLlm();
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
         const string secret = "AKIA1234567890123456";
         var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello " + secret)], "correlation", TestContext.Current.CancellationToken);
         Assert.Equal(status, result.StatusCode);
@@ -481,7 +482,7 @@ public sealed class AiGatewayTests {
         policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, [], false, false, true, fixture.UserId, DateTimeOffset.UtcNow);
         fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy); await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var fake = new FakeLlm(); var limiter = new FakeLimiter { Allow = false };
-        var gateway = new AiGateway(fixture.Db, fake, limiter, new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, limiter, new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
         Assert.Equal(429, (await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hi")], "a", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(403, (await gateway.Chat(fixture.UserId, null, "other", [new LlmMessage("user", "hi")], "b", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(0, fake.Calls);
@@ -498,7 +499,7 @@ public sealed class AiGatewayTests {
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         const string secret = "AKIA1234567890ABCDEF";
         var fake = new FakeLlm { Reply = "provider echoed " + secret };
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
 
         var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")],
             "response-redaction", TestContext.Current.CancellationToken);
@@ -521,7 +522,7 @@ public sealed class AiGatewayTests {
         fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var fake = new FakeLlm { Failure = new HttpRequestException("private endpoint detail") };
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
 
         var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")],
             "provider-failure", TestContext.Current.CancellationToken);
@@ -542,7 +543,7 @@ public sealed class AiGatewayTests {
         fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var fake = new FakeLlm { Failure = new OperationCanceledException() };
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => gateway.Chat(fixture.UserId, null, model.Name,
             [new LlmMessage("user", "hello")], "provider-cancel", TestContext.Current.CancellationToken));
@@ -559,7 +560,7 @@ public sealed class AiGatewayTests {
         fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var fake = new FakeLlm();
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
 
         var result = await gateway.Chat(fixture.UserId, null, model.Name, [null!], "null-message", TestContext.Current.CancellationToken);
 
@@ -577,7 +578,7 @@ public sealed class AiGatewayTests {
         fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var fake = new FakeLlm();
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new TimeoutDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new TimeoutDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
 
         var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")],
             "inspection-timeout", TestContext.Current.CancellationToken);
@@ -599,7 +600,7 @@ public sealed class AiGatewayTests {
         await fixture.Db.Database.ExecuteSqlRawAsync("CREATE TRIGGER reject_ai_audit BEFORE INSERT ON ai_requests BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END",
             TestContext.Current.CancellationToken);
         var fake = new FakeLlm();
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
 
         await Assert.ThrowsAnyAsync<DbUpdateException>(() => gateway.Chat(fixture.UserId, null, model.Name,
             [new LlmMessage("user", "hello")], "audit-store-failure", TestContext.Current.CancellationToken));
@@ -618,7 +619,7 @@ public sealed class AiGatewayTests {
         fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var detector = new TrackingDetector();
-        var gateway = new AiGateway(fixture.Db, new FakeLlm(), new FakeLimiter(), detector, TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, new FakeLlm(), new FakeLimiter(), detector, TimeProvider.System, new EfAuditWriter(fixture.Db));
         var oversized = new[] { new string('a', 4095) + "🌐" + new string('a', 45_903), new string('b', 50_000) };
         var joinedPrompt = string.Join("\n", oversized);
 
@@ -645,7 +646,7 @@ public sealed class AiGatewayTests {
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var fake = new FakeLlm();
         var detector = new FailOnSecondInspectionDetector();
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), detector, TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), detector, TimeProvider.System, new EfAuditWriter(fixture.Db));
 
         var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")],
             "message-redaction-timeout", TestContext.Current.CancellationToken);
@@ -665,7 +666,7 @@ public sealed class AiGatewayTests {
         fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var fake = new FakeLlm { Reply = "potentially sensitive reply" };
-        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new FailOnSecondInspectionDetector(), TimeProvider.System);
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new FailOnSecondInspectionDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
 
         var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")],
             "response-inspection-timeout", TestContext.Current.CancellationToken);

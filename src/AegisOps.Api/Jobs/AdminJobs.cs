@@ -1,3 +1,4 @@
+using AegisOps.Application.Audit;
 using AegisOps.Domain.Audit;
 using AegisOps.Domain.Jobs;
 using AegisOps.Infrastructure.Persistence;
@@ -43,7 +44,7 @@ public static class AdminJobs {
         return Results.Ok(items);
     }
 
-    public static async Task<IResult> Retry(Guid id, AegisOpsDbContext db, TimeProvider time, HttpContext http) {
+    public static async Task<IResult> Retry(Guid id, AegisOpsDbContext db, TimeProvider time, IAuditWriter audit, HttpContext http) {
         var job = await db.Jobs.SingleOrDefaultAsync(item => item.Id == id, http.RequestAborted);
         if (job is null) {
             return Results.Problem(title: "Job was not found.", statusCode: StatusCodes.Status404NotFound);
@@ -61,7 +62,7 @@ public static class AdminJobs {
             return Results.Problem(title: exception.Message, statusCode: StatusCodes.Status409Conflict);
         }
 
-        db.AuditEvents.Add(AuditEvent.Record(
+        audit.Write(AuditEvent.Record(
             time.GetUtcNow(),
             "User",
             null,

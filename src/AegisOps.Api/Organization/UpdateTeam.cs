@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +17,7 @@ public static class UpdateTeam {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         HttpContext http
     ) {
         if (request.Name is null && request.Description is null) {
@@ -78,7 +79,7 @@ public static class UpdateTeam {
                 team.Describe(request.Description);
             }
 
-            AuditLog.Write(db, TimeProvider.System.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "team.updated", "Team", team.Id);
+            audit.Write(TimeProvider.System.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "team.updated", "Team", team.Id);
             await db.SaveChangesAsync(cancellationToken);
         } catch (ArgumentException exception) {
             return Results.Problem(

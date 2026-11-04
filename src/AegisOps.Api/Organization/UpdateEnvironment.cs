@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -50,6 +50,7 @@ public static class UpdateEnvironment {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         HttpContext http
     ) {
         if (request.Name is null && request.Order is null && request.Target is null) {
@@ -168,7 +169,7 @@ public static class UpdateEnvironment {
                 }
             }
 
-            AuditLog.Write(db, TimeProvider.System.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "environment.updated", "Environment", environment.Id);
+            audit.Write(TimeProvider.System.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "environment.updated", "Environment", environment.Id);
             await db.SaveChangesAsync(cancellationToken);
         } catch (ArgumentException exception) {
             return Results.Problem(

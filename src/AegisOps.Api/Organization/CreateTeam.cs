@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +17,7 @@ public static class CreateTeam {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         HttpContext http
     ) {
@@ -58,7 +59,7 @@ public static class CreateTeam {
             var team = Team.Create(request.Name, slug, now, request.Description);
             db.Teams.Add(team);
             db.TeamMembers.Add(TeamMember.Create(team.Id, userId, TeamRole.Owner, now));
-            AuditLog.Write(db, now, user.Id, user.Email ?? user.DisplayName, "team.created", "Team", team.Id);
+            audit.Write(now, user.Id, user.Email ?? user.DisplayName, "team.created", "Team", team.Id);
             await db.SaveChangesAsync(cancellationToken);
 
             return Results.Created(

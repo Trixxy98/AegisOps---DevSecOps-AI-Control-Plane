@@ -1,3 +1,4 @@
+using AegisOps.Application.Audit;
 using System.Security.Claims;
 using System.Text.Json;
 using AegisOps.Application.PolicyEngine;
@@ -33,6 +34,7 @@ public static class PolicyPhase1Endpoints {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         HttpContext http
     ) {
@@ -83,7 +85,7 @@ public static class PolicyPhase1Endpoints {
             }
 
             db.PolicyRules.AddRange(rules);
-            db.AuditEvents.Add(AuditEvent.Record(now, "User", userId, user.Email ?? user.DisplayName, "policy.updated", "Policy", policy.Id, "Succeeded", null));
+            audit.Write(AuditEvent.Record(now, "User", userId, user.Email ?? user.DisplayName, "policy.updated", "Policy", policy.Id, "Succeeded", null));
             await db.SaveChangesAsync(cancellationToken);
             return Results.Ok(CreatePolicy.ToResponse(policy, rules));
         } catch (ArgumentException exception) {
