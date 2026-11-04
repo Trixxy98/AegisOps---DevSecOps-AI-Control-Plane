@@ -152,3 +152,91 @@ test("AI governance shows request history and saves policy controls", async ({ p
   await page.getByRole("button", { name: "Save AI policy" }).click();
   await expect.poll(() => savedPolicy?.requestsPerMinute).toBe(25);
 });
+
+test("production policy can add and configure the weekend deployment window", async ({ page }) => {
+  let policy: Record<string, any> = {
+    id: "00000000-0000-7000-8000-000000000707",
+    name: "Production baseline",
+    description: "Tests pass and production requires two approvals.",
+    scope: "Global",
+    scopeId: null,
+    isEnabled: true,
+    appliesToTiers: ["Production"],
+    version: 2,
+    rules: [
+      { id: "rule-tests", type: "RequireTestsPassed", effect: "Deny", order: 0, isEnabled: true, parameters: {} },
+      { id: "rule-approvals", type: "RequireApprovals", effect: "RequireApproval", order: 1, isEnabled: true, parameters: { count: 2 } },
+    ],
+  };
+  const writes: Array<Record<string, any>> = [];
+  const template = {
+    type: "DeploymentWindow",
+    effect: "Deny",
+    parameters: {
+      timezone: "Asia/Kuala_Lumpur",
+      allowed: [{ days: ["Mon", "Tue", "Wed", "Thu"], from: "09:00", to: "18:00" }],
+    },
+  };
+
+  await page.route("**/api/v1/auth/login", (route) => route.fulfill({
+    json: { accessToken: "e2e-session", expiresAt: "2030-01-01T00:00:00Z" },
+  }));
+  await page.route("**/api/v1/deployments/approval-queue", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/deployments", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/policies**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/rule-types")) {
+      await route.fulfill({ json: [template] });
+    } else if (route.request().method() === "PUT") {
+      const body = route.request().postDataJSON() as Record<string, any>;
+      writes.push(body);
+      policy = { ...policy, ...body, version: policy.version + 1 };
+      await route.fulfill({ json: policy });
+    } else {
+      await route.fulfill({ json: [policy] });
+    }
+  });
+  await page.route("**/hubs/ops/negotiate*", (route) => route.fulfill({
+    json: { connectionId: "e2e-connection", connectionToken: "e2e-connection-token", negotiateVersion: 1,
+      availableTransports: [{ transport: "WebSockets", transferFormats: ["Text"] }] },
+  }));
+  await page.routeWebSocket("**/hubs/ops*", (socket) => {
+    socket.onMessage((message) => { if (String(message).includes('"protocol":"json"')) socket.send("{}\u001e"); });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("Password").fill("not-a-real-password");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Policies", exact: true }).click();
+  await page.getByLabel("Rule to add").selectOption("DeploymentWindow");
+  await page.getByRole("button", { name: "Add rule" }).click();
+
+  const windowParameters = {
+    timezone: "Asia/Kuala_Lumpur",
+    allowed: [
+      { days: ["Mon"], from: "08:00", to: "23:59:59.9999999" },
+      { days: ["Tue", "Wed", "Thu"], from: "00:00", to: "23:59:59.9999999" },
+      { days: ["Fri"], from: "00:00", to: "17:59:59.9999999" },
+    ],
+  };
+  await page.getByLabel("Production baseline DeploymentWindow parameters").fill(JSON.stringify(windowParameters, null, 2));
+  await page.getByRole("button", { name: "Save DeploymentWindow parameters" }).click();
+
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[0]).toMatchObject({
+    name: "Production baseline",
+    description: "Tests pass and production requires two approvals.",
+    scope: "Global",
+    scopeId: null,
+  });
+  expect(writes[1]).toMatchObject({
+    name: "Production baseline",
+    description: "Tests pass and production requires two approvals.",
+    scope: "Global",
+    scopeId: null,
+    rules: expect.arrayContaining([
+      expect.objectContaining({ type: "DeploymentWindow", effect: "Deny", parameters: windowParameters }),
+    ]),
+  });
+  await expect(page.getByRole("heading", { name: /Production baseline v4/ })).toBeVisible();
+});

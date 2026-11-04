@@ -1,6 +1,6 @@
 # v1 progress audit
 
-Audit baseline: 2026-11-04, starting commit `bbf2a54` on `dev`; this refreshed estimate includes the local, uncommitted roadmap and `IAuditWriter` changes.
+Audit baseline: 2026-11-04, starting commit `a1f2ef7` on `dev`; this refreshed estimate includes local, uncommitted test and audit-evidence updates.
 
 Per `19-roadmap.md`, a check receives credit only when its implementation and the stated passing verification evidence are both established. All Phases 0–8 are enumerated below; unresolved scope mismatches are conservatively counted as zero.
 
@@ -31,7 +31,7 @@ Status meanings:
 | P0-15 | ESLint is configured | Missing | No ESLint dependency or lint script in frontend `package.json`. |
 | P0-16 | Prettier is configured | Missing | No Prettier dependency or format script in frontend `package.json`. |
 | P0-17 | Compose defines PostgreSQL, Redis, API, Worker, and web services | Verified | All five services are in `docker-compose.yml`. |
-| P0-18 | Compose services build/start and API readiness is healthy | Unverified | Docker daemon is unavailable, so runtime health was not verified. |
+| P0-18 | Compose services build/start and API readiness is healthy | Verified | `docker compose up --build -d` rebuilt and started all five services; PostgreSQL/Redis are healthy and `/health/ready` returned HTTP 200. |
 | P0-19 | CI workflow configures backend restore/build/test and report-contract checks | Verified | Steps are present in `.github/workflows/ci.yml`; hosted run status is tracked separately. |
 | P0-20 | CI workflow configures frontend build and browser E2E | Verified | Steps are present in `.github/workflows/ci.yml`; hosted run status is tracked separately. |
 | P0-21 | CI workflow configures Gitleaks, Semgrep, and Trivy | Verified | Security job steps are present in `.github/workflows/ci.yml`. |
@@ -39,15 +39,15 @@ Status meanings:
 | P0-23 | `gen-secrets.sh` exists | Missing | Not tracked at repository root or under `scripts/`. |
 | P0-24 | `.env.example` exists | Verified | Tracked. |
 | P0-25 | Dependabot configuration exists | Missing | No tracked `.github/dependabot.yml` or `.yaml` found. |
-| P0-26 | Compose serves UI at `:3000` | Unverified | Requires Compose runtime, unavailable during this audit. |
-| P0-27 | API `/health/ready` is healthy in Compose | Unverified | Requires Compose runtime, unavailable during this audit. |
+| P0-26 | Compose serves UI at `:3000` | Verified | `http://127.0.0.1:3000` returned HTTP 200 and rendered the AegisOps sign-in page. |
+| P0-27 | API `/health/ready` is healthy in Compose | Verified | `http://127.0.0.1:8080/health/ready` returned HTTP 200. This is currently a bare process check, not a PostgreSQL/Redis dependency check (see P7-05). |
 | P0-28 | CI is green on `main` | Unverified | No successful main-branch CI run evidence collected. |
 
 ### Verification evidence
 
-- `AEGISOPS_TEST_REDIS=localhost:6379 dotnet test AegisOps.slnx --no-restore`: 155 passed, 0 failed, 0 skipped.
+- Full solution test run with local Redis and a disposable PostgreSQL cluster: 156 passed, 0 failed, 0 skipped.
 - `npm run build` in `src/AegisOps.Web`: passed.
-- Docker check earlier in this session: daemon unavailable; PostgreSQL port 5432 not listening. Redis is available locally and the focused Redis limiter integration test passed separately.
+- Compose rebuild/start succeeded; PostgreSQL and Redis report healthy, API `/health/live` and `/health/ready` return HTTP 200, and the web app returns HTTP 200. The sign-in screen is reachable, but no saved local login is available to run authenticated journeys; container logs were not read for passwords.
 
 ### Phase 0 remaining gaps
 
@@ -70,23 +70,23 @@ The roadmap has been rebaselined to the three test projects already in `AegisOps
 | P1-11 | Policy entities and the six Phase 1 rule behaviors are implemented and tested | Verified | `PolicyEngineTests` covers tests, approvals, branch, prior environment, digest, and deployment window; full suite passed. |
 | P1-12 | Rule-type catalogue and policy simulation endpoints work | Unverified | Routes and handlers exist; no endpoint-level verification was found. |
 | P1-13 | Deployment state transitions, approval quorum, and cancellation are tested | Verified | `DeploymentStateTests` exercises transitions; `DeploymentAuthorizationTests` covers approval/cancellation authorization; full suite passed. |
-| P1-14 | Request → durable PostgreSQL job → separate Worker `DeploymentJobService`/`DeploymentProcessor` → evaluate → noop execute → succeeded | Unverified | The API enqueues jobs and Worker code claims/processes them; PostgreSQL-backed end-to-end execution was not verified because PostgreSQL/Docker are unavailable. |
+| P1-14 | Request → durable PostgreSQL job → separate Worker `DeploymentJobService`/`DeploymentProcessor` → evaluate → noop execute → succeeded | Verified | With Compose running, an authenticated UI request for `circuit-service` artifact `v0.0.0-main.52181e3` to Development completed Succeeded. The timeline showed Allow, `Noop executor started`, and simulated success; the audit log recorded `deployment.requested`, `deployment.evaluated`, and `deployment.succeeded`. PostgreSQL lease/recovery tests also passed. |
 | P1-15 | Separation of duties is enforced for approvals | Verified | `DeploymentAuthorizationTests` covers requester/non-requester and role restrictions; full suite passed. |
-| P1-16 | PostgreSQL jobs use `SKIP LOCKED`, retry/backoff, and stale-job recovery | Unverified | `DeploymentProcessor` uses `FOR UPDATE SKIP LOCKED`; `DeploymentLeaseTests` requires `AEGISOPS_TEST_POSTGRES` and returns without running when unset. PostgreSQL is unavailable here. |
+| P1-16 | PostgreSQL jobs use `SKIP LOCKED`, retry/backoff, and stale-job recovery | Verified | `DeploymentLeaseTests` ran against a disposable local PostgreSQL 16 cluster and verified parallel claims, lease renewal, and stale recovery. `DeploymentStateTests` verifies retries/dead-lettering and now asserts exponential backoff; focused suite passed 10/10. |
 | P1-17 | An `IAuditWriter` abstraction is used for state changes | Verified | API, AI gateway, and Worker audit writes use the Application-layer contract; scoped `EfAuditWriter` adds to the existing context without saving independently. The focused unit-of-work test and full suite passed. |
 | P1-18 | Audit endpoint exposes records | Verified | `/api/v1/audit` is mapped and permission-protected. |
 | P1-19 | Audit coverage is tested for all Phase 1 actions | Unverified | Audit writes exist on key paths, but no audit-coverage test was found. |
-| P1-20 | Phase 1 frontend views are implemented: login/dashboard, project/artifact views, deployments, approvals, policies/rule editing, audit, and admin | Verified | Components are present in `src/AegisOps.Web/src/App.tsx`; `npm run build` passed. End-to-end seeded-data behavior is tracked separately in P1-24. |
-| P1-21 | Policy engine matrix and deployment state-machine tests pass | Verified | Included in the latest full solution run with Redis enabled: 155 passed, 0 failed, 0 skipped. |
-| P1-22 | Integration flow tests exercise the full control-plane deployment loop | Unverified | Tests cover state and authorization seams; full request-to-noop-success flow was not run. |
+| P1-20 | Phase 1 frontend views are implemented: login/dashboard, project/artifact views, deployments, approvals, policies/rule editing, audit, and admin | Verified | Components are present in `src/AegisOps.Web/src/App.tsx`; policy rules now expose JSON parameter editing with explicit save, preserving policy metadata. `npm run build` and all 4 Playwright tests passed. |
+| P1-21 | Policy engine matrix and deployment state-machine tests pass | Verified | Included in the latest full solution run with Redis and PostgreSQL enabled: 156 passed, 0 failed, 0 skipped. |
+| P1-22 | Integration flow tests exercise the full control-plane deployment loop | Unverified | A live Compose UI request completed through the Worker/noop path, but no automated integration test for the full API/Worker loop was run. |
 | P1-23 | ADR statuses are updated where decisions are implemented | Verified | `docs/adr/README.md` lists ADRs 0001–0011 as Accepted. |
-| P1-24 | Journey A and Journey D complete from the seeded UI, with every step in the audit log | Unverified | Requires a running seeded application and browser verification; Docker/PostgreSQL are unavailable. |
+| P1-24 | Journey A and Journey D complete from the seeded UI, with every step in the audit log | Unverified | Journey D's Production baseline was updated in the UI from v2 to v4 with the exact `Asia/Kuala_Lumpur` Fri 18:00–Mon 08:00 blackout schedule; two `policy.updated` successes were read back in the audit log, and the policy-engine boundary test passed. A live Friday-night deployment denial was not exercised. Journey A remains incomplete: seeded `circuit-service` shows `v0.0.0-demo-vulnerable` and `v0.0.0-main.52181e3`, not `v1.8.2`; an older 2/2-approved production deployment exists, but the matching staging→production chain was not verified. |
 
 ### Phase 1 verification caveats
 
-- The full test suite passed with Redis, but `DeploymentLeaseTests` silently returns when `AEGISOPS_TEST_POSTGRES` is absent. Therefore, the pass count does not prove PostgreSQL locking, migration, or lease behavior ran.
+- `DeploymentLeaseTests` silently returns when `AEGISOPS_TEST_POSTGRES` is absent; for the latest full run it was set to a disposable local PostgreSQL 16 cluster, so migrations, parallel claims, lease renewal, and stale recovery executed.
 - `EfAuditWriterTests` verifies that the scoped writer adds an event to the shared `AegisOpsDbContext` unit of work without saving independently; audit coverage for every Phase-1 action remains unverified (P1-19).
-- PostgreSQL-backed job claiming and end-to-end request-to-execution remain unverified in this environment; audit coverage is tracked separately in P1-19.
+- Compose request-to-noop execution is verified in the authenticated UI. Journey D's policy update, version increments, audit entries, and window boundaries are verified; the live denial request and full Journey A staging→production sequence remain unverified.
 
 ## Phase 2 — CI integration & target applications (weight: 1.5 / 15.5 weeks)
 
@@ -133,17 +133,17 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 ### Phase 3 verification evidence
 
 - Focused parser and policy tests: 21 passed, 0 failed, 0 skipped.
-- The latest complete solution test run passed 155/155 with Redis enabled, but did not exercise the PostgreSQL-backed scan upload/async parse path.
+- The latest complete solution test run passed 156/156 with Redis and PostgreSQL enabled, but did not exercise the PostgreSQL-backed scan upload/async parse path.
 
 ## Phase 4 — Worker & Docker executor (weight: 2 / 15.5 weeks)
 
 | ID | Acceptance check | Status | Evidence / gap |
 | --- | --- | --- | --- |
-| P4-01 | Docker executor pulls the artifact by digest and supports GHCR credentials | Unverified | `DockerDeploymentExecutor` uses `DockerImageRef.ForPull` and `DOCKER_GHCR_USER`/`DOCKER_GHCR_TOKEN`; no live registry/Docker execution was possible. |
+| P4-01 | Docker executor pulls the artifact by digest and supports GHCR credentials | Unverified | `DockerDeploymentExecutor` uses `DockerImageRef.ForPull` and `DOCKER_GHCR_USER`/`DOCKER_GHCR_TOKEN`; Compose is running, but no authenticated GHCR pull/deployment was tested. |
 | P4-02 | Executor replaces only owned containers and adds deployment labels | Verified | Ownership-label guards and labels are implemented; focused `DockerTargetOwnershipTests` passed as part of 28 API tests. |
-| P4-03 | Health-check failure removes the new container and restores the prior one | Unverified | Rollback/restore path exists in the executor; no Docker daemon was available to exercise it. |
+| P4-03 | Health-check failure removes the new container and restores the prior one | Unverified | Rollback/restore path exists in the executor; a forced Docker health-check failure and restoration were not exercised. |
 | P4-04 | Environment target editor validates and saves configuration | Verified | UI editor and API/domain validation are implemented; frontend build passed. |
-| P4-05 | Environment runtime endpoint reports Docker target status | Unverified | Scoped endpoint and UI button exist; live Docker inspection was unavailable. |
+| P4-05 | Environment runtime endpoint reports Docker target status | Missing | Authenticated Staging runtime check returned `inspectionAvailable:false`, `containers:null`, and “Docker runtime inspection is unavailable to the API.” |
 | P4-06 | Target Compose definitions provide the expected target services and ports | Verified | `deploy/docker-compose.targets.yml` defines staging and production containers for all three GHCR image names and their ports. |
 | P4-07 | Target Compose file declares target networks | Missing | No `networks` configuration is present in `deploy/docker-compose.targets.yml`. |
 | P4-08 | Worker Compose service mounts Docker socket and configures `group_add` | Missing | Root Compose mounts `/var/run/docker.sock`; no `group_add` setting is present. |
@@ -152,14 +152,15 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P4-11 | Admin can list dead-letter jobs and retry eligible jobs | Verified | Admin jobs endpoints expose list/status and retry; API project compiles and tests pass. |
 | P4-12 | Queue-depth metric is emitted | Missing | No queue-depth metric implementation was found under `src/`. |
 | P4-13 | Worker exits cleanly on shutdown cancellation | Verified | `DeploymentJobService` catches the stopping-token cancellation and returns. |
-| P4-14 | Docker-backed Staging deployment serves the new version and rolls back on forced health failure | Unverified | Requires Docker, published GHCR images, PostgreSQL, and a running deployment; none was exercised. |
+| P4-14 | Docker-backed Staging deployment serves the new version and rolls back on forced health failure | Unverified | Compose and PostgreSQL are available, but no published-image Staging deployment or forced health-failure rollback was exercised. |
 | P4-15 | Optional `RunSecurityScan` scanner-container job is implemented | Missing (optional) | No `Worker:RunScans`/`RunSecurityScan` implementation was found; optional, so excluded from mandatory completion scoring unless scope is reaffirmed. |
 
 ### Phase 4 verification evidence
 
 - `DockerTargetOwnershipTests` and `DeploymentAuthorizationTests`: 28 passed, 0 failed.
-- `DeploymentStateTests`: 9 passed, 0 failed.
-- Docker daemon and PostgreSQL were unavailable; these results do not verify container pull/start/health/rollback or DB-backed queue processing.
+- `DeploymentStateTests`: 10 passed, 0 failed.
+- `python3 tests/staging-docker-contract.py` and `python3 tests/report-storage-contract.py` both passed, checking worker-only Docker socket access and shared report-volume wiring.
+- Compose is running and the Development noop queue path passed. The Staging runtime endpoint currently cannot inspect Docker from the API; image pull, real container start/health/rollback, and Docker-backed Staging remain unverified.
 
 ## Phase 5 — Real-time (weight: 1 / 15.5 weeks)
 
@@ -176,14 +177,14 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P5-09 | Team webhooks support encrypted settings, event selection, attempt history, and recent-window summaries | Verified | Implemented and documented in `phase5-webhooks.md`; full suite passed, including local TLS/signature/attempt-history coverage. |
 | P5-10 | Webhook all-time/telemetry metrics and historical replay are available | Missing | Webhook notes identify these as remaining work. |
 | P5-11 | Public external HTTPS receiver path is integration-tested | Unverified | Existing webhook tests use a local TLS receiver; public DNS/IP pinning and production certificate path are not verified. |
-| P5-12 | Compose-backed browser test demonstrates real deployment updates and approval toast | Unverified | Playwright coverage mocks SignalR/REST; Docker/PostgreSQL were unavailable. |
+| P5-12 | Compose-backed browser test demonstrates real deployment updates and approval toast | Unverified | Docker/PostgreSQL are now running, but no two-browser Compose test with real SignalR and approval-toast timing was run; existing Playwright coverage mocks SignalR/REST. |
 | P5-13 | Full Phase 5 done criterion is demonstrated | Unverified | The required live two-session deployment timeline plus sub-second approver toast has not been demonstrated end to end. |
 
 ### Phase 5 verification evidence
 
 - `npm run test:e2e`: 3 passed, 0 failed; the SignalR update scenario uses mocked WebSocket frames and REST responses.
 - `DeploymentAuthorizationTests`/`DockerTargetOwnershipTests`: 28 passed, 0 failed; includes TestServer SignalR client delivery and access checks, but not live Redis pub/sub.
-- Full solution run with local Redis: 155 passed, 0 failed, 0 skipped. PostgreSQL-backed Compose behavior remains unverified.
+- Full solution run with local Redis and disposable PostgreSQL: 156 passed, 0 failed, 0 skipped. Docker-backed Compose behavior remains unverified.
 
 ## Phase 6 — AI gateway (weight: 2 / 15.5 weeks)
 
@@ -200,7 +201,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P6-09 | Frontend chat playground with model selector and GovernancePanel exists | Missing | No frontend call to `/api/v1/ai/chat` or model selector/chat page was found; current AI UI is governance/history plus feature-specific summaries/explanations. |
 | P6-10 | Compose provides an `ollama` service and `ollama-init` model-pull profile | Missing | Only `docker-compose.yml` and target compose are tracked; neither defines Ollama or `ollama-init`. |
 | P6-11 | README includes local-model hardware guidance | Missing | README mentions Ollama but has no RAM/GPU/model hardware notes; detailed notes exist in AI docs instead. |
-| P6-12 | Journey C runs against a real local Ollama model | Unverified | Ollama is not listening on `127.0.0.1:11434`; Docker is unavailable. Current tests use fake `ILlmClient`/HTTP handlers. |
+| P6-12 | Journey C runs against a real local Ollama model | Unverified | Ollama is not listening on `127.0.0.1:11434`; current tests use fake `ILlmClient`/HTTP handlers. |
 | P6-13 | AI request log demonstrates blocked/redacted entries and production approver summary | Unverified | API/UI features and mocked tests exist; no seeded PostgreSQL + live Ollama approval journey was run. |
 
 ### Phase 6 verification evidence
@@ -245,7 +246,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P8-13 | ADR statuses reflect accepted decisions | Verified | ADR index and ADR files show the recorded decisions as Accepted. |
 | P8-14 | `CHANGELOG.md` and Interview notes are present | Missing | Neither deliverable is tracked. |
 | P8-15 | v1.0.0 release tag and GHCR images are published | Unverified | No local or remote `v1.0.0` tag and no image-publishing workflow were found; GHCR registry contents were not checked. |
-| P8-16 | Fresh clone can run Compose and reproduce all four journeys in under 15 minutes | Unverified | Docker is unavailable, no demo script exists, and database-backed end-to-end journeys were not exercised. |
+| P8-16 | Fresh clone can run Compose and reproduce all four journeys in under 15 minutes | Unverified | Compose runs in the current checkout, but a fresh-clone timing run and all four database-backed journeys were not exercised; no dedicated all-journeys demo script was found. |
 
 ### Phase 8 verification caveat
 
@@ -257,8 +258,8 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 
 | Phase | Weight (weeks) | Verified / eligible checks | Weighted contribution |
 | --- | ---: | ---: | ---: |
-| 0 | 1 | 19 / 28 | 4.38 percentage points |
-| 1 | 3 | 9 / 24 | 7.26 percentage points |
+| 0 | 1 | 22 / 28 | 5.07 percentage points |
+| 1 | 3 | 11 / 24 | 8.87 percentage points |
 | 2 | 1.5 | 9 / 15 | 5.81 percentage points |
 | 3 | 2 | 5 / 13 | 4.96 percentage points |
 | 4 | 2 | 7 / 14 | 6.45 percentage points |
@@ -266,13 +267,13 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 6 | 2 | 8 / 13 | 7.94 percentage points |
 | 7 | 1.5 | 0 / 8 | 0.00 percentage points |
 | 8 | 1.5 | 2 / 16 | 1.21 percentage points |
-| **Total** | **15.5** | **64 / 144** | **40.49% complete** |
+| **Total** | **15.5** | **69 / 144** | **42.80% complete** |
 
-**Estimated remaining: 59.51%** by the same weighted, evidence-based measure. Status totals are 64 Verified, 44 Unverified, 36 Missing, and 0 Scope mismatch. P0-09 and the deployment architecture criterion are rebaselined to match the agreed solution; `IAuditWriter` is now implemented and verified. The durable Worker flow remains unverified until PostgreSQL-backed execution can run.
+**Estimated remaining: 57.20%** by the same weighted, evidence-based measure. Status totals are 69 Verified, 38 Unverified, 37 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path is now verified; complete seeded Journeys A/D and Docker-backed Staging remain unverified.
 
 ### Highest-impact next steps
 
-1. Run Compose with PostgreSQL and verify the durable Worker flow plus Journeys A and D end to end.
+1. Add the local AegisOps login to Hermes Vault (`hermes vault add` or Desktop → Settings → Passwords & Logins), then run the authenticated smoke and Journeys A/D without sharing the password in chat.
 2. Implement Phase 7 observability and service-specific readiness; it currently has 0/8 verified checks.
 3. Close Phase 8 gaps: CSP/audit coverage, retention/cleanup, AI demo assets, and a repeatable release path.
 
