@@ -50,6 +50,21 @@ public sealed class PolicyEngineTests {
     }
 
     [Fact]
+    public void Weekend_blackout_allows_until_friday_18_and_resumes_monday_08_myt() {
+        const string parameters = """{"timezone":"Asia/Kuala_Lumpur","allowed":[{"days":["Mon"],"from":"08:00","to":"23:59:59.9999999"},{"days":["Tue","Wed","Thu"],"from":"00:00","to":"23:59:59.9999999"},{"days":["Fri"],"from":"00:00","to":"17:59:59.9999999"}]}""";
+        var rule = Policy(Rule(PolicyRuleType.DeploymentWindow, RuleEffect.Deny, parameters));
+        var fridayLastTick = new DateTimeOffset(2026, 10, 9, 9, 59, 59, TimeSpan.Zero).AddTicks(TimeSpan.TicksPerSecond - 1);
+        var fridayAtSix = new DateTimeOffset(2026, 10, 9, 10, 0, 0, TimeSpan.Zero);
+        var mondayBeforeEight = new DateTimeOffset(2026, 10, 11, 23, 59, 59, TimeSpan.Zero);
+        var mondayAtEight = new DateTimeOffset(2026, 10, 12, 0, 0, 0, TimeSpan.Zero);
+
+        Assert.Equal(PolicyDecision.Allow, Engine.Evaluate(Context(now: fridayLastTick), [rule]).Decision);
+        Assert.Equal(PolicyDecision.Deny, Engine.Evaluate(Context(now: fridayAtSix), [rule]).Decision);
+        Assert.Equal(PolicyDecision.Deny, Engine.Evaluate(Context(now: mondayBeforeEight), [rule]).Decision);
+        Assert.Equal(PolicyDecision.Allow, Engine.Evaluate(Context(now: mondayAtEight), [rule]).Decision);
+    }
+
+    [Fact]
     public void Deny_beats_required_approvals() {
         var result = Engine.Evaluate(
             Context(test: CheckStatus.Failed),

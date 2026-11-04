@@ -113,6 +113,20 @@ public sealed class DeploymentStateTests {
     }
 
     [Fact]
+    public void Consecutive_failures_schedule_exponential_backoff() {
+        var now = DateTimeOffset.UtcNow;
+        var job = Job.Enqueue(JobType.ExecuteDeployment, "{}", now, "corr");
+
+        job.MarkRunning(now, "worker");
+        job.Fail("first failure", now);
+        Assert.Equal(now.AddSeconds(2), job.ScheduledAt);
+
+        job.MarkRunning(job.ScheduledAt, "worker");
+        job.Fail("second failure", job.ScheduledAt);
+        Assert.Equal(now.AddSeconds(6), job.ScheduledAt);
+    }
+
+    [Fact]
     public void Fifth_failure_dead_letters() {
         var now = DateTimeOffset.UtcNow;
         var job = Job.Enqueue(JobType.ExecuteDeployment, """{"deploymentId":"00000000-0000-0000-0000-000000000001"}""", now, "corr");

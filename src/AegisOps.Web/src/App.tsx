@@ -544,10 +544,13 @@ function Approvals({ token, onError, items, refresh }: { token: string; onError:
 }
 
 function Policies({ token, onError }: { token: string; onError: (value: string | null) => void }) {
-  type PolicyItem = { id: string; name: string; version: number; scope: string; isEnabled: boolean; appliesToTiers: string[]; rules: Array<{ type: string; effect: string; order: number; parameters: object }> };
+  type PolicyRule = { type: string; effect: string; order: number; parameters: object };
+  type PolicyItem = { id: string; name: string; description: string | null; version: number; scope: string; scopeId: string | null; isEnabled: boolean; appliesToTiers: string[]; rules: PolicyRule[] };
   const [items, setItems] = useState<PolicyItem[]>([]);
   const [catalogue, setCatalogue] = useState<Array<{ type: string; effect: string; parameters: object }>>([]);
   const [choice, setChoice] = useState("");
+  const [parameterDrafts, setParameterDrafts] = useState<Record<string, string>>({});
+  const [savingPolicyId, setSavingPolicyId] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -560,14 +563,62 @@ function Policies({ token, onError }: { token: string; onError: (value: string |
     }).catch((error: Error) => onError(error.message));
   }, [token, onError]);
 
+  async function saveRules(policy: PolicyItem, rules: PolicyRule[], clearDraftKey?: string) {
+    setSavingPolicyId(policy.id);
+    try {
+      await api(`/api/v1/policies/${policy.id}`, token, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: policy.name,
+          description: policy.description,
+          scope: policy.scope,
+          scopeId: policy.scopeId,
+          appliesToTiers: policy.appliesToTiers,
+          rules,
+        }),
+      });
+      setItems(await api<PolicyItem[]>("/api/v1/policies", token));
+      if (clearDraftKey) {
+        setParameterDrafts((current) => {
+          const next = { ...current };
+          delete next[clearDraftKey];
+          return next;
+        });
+      }
+      onError(null);
+    } finally {
+      setSavingPolicyId(null);
+    }
+  }
+
   async function addRule(policy: PolicyItem) {
     const template = catalogue.find((item) => item.type === choice);
     if (!template) {
       return;
     }
     const rules = [...policy.rules, { type: template.type, effect: template.effect, order: policy.rules.length, parameters: template.parameters }];
-    await api(`/api/v1/policies/${policy.id}`, token, { method: "PUT", body: JSON.stringify({ name: policy.name, scope: policy.scope, appliesToTiers: policy.appliesToTiers, rules }) });
-    setItems(await api("/api/v1/policies", token));
+    await saveRules(policy, rules);
+  }
+
+  async function saveRuleParameters(policy: PolicyItem, rule: PolicyRule) {
+    const key = `${policy.id}:${rule.order}`;
+    const source = parameterDrafts[key] ?? JSON.stringify(rule.parameters ?? {}, null, 2);
+    let parameters: object;
+    try {
+      const parsed: unknown = JSON.parse(source);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("Rule parameters must be a JSON object.");
+      }
+      parameters = parsed as object;
+    } catch (error) {
+      if (error instanceof Error && error.message === "Rule parameters must be a JSON object.") {
+        throw error;
+      }
+      throw new Error(`${rule.type} parameters must be valid JSON.`);
+    }
+
+    const rules = policy.rules.map((current) => current.order === rule.order ? { ...current, parameters } : current);
+    await saveRules(policy, rules, key);
   }
 
   return (
@@ -583,10 +634,30 @@ function Policies({ token, onError }: { token: string; onError: (value: string |
           <li key={policy.id} className="panel">
             <div className="panel-heading policy-heading">
               <h2>{policy.name} <span>v{policy.version}</span></h2>
-              <button className="primary-button" type="button" onClick={() => void addRule(policy).catch((error: Error) => onError(error.message))}>Add rule</button>
+              <button className="primary-button" type="button" disabled={savingPolicyId === policy.id} onClick={() => void addRule(policy).catch((error: Error) => onError(error.message))}>Add rule</button>
             </div>
             <ul className="item-list">
-              {policy.rules.map((rule) => <li className="detail-row" key={`${rule.type}-${rule.order}`}>{rule.order}. {rule.type} ({rule.effect})</li>)}
+              {policy.rules.map((rule) => {
+                const key = `${policy.id}:${rule.order}`;
+                return <li className="policy-rule" key={`${rule.type}-${rule.order}`}>
+                  <strong>{rule.order}. {rule.type} ({rule.effect})</strong>
+                  <label className="field-label policy-rule-parameters">
+                    {policy.name} {rule.type} parameters
+                    <textarea
+                      aria-label={`${policy.name} ${rule.type} parameters`}
+                      spellCheck={false}
+                      value={parameterDrafts[key] ?? JSON.stringify(rule.parameters ?? {}, null, 2)}
+                      onChange={(event) => setParameterDrafts((current) => ({ ...current, [key]: event.target.value }))}
+                    />
+                  </label>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={savingPolicyId === policy.id}
+                    onClick={() => void saveRuleParameters(policy, rule).catch((error: Error) => onError(error.message))}
+                  >Save {rule.type} parameters</button>
+                </li>;
+              })}
             </ul>
           </li>
         ))}
