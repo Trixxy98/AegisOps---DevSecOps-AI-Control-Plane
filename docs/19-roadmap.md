@@ -134,19 +134,19 @@ access against the database before sending `DeploymentChanged(deploymentId)` to 
 browser (no persistent project groups or API-key connections). The UI reloads deployment lists,
 selected timeline/evaluation and approval/dashboard views from REST on receipt/reconnect; the
 existing 10-second polling remains a fallback (including selected deployment detail). Redis
-messages are ephemeral hints, not a durable event log. Remaining real-time work includes
-approval toasts, a connection status indicator, streaming intermediate Docker timeline steps
-(currently persisted at job completion), and Compose-backed browser validation with a real
-deployment. Scoped groups are optional future scaling work. A deterministic Playwright UI test
-covers two isolated sessions, mocked SignalR delivery and REST invalidation without touching
-deployment data. Outbound team webhooks are implemented; see [Phase 5 webhook notes](phase5-webhooks.md)
-for their shipped capabilities and remaining work. This slice does **not** meet the full Phase 5
-done criterion.
+messages are ephemeral hints, not a durable event log. Approval toasts and a connection-status
+indicator are implemented. Remaining real-time work includes removing the polling fallback,
+streaming intermediate Docker timeline steps (currently persisted at job completion), and
+Compose-backed browser validation with a real deployment. Scoped groups are optional future
+scaling work. A deterministic Playwright UI test covers two isolated sessions, mocked SignalR
+delivery and REST invalidation without touching deployment data. Outbound team webhooks are
+implemented; see [Phase 5 webhook notes](phase5-webhooks.md) for their shipped capabilities and
+remaining work. This slice does **not** meet the full Phase 5 done criterion.
 
 | Deliverable | Detail |
 | --- | --- |
-| Hub | `OpsHub`, groups, authorization on join; Redis pub/sub bridge Worker → Api |
-| Frontend | Connection lifecycle, invalidation map, live timeline, approval toasts, connection status indicator, polling fallback |
+| Hub | Authenticated `OpsHub`; recheck membership/role per update; Redis pub/sub bridge Worker → Api; no persistent project groups |
+| Frontend | Connection lifecycle, invalidation map, live timeline, approval toasts, connection status indicator; 10-second polling fallback remains |
 | Notifications | `SendNotification` job; opt-in team HMAC webhooks with encrypted settings/key rotation, owner management UI, selective event subscriptions, durable per-attempt delivery history, and recent-window UI summaries. All-time/telemetry metrics, external-receiver integration and historical replay remain |
 | Tests | Hub authorization, invalidation hook, TestServer integration with two authenticated SignalR clients through the deployment listener, deterministic two-context Playwright UI test, webhook signature/TLS and attempt-history tests; Compose-backed browser test with a real deployment remains |
 
