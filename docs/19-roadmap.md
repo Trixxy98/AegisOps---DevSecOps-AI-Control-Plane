@@ -134,13 +134,14 @@ access against the database before sending `DeploymentChanged(deploymentId)` to 
 browser (no persistent project groups or API-key connections). The UI reloads deployment lists,
 selected timeline/evaluation and approval/dashboard views from REST on receipt/reconnect; the
 existing 10-second polling remains a fallback (including selected deployment detail). Redis
-messages are ephemeral hints, not a durable event log. Remaining Phase 5: scoped groups if
-needed for scale, approval toasts, generic notifications/outbound HMAC webhooks, connection
-status indicator, streaming of intermediate Docker timeline steps (currently persisted at job
-completion), and Compose-backed browser validation with a real deployment. A deterministic
-Playwright UI test now covers two isolated sessions, mocked SignalR delivery and REST
-invalidation without touching deployment data. This slice does **not** meet the
-full Phase 5 done criterion.
+messages are ephemeral hints, not a durable event log. Remaining real-time work includes
+approval toasts, a connection status indicator, streaming intermediate Docker timeline steps
+(currently persisted at job completion), and Compose-backed browser validation with a real
+deployment. Scoped groups are optional future scaling work. A deterministic Playwright UI test
+covers two isolated sessions, mocked SignalR delivery and REST invalidation without touching
+deployment data. Outbound team webhooks are implemented; see [Phase 5 webhook notes](phase5-webhooks.md)
+for their shipped capabilities and remaining work. This slice does **not** meet the full Phase 5
+done criterion.
 
 | Deliverable | Detail |
 | --- | --- |

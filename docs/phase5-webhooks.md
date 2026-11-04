@@ -62,14 +62,14 @@ IPv6, non-443 ports and local/private/special-purpose addresses are unsupported.
 history with durable per-attempt status, timestamps and generic failure text. Each webhook
 job claim and attempt row are committed atomically; attempt completion is committed with
 the job result, and stale lease recovery marks the attempt failed. Failed-attempt details
-never include the destination, secret, response body, or transport exception.
+never include the destination, secret, response body, or transport exception. The team
+panel summarizes delivered, dead-lettered, queued, not-queued events and attempt counts
+across its 100 most recent deployment events; these are recent-window, not all-time metrics.
 
-The team panel also summarizes delivered, dead-lettered, queued, not-queued events and
-attempt counts across its 100 most recent deployment events; these are a recent-window
-summary, not all-time metrics.
+Automated tests cover signed delivery, non-2xx handling, delivery-attempt history, and
+failure redaction against a local TLS receiver. They do not verify public DNS resolution,
+IP pinning, or the production certificate-validation path.
 
 **Remaining work:** all-time/telemetry delivery metrics, integration testing against an
-externally hosted HTTPS receiver, and historical replay. Automated tests exercise signed
-delivery and non-2xx handling against a local TLS receiver; they do not verify public DNS
-resolution, IP pinning, or the production certificate-validation path. This implementation
-does not provide exactly-once delivery or a reliable receiver acknowledgement beyond a 2xx response.
+externally hosted HTTPS receiver, and historical replay. This implementation does not
+provide exactly-once delivery or a reliable receiver acknowledgement beyond a 2xx response.
