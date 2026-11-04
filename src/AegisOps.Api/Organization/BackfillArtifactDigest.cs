@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +16,7 @@ public static class BackfillArtifactDigest {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         HttpContext http
     ) {
         if (string.IsNullOrWhiteSpace(request.ImageDigest)) {
@@ -72,7 +73,7 @@ public static class BackfillArtifactDigest {
 
         try {
             artifact.BackfillDigest(request.ImageDigest);
-            AuditLog.Write(db, TimeProvider.System.GetUtcNow(), actorId, actorDisplay, "artifact.digest_backfilled", "Artifact", artifact.Id);
+            audit.Write(TimeProvider.System.GetUtcNow(), actorId, actorDisplay, "artifact.digest_backfilled", "Artifact", artifact.Id);
             await db.SaveChangesAsync(cancellationToken);
         } catch (ArgumentException exception) {
             return Results.Problem(

@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +16,7 @@ public static class RevokeApiKey {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         HttpContext http
     ) {
@@ -79,7 +80,7 @@ public static class RevokeApiKey {
 
         try {
             apiKey.Revoke(time.GetUtcNow());
-            AuditLog.Write(db, time.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "apikey.revoked", "ApiKey", apiKey.Id);
+            audit.Write(time.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "apikey.revoked", "ApiKey", apiKey.Id);
             await db.SaveChangesAsync(cancellationToken);
         } catch (InvalidOperationException exception) {
             return Results.Problem(

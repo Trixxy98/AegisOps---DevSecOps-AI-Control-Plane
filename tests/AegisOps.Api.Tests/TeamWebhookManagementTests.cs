@@ -7,6 +7,7 @@ using AegisOps.Domain.Organization;
 using AegisOps.Domain.Policy;
 using AegisOps.Domain.Security;
 using AegisOps.Infrastructure.Deploy;
+using AegisOps.Infrastructure.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -31,7 +32,7 @@ public sealed class TeamWebhookManagementTests {
         var response = await TeamWebhookSettingsEndpoints.Set(
             fixture.Team.Slug,
             new SetTeamWebhookRequest("https://example.com/hook", Convert.ToBase64String(secret)),
-            Principal(fixture.Owner.Id), fixture.Users, fixture.Db, protector, Context(cancellationToken));
+            Principal(fixture.Owner.Id), fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), protector, Context(cancellationToken));
 
         Assert.Equal(StatusCodes.Status200OK, Status(response));
         var returned = Assert.IsType<TeamWebhookSettingsResponse>(Assert.IsAssignableFrom<IValueHttpResult>(response).Value);
@@ -54,11 +55,11 @@ public sealed class TeamWebhookManagementTests {
         var queryUrl = await TeamWebhookSettingsEndpoints.Set(
             fixture.Team.Slug,
             new SetTeamWebhookRequest("https://example.com/hook?token=do-not-store", Convert.ToBase64String(Key(2))),
-            Principal(fixture.Owner.Id), fixture.Users, fixture.Db, protector, Context(cancellationToken));
+            Principal(fixture.Owner.Id), fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), protector, Context(cancellationToken));
         var oversizedSecret = await TeamWebhookSettingsEndpoints.Set(
             fixture.Team.Slug,
             new SetTeamWebhookRequest("https://example.com/hook", new string('A', 1369)),
-            Principal(fixture.Owner.Id), fixture.Users, fixture.Db, protector, Context(cancellationToken));
+            Principal(fixture.Owner.Id), fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), protector, Context(cancellationToken));
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(queryUrl));
         Assert.Equal(StatusCodes.Status400BadRequest, Status(oversizedSecret));
@@ -73,7 +74,7 @@ public sealed class TeamWebhookManagementTests {
         foreach (var eventTypes in new[] { new[] { "NotADeploymentEvent" }, Array.Empty<string>() }) {
             var result = await TeamWebhookSettingsEndpoints.Set(fixture.Team.Slug,
                 new SetTeamWebhookRequest("https://example.com/hook", Convert.ToBase64String(Key(8)), eventTypes),
-                Principal(fixture.Owner.Id), fixture.Users, fixture.Db, protector, Context(cancellationToken));
+                Principal(fixture.Owner.Id), fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), protector, Context(cancellationToken));
             Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
         }
         Assert.Empty(await fixture.Db.TeamWebhookSettings.ToListAsync(cancellationToken));
@@ -138,8 +139,8 @@ public sealed class TeamWebhookManagementTests {
         var set = await TeamWebhookSettingsEndpoints.Set(
             fixture.Team.Slug,
             new SetTeamWebhookRequest("https://example.com/hook", Convert.ToBase64String(Key(3))),
-            Principal(fixture.Member.Id), fixture.Users, fixture.Db, protector, Context(cancellationToken));
-        var rewrap = await TeamWebhookSettingsEndpoints.Rewrap(Principal(fixture.Owner.Id), fixture.Users, fixture.Db, protector, Context(cancellationToken));
+            Principal(fixture.Member.Id), fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), protector, Context(cancellationToken));
+        var rewrap = await TeamWebhookSettingsEndpoints.Rewrap(Principal(fixture.Owner.Id), fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), protector, Context(cancellationToken));
 
         Assert.Equal(StatusCodes.Status404NotFound, Status(get));
         Assert.Equal(StatusCodes.Status404NotFound, Status(set));
@@ -158,7 +159,7 @@ public sealed class TeamWebhookManagementTests {
         await fixture.Db.SaveChangesAsync(cancellationToken);
         var newConfig = Configuration("new", ("old", Key(4)), ("new", Key(5)));
         var response = await TeamWebhookSettingsEndpoints.Rewrap(Principal(fixture.Admin.Id), fixture.Users, fixture.Db,
-            new TeamWebhookSecretProtector(newConfig), Context(cancellationToken));
+            new EfAuditWriter(fixture.Db), new TeamWebhookSecretProtector(newConfig), Context(cancellationToken));
 
         Assert.Equal(StatusCodes.Status200OK, Status(response));
         var metadata = Assert.IsAssignableFrom<IValueHttpResult>(response).Value!;
@@ -181,7 +182,7 @@ public sealed class TeamWebhookManagementTests {
         var rotatingProtector = new TeamWebhookSecretProtector(Configuration("new", ("old", Key(4)), ("new", Key(5))));
 
         var response = await TeamWebhookSettingsEndpoints.Rewrap(Principal(fixture.Admin.Id), fixture.Users, fixture.Db,
-            rotatingProtector, Context(cancellationToken));
+            new EfAuditWriter(fixture.Db), rotatingProtector, Context(cancellationToken));
 
         Assert.Equal(StatusCodes.Status409Conflict, Status(response));
         Assert.Equal(corrupted, (await fixture.Db.TeamWebhookSettings.SingleAsync(cancellationToken)).EncryptedSecret);
@@ -199,7 +200,7 @@ public sealed class TeamWebhookManagementTests {
         var result = await TeamWebhookSettingsEndpoints.Set(
             fixture.Team.Slug,
             new SetTeamWebhookRequest("https://example.com/hook", Convert.ToBase64String(Key(9))),
-            Principal(fixture.Owner.Id), fixture.Users, fixture.Db, protector, Context(cancellationToken));
+            Principal(fixture.Owner.Id), fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), protector, Context(cancellationToken));
 
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, Status(result));
         Assert.Empty(await fixture.Db.TeamWebhookSettings.ToListAsync(cancellationToken));

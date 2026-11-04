@@ -50,7 +50,7 @@ gantt
 | Deliverable | Detail |
 | --- | --- |
 | Repository | `git init`, `.gitignore`, `LICENSE` (MIT), `README.md` (already drafted), `docs/` (this set) |
-| Solution | `AegisOps.slnx` (SDK .NET 10 default) with Domain / Application / Infrastructure / Api / Worker + 5 test projects; `Directory.Build.props`, `Directory.Packages.props`, `.editorconfig` |
+| Solution | `AegisOps.slnx` (SDK .NET 10 default) with Domain / Application / Infrastructure / Api / Worker + 3 test projects; `Directory.Build.props`, `Directory.Packages.props`, `.editorconfig` |
 | Architecture tests | Dependency rule tests pass on the empty skeleton |
 | Frontend | Vite + React + TS + Tailwind scaffold, ESLint/Prettier, AppShell with sidebar, `/login` placeholder |
 | Compose | `postgres`, `redis`, `api`, `worker`, `web` services build and start; `/health` green |
@@ -70,7 +70,7 @@ executor — this is the MVP and the heart of the portfolio story.
 | Organization | Teams, members, projects (auto Dev/Staging/Prod), environments (`noop` target), repositories; team scoping |
 | Artifacts | Register artifact (manual via UI and via API key); list/detail; test summary |
 | Policies | `Policy`/`PolicyRule`/`PolicyEvaluation`; **PolicyEngine** with rules `RequireTestsPassed`, `RequireApprovals`, `AllowedBranches`, `RequirePriorEnvironment`, `RequireImageDigest`, `DeploymentWindow` (`MaxFindings`/`RequireScan` land in Phase 3 but the engine is complete); rule-type catalogue endpoint; simulate endpoint |
-| Deployments | Request → in-process job loop (Worker project runs the same `JobDispatcherService`) → evaluate → `Denied` / `AwaitingApproval` / `Approved` → `NoopDeploymentExecutor` → `Succeeded`; approvals with separation of duties; cancel; timeline events |
+| Deployments | Request → persist PostgreSQL job → separate Worker `DeploymentJobService`/`DeploymentProcessor` claims and evaluates it → `Denied` / `AwaitingApproval` / `Approved` → baseline `NoopDeploymentExecutor` → `Succeeded`; approvals with separation of duties; cancel; timeline events |
 | Jobs | PostgreSQL job table, claim with `SKIP LOCKED`, retry/backoff, reaper |
 | Audit | `IAuditWriter`, audit endpoints, coverage for all Phase-1 actions |
 | Frontend | Login, dashboard (basic counts), projects list/detail, artifact list/detail with "Deploy", deployments list/detail with **PolicyEvaluationPanel** and **ApprovalPanel**, approvals queue, policies list + **RuleBuilder**, audit log, admin users/teams (polling refresh every 10 s; SignalR comes in Phase 5) |

@@ -3,7 +3,7 @@ using AegisOps.Api.Idempotency;
 using AegisOps.Application.Idempotency;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Security;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -52,6 +52,7 @@ public static class CreateArtifact {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         IIdempotencyStore idempotency,
         HttpContext http
@@ -172,7 +173,7 @@ public static class CreateArtifact {
             );
 
             db.Artifacts.Add(artifact);
-            AuditLog.Write(db, time.GetUtcNow(), createdById ?? createdByApiKeyId, actorDisplay, "artifact.created", "Artifact", artifact.Id);
+            audit.Write(time.GetUtcNow(), createdById ?? createdByApiKeyId, actorDisplay, "artifact.created", "Artifact", artifact.Id);
             await db.SaveChangesAsync(cancellationToken);
 
             return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status201Created, ToResponse(artifact));

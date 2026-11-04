@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -32,6 +32,7 @@ public static class UpsertRepository {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         HttpContext http
     ) {
         if (!Enum.TryParse<RepositoryProvider>(request.Provider, ignoreCase: true, out var provider) || !Enum.IsDefined(provider)) {
@@ -108,7 +109,7 @@ public static class UpsertRepository {
                 );
             }
 
-            AuditLog.Write(db, TimeProvider.System.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "repository.upserted", "Repository", existing.Id);
+            audit.Write(TimeProvider.System.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "repository.upserted", "Repository", existing.Id);
             await db.SaveChangesAsync(cancellationToken);
 
             return Results.Ok(new RepositoryResponse(

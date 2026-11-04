@@ -1,3 +1,4 @@
+using AegisOps.Application.Audit;
 using System.Text.Json;
 using AegisOps.Application.PolicyEngine;
 using AegisOps.Domain.Audit;
@@ -17,6 +18,7 @@ namespace AegisOps.Infrastructure.Deploy;
 public static class DeploymentProcessor {
     public static async Task<bool> TryProcessOneAsync(
         AegisOpsDbContext db,
+        IAuditWriter audit,
         IServiceScopeFactory scopes,
         TimeProvider time,
         string workerId,
@@ -40,9 +42,9 @@ public static class DeploymentProcessor {
             } else {
                 var deploymentId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("deploymentId").GetGuid();
                 if (job.Type == JobType.EvaluateDeployment) {
-                    await EvaluateAsync(db, deploymentId, time, lost.Token);
+                    await EvaluateAsync(db, audit, deploymentId, time, lost.Token);
                 } else if (job.Type == JobType.ExecuteDeployment) {
-                    await ExecuteAsync(db, deploymentId, time, lost.Token, redis);
+                    await ExecuteAsync(db, audit, deploymentId, time, lost.Token, redis);
                 }
             }
 
@@ -215,6 +217,7 @@ public static class DeploymentProcessor {
 
     public static async Task EvaluateAsync(
         AegisOpsDbContext db,
+        IAuditWriter audit,
         Guid deploymentId,
         TimeProvider time,
         CancellationToken cancellationToken
@@ -248,7 +251,7 @@ public static class DeploymentProcessor {
             ));
         }
 
-        db.AuditEvents.Add(AuditEvent.Record(
+        audit.Write(AuditEvent.Record(
             time.GetUtcNow(),
             "System",
             null,
@@ -263,6 +266,7 @@ public static class DeploymentProcessor {
 
     public static async Task ExecuteAsync(
         AegisOpsDbContext db,
+        IAuditWriter audit,
         Guid deploymentId,
         TimeProvider time,
         CancellationToken cancellationToken,
@@ -277,7 +281,7 @@ public static class DeploymentProcessor {
                 denied ? DeploymentEventType.Denied : DeploymentEventType.ApprovalRequested,
                 outcome.Message ?? (denied ? "Denied before execution." : "Approval required before execution."),
                 time, cancellationToken);
-            db.AuditEvents.Add(AuditEvent.Record(time.GetUtcNow(), "System", null, "policy-engine", "deployment.evaluated",
+            audit.Write(AuditEvent.Record(time.GetUtcNow(), "System", null, "policy-engine", "deployment.evaluated",
                 "Deployment", deployment.Id, outcome.Decision.ToString(), deployment.CorrelationId));
             return;
         }
@@ -303,7 +307,7 @@ public static class DeploymentProcessor {
             if (!execution.Succeeded) {
                 deployment.Fail(execution.Message, time.GetUtcNow());
                 await AddEventAsync(db, deployment.Id, DeploymentEventType.Failed, execution.Message, time, cancellationToken);
-                db.AuditEvents.Add(AuditEvent.Record(time.GetUtcNow(), "System", null, "docker-executor", "deployment.failed", "Deployment", deployment.Id, "Failed", deployment.CorrelationId));
+                audit.Write(AuditEvent.Record(time.GetUtcNow(), "System", null, "docker-executor", "deployment.failed", "Deployment", deployment.Id, "Failed", deployment.CorrelationId));
                 return;
             }
         } else {
@@ -314,7 +318,7 @@ public static class DeploymentProcessor {
         environment.RecordDeployment(deployment.ArtifactId, deployment.Id);
         deployment.Succeed(time.GetUtcNow());
         await AddEventAsync(db, deployment.Id, DeploymentEventType.Succeeded, docker ? "Container is healthy." : "Simulated deployment succeeded.", time, cancellationToken);
-        db.AuditEvents.Add(AuditEvent.Record(
+        audit.Write(AuditEvent.Record(
             time.GetUtcNow(),
             "System",
             null,

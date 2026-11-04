@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -50,6 +50,7 @@ public static class CreateProject {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time,
         HttpContext http
     ) {
@@ -119,7 +120,7 @@ public static class CreateProject {
 
             db.Projects.Add(project);
             db.Environments.AddRange(environments);
-            AuditLog.Write(db, time.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "project.created", "Project", project.Id);
+            audit.Write(time.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "project.created", "Project", project.Id);
             await db.SaveChangesAsync(cancellationToken);
 
             return Results.Created(

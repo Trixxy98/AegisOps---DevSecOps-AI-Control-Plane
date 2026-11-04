@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using AegisOps.Domain.Identity;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -15,6 +15,7 @@ public static class ChangePassword {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TimeProvider time
     ) {
         if (string.IsNullOrWhiteSpace(request.CurrentPassword) || string.IsNullOrWhiteSpace(request.NewPassword)) {
@@ -61,7 +62,7 @@ public static class ChangePassword {
         throw new InvalidOperationException(errors);
        }
 
-    AuditLog.Write(db, time.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "auth.password_changed", "User", user.Id);
+    audit.Write(time.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "auth.password_changed", "User", user.Id);
     await db.SaveChangesAsync();
     return Results.NoContent();
     }

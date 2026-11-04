@@ -1,3 +1,5 @@
+using AegisOps.Application.Audit;
+using AegisOps.Infrastructure.Audit;
 using AegisOps.Api.Identity;
 using AegisOps.Infrastructure.Identity;
 using AegisOps.Application.Authorization;
@@ -20,6 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHealthChecks();
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddIdentityStore(builder.Configuration);
+builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
 builder.Services.AddSingleton<TeamWebhookSecretProtector>();
 builder.Services.AddSingleton<ISensitiveDataDetector, RegexSensitiveDataDetector>();
 builder.Services.AddSingleton<IAiRateLimiter>(services => new RedisAiRateLimiter(

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using AegisOps.Application.Audit;
 using AegisOps.Domain.Ai;
 using AegisOps.Domain.Audit;
 using AegisOps.Domain.Policy;
@@ -23,7 +24,7 @@ public interface IAiRateLimiter {
 public sealed record AiGatewayResult(int StatusCode, AiRequest Request, string? Content, RateLimitDecision? RateLimit);
 
 public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimiter limiter,
-    ISensitiveDataDetector detector, TimeProvider time) {
+    ISensitiveDataDetector detector, TimeProvider time, IAuditWriter audit) {
     public async Task<AiGatewayResult> Chat(Guid userId, Guid? teamId, string? modelName,
         IReadOnlyList<LlmMessage>? messages, string correlationId, CancellationToken ct, AiPurpose purpose = AiPurpose.Chat) {
         var now = time.GetUtcNow();
@@ -95,7 +96,7 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
                 reply?.PromptTokens, reply?.CompletionTokens, watch.ElapsedMilliseconds, correlationId, now, purpose, safeReply,
                 storePromptContent, promptChars, promptHash);
             db.AiRequests.Add(request);
-            db.AuditEvents.Add(AuditEvent.Record(now, "User", userId, "AI user", "ai.request", "AiRequest", request.Id,
+            audit.Write(AuditEvent.Record(now, "User", userId, "AI user", "ai.request", "AiRequest", request.Id,
                 status == 200 ? "Succeeded" : "Denied", correlationId[..Math.Min(64, correlationId.Length)]));
             await db.SaveChangesAsync(ct);
             return new AiGatewayResult(status, request, reply?.Content, rate);

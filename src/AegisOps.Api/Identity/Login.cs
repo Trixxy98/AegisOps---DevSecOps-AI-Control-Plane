@@ -1,5 +1,5 @@
 using AegisOps.Domain.Identity;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
@@ -17,6 +17,7 @@ public static class Login {
         IOptions<JwtOptions> jwtOptions,
         TimeProvider time,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         HttpContext http
     ) {
         if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password)) {
@@ -42,7 +43,7 @@ public static class Login {
         var token = JwtAccessTokenFactory.Create(user, roles, options, now);
 
         await RefreshCookie.IssueAsync(http, db, user, options, now, http.RequestAborted);
-        AuditLog.Write(db, now, user.Id, user.Email ?? user.DisplayName, "auth.login", "User", user.Id);
+        audit.Write(now, user.Id, user.Email ?? user.DisplayName, "auth.login", "User", user.Id);
         await db.SaveChangesAsync(http.RequestAborted);
 
         return Results.Ok(new LoginResponse(token, now.AddMinutes(options.AccessTokenMinutes)));

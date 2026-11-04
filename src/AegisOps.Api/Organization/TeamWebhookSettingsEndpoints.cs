@@ -4,7 +4,7 @@ using System.Text.Json;
 using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
-using AegisOps.Infrastructure.Audit;
+using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Deploy;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -85,6 +85,7 @@ public static class TeamWebhookSettingsEndpoints {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TeamWebhookSecretProtector protector,
         HttpContext http
     ) {
@@ -130,7 +131,7 @@ public static class TeamWebhookSettingsEndpoints {
         } else {
             settings.Update(uri.AbsoluteUri, encryptedSecret, now, eventTypes);
         }
-        AuditLog.Write(db, now, access.User!.Id, access.User.Email ?? access.User.DisplayName,
+        audit.Write(now, access.User!.Id, access.User.Email ?? access.User.DisplayName,
             "team.webhook_updated", "TeamWebhook", access.Team!.Id);
         await db.SaveChangesAsync(http.RequestAborted);
         return Results.Ok(new TeamWebhookSettingsResponse(uri.AbsoluteUri, true, now, ParseEventTypes(eventTypes)));
@@ -144,6 +145,7 @@ public static class TeamWebhookSettingsEndpoints {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
+        IAuditWriter audit,
         TeamWebhookSecretProtector protector,
         HttpContext http
     ) {
@@ -170,7 +172,7 @@ public static class TeamWebhookSettingsEndpoints {
             if (item.RewrapSecret(encrypted, now)) changed++;
         }
         if (changed > 0) {
-            AuditLog.Write(db, now, identity.User!.Id, identity.User.Email ?? identity.User.DisplayName,
+            audit.Write(now, identity.User!.Id, identity.User.Email ?? identity.User.DisplayName,
                 "team.webhook_keys_rewrapped", "TeamWebhook", null);
             await db.SaveChangesAsync(http.RequestAborted);
         }
