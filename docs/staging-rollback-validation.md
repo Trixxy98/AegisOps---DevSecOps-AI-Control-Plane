@@ -5,47 +5,43 @@ Do not run this against Production or another Docker target. The API's rollback 
 `RolledBack` event on a failed health check instead restores the stopped container.
 These are different operations. This exercise tests the latter.
 
-## Current blocker / image preparation
+## Executed validation (October 27, 2026)
 
-The existing `site-service` Staging artifact is the same digest as the running
-container. The other two registered artifacts have failed Semgrep scans. Do not
-claim either as a successful upgrade, fabricate scans, reuse an artifact version
-for a different build, or deploy an unscanned local image.
+The CI-gated `demo/rollback-validation` branch published and registered two
+distinct images. Both CI runs completed successfully, including tests, image
+build, Gitleaks, Semgrep, Trivy, and AegisOps registration. The deliberately
+failing image was not deployed until the healthy image had passed its Staging
+health check.
 
-The sibling repo's `demo/vulnerable` working tree contains uncommitted fixture
-changes but also deliberately insecure demo code, so **do not push or deploy that
-branch**. A separate, uncommitted worktree based on `main` is prepared at
-`/private/var/folders/xm/rvmrs4y967q0z4421dzcjwvc0000gn/T/opencode/aegisops-site-rollback`
-on `demo/rollback-validation`. It has the Staging-only fixture and a CI gate;
-`AegisOpsFixture__FailHealth=true` makes `/health` return 503 only in Staging.
-No branch has been pushed and no artifact has been registered by this preparation.
-The existing `main` workflow gates registration to main/tags; `demo/**` pushes
-by themselves do **not** register or deploy. The opt-in gate in the prepared
-worktree only permits registration on an exact `demo/rollback-validation` push
-whose head commit message contains `[staging-rollback:healthy]` or
-`[staging-rollback:failing]`; the image job checks that the committed Dockerfile
-default matches the phase. Other demo branches do not acquire deploy access.
-`workflow_dispatch` is intentionally disabled to avoid rebuilding an existing
-version from an old commit. CI must publish **two separate, distinct-digest builds**:
+| Phase | Commit / CI run | Artifact version | Digest | Deployment |
+| --- | --- | --- | --- | --- |
+| Healthy | `248ef1b`, run `40439154412` | `v0.0.0-demo-rollback-validation.248ef1b-run.40439154412.1` | `sha256:559c720805d749a5d7116c5fc5a4879cd31ab0a4fd577123186eae1d0318072b` | `01a17b4b-6f9a-74a4-ac58-2899345c5c54` — Succeeded |
+| Forced health failure | `c8ab095`, run `40442951347` | `v0.0.0-demo-rollback-validation.c8ab095-run.40442951347.1` | `sha256:fc733b015389893895b27549d14d0365aac8f84c1f98eacf5a9c2144590dd07c` | `01a17b5b-3049-73e5-b9ce-782c31d1a1ab` — Failed after rollback |
 
-1. On the dedicated main-based branch, commit the prepared files with
-   `[staging-rollback:healthy]` in the head commit message; leave the Dockerfile
-   default `false`. Push only that branch after authorization and preflight.
-2. **Only after the first deployment is healthy**, change that branch's
-   Dockerfile `ARG AEGISOPS_FIXTURE_FAIL_HEALTH=false` to `true`; commit with
-   `[staging-rollback:failing]` and push only that branch. Each push receives a
-   unique CI run/attempt image version, digest, tests, real Gitleaks/Semgrep/Trivy
-   reports, registration and Staging deployment request.
+Both deployment evaluations were `Allow`; the failing deployment was allowed
+through policy because its build, tests, scans, and finding thresholds passed.
+Its Docker health check—not a policy bypass—triggered the failure. The recorded
+timeline was `ImagePulled` → `ContainerStarted` → `HealthCheckFailed` (no 200
+within 60 seconds) → `RolledBack` → `Failed`. The healthy deployment recorded
+`HealthCheckPassed` and `Succeeded` before the failing deployment was requested.
 
-This requires explicit operator authorization for **both** commits/pushes to
-the external repository and the real Staging deployments. Confirm the effective
-Staging branch policy allows `demo/rollback-validation` (or obtain a narrowly
-scoped authorized policy change before either push); do not weaken Production
-or broadly allow demo branches. Verify the image build digest differs and the
-actual scans are present, not synthetic reports. Wait for the report job and
-policy evaluation; if either denies the artifact, stop rather than bypassing it.
+Post-run verification on November 5, 2026: Staging `currentArtifactId` still
+points to the healthy artifact; `/health` returns `Healthy`; `/version` reports
+the healthy commit `248ef1b`; and the running `site-service-staging` container
+has the healthy deployment label and digest above. The failed deployment has no
+remaining container, `site-service-staging-previous` is absent, and the staging
+network contains only the expected service container. Production remains on
+artifact `01a11baa-de54-765c-ae3e-9651bb629006` with a `noop` target, and the
+deployment history contains no Production deployment during this exercise.
 
-## Preflight (before either request)
+The deployment event schema does not retain Docker container IDs, so the exact
+pre-failure and restored container-ID equality cannot be reconstructed from the
+historical event log. The `RolledBack` event, unchanged healthy artifact, and
+live post-run health/version checks verify restoration at the artifact/service
+level. The previously documented `demo/vulnerable` worktree still contains
+uncommitted changes and deliberately insecure demo code; do not push or deploy it.
+
+## Preflight checklist (for a repeat run)
 
 - Check the project/environment target through the authorized API: project
   `site-service`, tier `Staging`, Docker name `site-service-staging`, port `8101`,
@@ -61,7 +57,7 @@ policy evaluation; if either denies the artifact, stop rather than bypassing it.
   approval or denial is not permission to skip a rule. Check the host port is bound only by the owned Staging
   container; never remove or rename a foreign container to clear it.
 
-## Observe each CI-driven deployment
+## Observe each CI-driven deployment (expected sequence)
 
 1. For the healthy build, wait for `ImagePulled`, `ContainerStarted`,
   `HealthCheckPassed`, and `Succeeded` timeline entries. Verify the new container

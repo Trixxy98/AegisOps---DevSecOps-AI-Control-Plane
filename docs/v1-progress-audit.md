@@ -141,7 +141,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | --- | --- | --- | --- |
 | P4-01 | Docker executor pulls the artifact by digest and supports GHCR credentials | Unverified | `DockerDeploymentExecutor` uses `DockerImageRef.ForPull` and `DOCKER_GHCR_USER`/`DOCKER_GHCR_TOKEN`; Compose is running, but no authenticated GHCR pull/deployment was tested. |
 | P4-02 | Executor replaces only owned containers and adds deployment labels | Verified | Ownership-label guards and labels are implemented; focused `DockerTargetOwnershipTests` passed as part of 28 API tests. |
-| P4-03 | Health-check failure removes the new container and restores the prior one | Unverified | Rollback/restore path exists in the executor; a forced Docker health-check failure and restoration were not exercised. |
+| P4-03 | Health-check failure removes the new container and restores the prior one | Verified | Staging deployment `01a17b5b-3049-73e5-b9ce-782c31d1a1ab` recorded `HealthCheckFailed` → `RolledBack` → `Failed`; the healthy artifact remained current and its service was live and healthy on November 5, 2026. The event schema does not retain container IDs, so historical ID equality is not independently provable. See `docs/staging-rollback-validation.md`. |
 | P4-04 | Environment target editor validates and saves configuration | Verified | UI editor and API/domain validation are implemented; frontend build passed. |
 | P4-05 | Environment runtime endpoint reports Docker target status | Missing | Authenticated Staging runtime check returned `inspectionAvailable:false`, `containers:null`, and “Docker runtime inspection is unavailable to the API.” |
 | P4-06 | Target Compose definitions provide the expected target services and ports | Verified | `deploy/docker-compose.targets.yml` defines staging and production containers for all three GHCR image names and their ports. |
@@ -152,7 +152,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P4-11 | Admin can list dead-letter jobs and retry eligible jobs | Verified | Admin jobs endpoints expose list/status and retry; API project compiles and tests pass. |
 | P4-12 | Queue-depth metric is emitted | Missing | No queue-depth metric implementation was found under `src/`. |
 | P4-13 | Worker exits cleanly on shutdown cancellation | Verified | `DeploymentJobService` catches the stopping-token cancellation and returns. |
-| P4-14 | Docker-backed Staging deployment serves the new version and rolls back on forced health failure | Unverified | Compose and PostgreSQL are available, but no published-image Staging deployment or forced health-failure rollback was exercised. |
+| P4-14 | Docker-backed Staging deployment serves the new version and rolls back on forced health failure | Verified | Published healthy image run `40439154412` deployed successfully and returned healthy `/health`; distinct forced-failure image run `40442951347` passed CI/scans, received `Allow`, then recorded the 60-second health failure and automatic rollback. Production stayed on its existing noop target/artifact. See `docs/staging-rollback-validation.md`. |
 | P4-15 | Optional `RunSecurityScan` scanner-container job is implemented | Missing (optional) | No `Worker:RunScans`/`RunSecurityScan` implementation was found; optional, so excluded from mandatory completion scoring unless scope is reaffirmed. |
 
 ### Phase 4 verification evidence
@@ -160,7 +160,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 - `DockerTargetOwnershipTests` and `DeploymentAuthorizationTests`: 28 passed, 0 failed.
 - `DeploymentStateTests`: 10 passed, 0 failed.
 - `python3 tests/staging-docker-contract.py` and `python3 tests/report-storage-contract.py` both passed, checking worker-only Docker socket access and shared report-volume wiring.
-- Compose is running and the Development noop queue path passed. The Staging runtime endpoint currently cannot inspect Docker from the API; image pull, real container start/health/rollback, and Docker-backed Staging remain unverified.
+- Compose is running and the Development noop queue path passed. A published-image Staging deploy and forced health-failure rollback were verified against the Docker target. The Staging runtime endpoint still cannot inspect Docker from the API, and GHCR credential-authenticated pulling remains unverified.
 
 ## Phase 5 — Real-time (weight: 1 / 15.5 weeks)
 
@@ -262,14 +262,14 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 1 | 3 | 11 / 24 | 8.87 percentage points |
 | 2 | 1.5 | 9 / 15 | 5.81 percentage points |
 | 3 | 2 | 5 / 13 | 4.96 percentage points |
-| 4 | 2 | 7 / 14 | 6.45 percentage points |
+| 4 | 2 | 9 / 14 | 8.29 percentage points |
 | 5 | 1 | 5 / 13 | 2.48 percentage points |
 | 6 | 2 | 8 / 13 | 7.94 percentage points |
 | 7 | 1.5 | 0 / 8 | 0.00 percentage points |
 | 8 | 1.5 | 2 / 16 | 1.21 percentage points |
-| **Total** | **15.5** | **69 / 144** | **42.80% complete** |
+| **Total** | **15.5** | **71 / 144** | **44.64% complete** |
 
-**Estimated remaining: 57.20%** by the same weighted, evidence-based measure. Status totals are 69 Verified, 38 Unverified, 37 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path is now verified; complete seeded Journeys A/D and Docker-backed Staging remain unverified.
+**Estimated remaining: 55.36%** by the same weighted, evidence-based measure. Status totals are 71 Verified, 36 Unverified, 37 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path and Docker-backed Staging rollback are verified; complete seeded Journeys A/D remain unverified.
 
 ### Highest-impact next steps
 
@@ -277,4 +277,4 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 2. Implement Phase 7 observability and service-specific readiness; it currently has 0/8 verified checks.
 3. Close Phase 8 gaps: CSP/audit coverage, retention/cleanup, AI demo assets, and a repeatable release path.
 
-The roadmap/audit rebaseline and IAuditWriter implementation are not committed. Review the documentation and test output together before committing this combined change.
+The roadmap/audit rebaseline and `IAuditWriter` implementation are already committed. This Staging execution record and audit update are uncommitted; review the evidence and `git diff --check` before committing these documentation changes.
