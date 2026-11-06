@@ -40,7 +40,7 @@ Status meanings:
 | P0-24 | `.env.example` exists | Verified | Tracked. |
 | P0-25 | Dependabot configuration exists | Missing | No tracked `.github/dependabot.yml` or `.yaml` found. |
 | P0-26 | Compose serves UI at `:3000` | Verified | `http://127.0.0.1:3000` returned HTTP 200 and rendered the AegisOps sign-in page. |
-| P0-27 | API `/health/ready` is healthy in Compose | Verified | `http://127.0.0.1:8080/health/ready` returned HTTP 200. This is currently a bare process check, not a PostgreSQL/Redis dependency check (see P7-05). |
+| P0-27 | API `/health/ready` is healthy in Compose | Verified | `http://127.0.0.1:8080/health/ready` returned HTTP 200 before Phase 7; after adding dependency probes it returned HTTP 200 Degraded with PostgreSQL/Redis Healthy and Ollama Degraded (see P7-05). |
 | P0-28 | CI is green on `main` | Unverified | No successful main-branch CI run evidence collected. |
 
 ### Verification evidence
@@ -218,14 +218,14 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P7-02 | API and Worker expose Prometheus `/metrics` endpoints | Missing | No `/metrics` route or Prometheus exporter is implemented. |
 | P7-03 | `ActivitySource` traces use cases, policy, scans, Ollama, and Docker execution | Missing | No `ActivitySource`, `ActivityLink`, or OpenTelemetry setup was found in `src/`. |
 | P7-04 | Prometheus profile, scrape config, Grafana dashboards, and alert rules are provisioned | Missing | No tracked Prometheus/Grafana provisioning or dashboard/rule files exist. |
-| P7-05 | Readiness reports PostgreSQL/Redis/migration health and degraded Ollama/Docker states | Missing | `/health/live` and `/health/ready` are mapped, but API/Worker register only bare `AddHealthChecks()` with no service checks. |
+| P7-05 | Readiness reports PostgreSQL/Redis/migration health and degraded Ollama/Docker states | Verified | Rebuilt API/Worker images and started PostgreSQL/Redis/API/Worker in Compose. API `/health/live` returned 200 and `/health/ready` returned 200 Degraded: PostgreSQL/Redis Healthy, Ollama Degraded. Worker `/health/live` returned 200 and `/health/ready` returned 200 Healthy: PostgreSQL/Redis/Docker/worker poll all Healthy. Local failure runs returned 503 readiness with 200 liveness; Ollama timeout remained Degraded. Six focused tests and the full 163-test .NET suite passed. |
 | P7-06 | UI displays degraded Ollama/Docker readiness | Missing | No health-status integration or Ollama/Docker readiness banner was found; generic API error banners are not a health indicator. |
 | P7-07 | Serilog structured JSON logging, enrichers, request logging, and PII policy are configured | Missing | Application code uses `ILogger`; no Serilog package/configuration/request middleware or structured logging policy was found in the implementation. |
-| P7-08 | Three provisioned dashboards show live data during a demo | Unverified | No dashboards are provisioned and runtime services are unavailable. |
+| P7-08 | Three provisioned dashboards show live data during a demo | Missing | API and Worker run in Compose, but no Grafana dashboards or provisioning are tracked, so a dashboard demo cannot be exercised. |
 
 ### Phase 7 verification caveat
 
-`docs/15-observability.md` describes a detailed target design, but the corresponding runtime instrumentation/provisioning was not found in tracked source. Documentation alone does not earn implementation credit under the roadmap’s measurement rule.
+`docs/15-observability.md` describes the target design. Readiness is verified in Compose; metrics, tracing, dashboards, and structured logging still lack verified implementation. Documentation alone does not earn implementation credit under the roadmap’s measurement rule.
 
 ## Phase 8 — Hardening, documentation, demo (weight: 1.5 / 15.5 weeks)
 
@@ -265,16 +265,16 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 4 | 2 | 9 / 14 | 8.29 percentage points |
 | 5 | 1 | 5 / 13 | 2.48 percentage points |
 | 6 | 2 | 8 / 13 | 7.94 percentage points |
-| 7 | 1.5 | 0 / 8 | 0.00 percentage points |
+| 7 | 1.5 | 1 / 8 | 1.21 percentage points |
 | 8 | 1.5 | 2 / 16 | 1.21 percentage points |
-| **Total** | **15.5** | **71 / 144** | **44.64% complete** |
+| **Total** | **15.5** | **72 / 144** | **45.85% complete** |
 
-**Estimated remaining: 55.36%** by the same weighted, evidence-based measure. Status totals are 71 Verified, 36 Unverified, 37 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path and Docker-backed Staging rollback are verified; complete seeded Journeys A/D remain unverified.
+**Estimated remaining: 54.15%** by the same weighted, evidence-based measure. Status totals are 72 Verified, 35 Unverified, 37 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, and API/Worker readiness checks are verified; complete seeded Journeys A/D remain unverified.
 
 ### Highest-impact next steps
 
 1. Add the local AegisOps login to Hermes Vault (`hermes vault add` or Desktop → Settings → Passwords & Logins), then run the authenticated smoke and Journeys A/D without sharing the password in chat.
-2. Implement Phase 7 observability and service-specific readiness; it currently has 0/8 verified checks.
+2. Implement the remaining Phase 7 observability: metrics, tracing, dashboards, structured logging, and a UI degraded-status banner; readiness is the first of eight verified checks.
 3. Close Phase 8 gaps: CSP/audit coverage, retention/cleanup, AI demo assets, and a repeatable release path.
 
-The roadmap/audit rebaseline and `IAuditWriter` implementation are already committed. This Staging execution record and audit update are uncommitted; review the evidence and `git diff --check` before committing these documentation changes.
+The Staging rollback record is committed. Phase 7 readiness implementation and this audit update are uncommitted; Compose verification and the focused/full .NET tests passed. Review the final diff before committing the readiness increment.

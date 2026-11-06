@@ -1,4 +1,5 @@
 using AegisOps.Application.Audit;
+using AegisOps.Infrastructure.Health;
 using AegisOps.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -10,10 +11,12 @@ public sealed class DeploymentJobService : BackgroundService {
     private readonly IServiceScopeFactory _scopes;
     private readonly TimeProvider _time;
     private readonly IConnectionMultiplexer? _redis;
+    private readonly WorkerPollHeartbeat _heartbeat;
 
-    public DeploymentJobService(IServiceScopeFactory scopes, TimeProvider time, IConnectionMultiplexer? redis = null) {
+    public DeploymentJobService(IServiceScopeFactory scopes, TimeProvider time, WorkerPollHeartbeat heartbeat, IConnectionMultiplexer? redis = null) {
         _scopes = scopes;
         _time = time;
+        _heartbeat = heartbeat;
         _redis = redis;
     }
 
@@ -30,6 +33,7 @@ public sealed class DeploymentJobService : BackgroundService {
                     _time,
                     Environment.MachineName,
                     stoppingToken, _redis);
+                _heartbeat.MarkSuccessfulPoll();
                 if (!worked) {
                     await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
                 }

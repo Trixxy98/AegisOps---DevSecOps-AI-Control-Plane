@@ -2,10 +2,17 @@ using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Audit;
 using AegisOps.Infrastructure.Deploy;
 using AegisOps.Infrastructure.Identity;
+using AegisOps.Infrastructure.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddHealthChecks();
+builder.Services.AddDependencyReadiness()
+    .AddCheck<DockerReadinessCheck>("docker", failureStatus: HealthStatus.Degraded,
+        tags: ["ready"], timeout: TimeSpan.FromSeconds(3))
+    .AddCheck<WorkerPollReadinessCheck>("worker_poll", tags: ["ready"]);
+builder.Services.AddSingleton<WorkerPollHeartbeat>();
 builder.Services.AddIdentityStore(builder.Configuration);
 builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
 var redis = builder.Configuration.GetConnectionString("Redis");
@@ -18,7 +25,10 @@ builder.Services.AddHostedService<DeploymentJobService>();
 
 var app = builder.Build();
 
-app.MapHealthChecks("/health/live");
-app.MapHealthChecks("/health/ready");
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/ready", new HealthCheckOptions {
+    Predicate = check => check.Tags.Contains("ready"),
+    ResponseWriter = ReadinessResponse.WriteAsync,
+});
 
 app.Run();

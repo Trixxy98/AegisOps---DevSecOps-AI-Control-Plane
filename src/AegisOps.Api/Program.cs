@@ -13,13 +13,19 @@ using AegisOps.Domain.Ai;
 using AegisOps.Infrastructure.Deploy;
 using AegisOps.Infrastructure.Redis;
 using AegisOps.Infrastructure.Persistence;
+using AegisOps.Infrastructure.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 
 
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddHealthChecks();
+builder.Services.AddDependencyReadiness()
+    .AddCheck<OllamaReadinessCheck>("ollama", failureStatus: HealthStatus.Degraded,
+        tags: ["ready"], timeout: TimeSpan.FromSeconds(3));
+builder.Services.AddHttpClient<OllamaReadinessCheck>(client => client.Timeout = TimeSpan.FromSeconds(3));
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddIdentityStore(builder.Configuration);
 builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
@@ -59,8 +65,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 
-app.MapHealthChecks("/health/live");
-app.MapHealthChecks("/health/ready");
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/ready", new HealthCheckOptions {
+    Predicate = check => check.Tags.Contains("ready"),
+    ResponseWriter = ReadinessResponse.WriteAsync,
+});
 app.MapHub<OpsHub>("/hubs/ops", options => options.CloseOnAuthenticationExpiration = true);
 app.MapPost("/api/v1/auth/login", Login.Handle).RequireRateLimiting(AuthRateLimitingExtensions.PolicyName);
 app.MapPost("/api/v1/auth/refresh", Refresh.Handle).RequireRateLimiting(AuthRateLimitingExtensions.PolicyName);
