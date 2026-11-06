@@ -58,11 +58,11 @@ The roadmap has been rebaselined to the three test projects already in `AegisOps
 | ID | Acceptance check | Status | Evidence / gap |
 | --- | --- | --- | --- |
 | P1-01 | ASP.NET Identity and JWT authentication are registered | Verified | `Program.cs` and `JwtAuthenticationExtensions.cs`; solution test/build evidence passes. |
-| P1-02 | Login endpoint issues an access token | Unverified | Endpoint is mapped and implementation exists; no dedicated login integration test was found. |
-| P1-03 | Refresh tokens rotate and can be revoked | Unverified | `Refresh.cs`/`Logout.cs` implement rotation/revocation; no dedicated identity-flow test evidence found. |
+| P1-02 | Login endpoint issues an access token | Verified | `IdentityFlowTests` drives the real `Login` handler and JWT bearer validation over TestServer/SQLite: valid credentials return a usable access token, a hashed refresh token, an HttpOnly/Secure/SameSite=Strict cookie, and an `auth.login` audit event; wrong password, unknown user, inactive user, and blank input are rejected without tokens; forged/expired JWTs return 401. Full suite passed. |
+| P1-03 | Refresh tokens rotate and can be revoked | Verified | `IdentityFlowTests` verifies rotation (old token revoked and linked to successor in the same family), reuse detection revoking the whole family, rejection of missing/unknown/expired tokens and deactivated users, logout revoking the family with an `auth.logout` audit event, and refusal to revoke another user's token. Full suite passed. |
 | P1-04 | Roles and development demo users are seeded | Unverified | Seed implementation exists; seeded runtime state was not exercised against PostgreSQL. |
 | P1-05 | Permission matrix is tested across roles and actions | Unverified | Deployment authorization tests cover important access paths, but no complete permission × role matrix test was found. |
-| P1-06 | API-key domain model and authentication handler exist | Unverified | `ApiKey` and `ApiKeyAuthenticationHandler` exist; a real credential authentication test was not found. |
+| P1-06 | API-key domain model and authentication handler exist | Verified | `IdentityFlowTests` authenticates a real `aok_` key through the Smart scheme → `ApiKeyAuthenticationHandler`, asserting the `apiKey:{id}` principal and `LastUsedAt`; wrong secret, malformed, unknown-prefix, revoked, and expired keys return 401 without marking use. Scope claims are not asserted because the SQLite test model ignores the PostgreSQL scopes array. Full suite passed. |
 | P1-07 | Team/member APIs and membership scoping work | Unverified | Routes and implementation exist; deployment authorization tests cover some membership scoping, not the full organization API flow. |
 | P1-08 | Project creation provisions Dev/Staging/Production environments | Unverified | `CreateProject` provisions the three environments; no executed API/database test was found. |
 | P1-09 | Repository configuration and noop environment targets work | Unverified | Models and endpoints exist; no complete flow test/runtime verification found. |
@@ -259,7 +259,7 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | Phase | Weight (weeks) | Verified / eligible checks | Weighted contribution |
 | --- | ---: | ---: | ---: |
 | 0 | 1 | 22 / 28 | 5.07 percentage points |
-| 1 | 3 | 11 / 24 | 8.87 percentage points |
+| 1 | 3 | 14 / 24 | 11.29 percentage points |
 | 2 | 1.5 | 9 / 15 | 5.81 percentage points |
 | 3 | 2 | 5 / 13 | 4.96 percentage points |
 | 4 | 2 | 9 / 14 | 8.29 percentage points |
@@ -267,9 +267,9 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 6 | 2 | 8 / 13 | 7.94 percentage points |
 | 7 | 1.5 | 2 / 8 | 2.42 percentage points |
 | 8 | 1.5 | 3 / 16 | 1.81 percentage points |
-| **Total** | **15.5** | **74 / 144** | **47.66% complete** |
+| **Total** | **15.5** | **77 / 144** | **50.08% complete** |
 
-**Estimated remaining: 52.34%** by the same weighted, evidence-based measure. Status totals are 74 Verified, 35 Unverified, 35 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, and SPA security headers are verified; complete seeded Journeys A/D remain unverified.
+**Estimated remaining: 49.92%** by the same weighted, evidence-based measure. Status totals are 77 Verified, 32 Unverified, 35 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, and SPA security headers are verified; complete seeded Journeys A/D remain unverified.
 
 ### Highest-impact next steps
 
@@ -278,3 +278,5 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 3. Close remaining Phase 8 gaps: audit coverage, retention/cleanup, AI demo assets, and a repeatable release path.
 
 The Staging rollback, Phase 7 readiness, and signed-in degraded-status UI/API increments are committed. The SPA security-header increment and this audit update are uncommitted; the live CSP smoke test, nginx syntax check, authenticated browser navigation, and 6 Playwright tests passed. Review the diff before committing this increment.
+
+2026-11-06 update: P1-02, P1-03, and P1-06 moved to Verified via `tests/AegisOps.Api.Tests/IdentityFlowTests.cs` (12 tests). Full solution run: 175 passed, 0 failed, 1 skipped. Overall estimate 47.66% → 50.08% (+2.42 percentage points).
