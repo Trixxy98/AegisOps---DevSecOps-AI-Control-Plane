@@ -25,6 +25,19 @@ Api / Worker ──► OpenTelemetry SDK ──► /metrics (Prometheus expositi
 Instrumentation: `OpenTelemetry.Instrumentation.AspNetCore`, `.Http`, `.Runtime`,
 `Npgsql` (built-in tracing/metrics), custom `Meter("AegisOps")`.
 
+First metrics slice: the Worker exports `/metrics` on its internal port and records
+`aegisops_jobs_processed_total` and `aegisops_jobs_duration_seconds` after each
+committed job attempt. `status` reflects the persisted state (`Succeeded`, `Pending`
+for a retry, or `DeadLettered`); cancelled attempts that lose their lease are not
+counted as processed. A separate `aegisops_jobs_lease_expired_total` counter records
+stale-lease recovery after commit, including interrupted executions that become
+`DeadLettered`. Duration buckets are configured in seconds. The Prometheus ASP.NET
+Core exporter is pinned at `1.20.1-beta.1` alongside OpenTelemetry `1.20.1` because
+its package is prerelease; revisit the exporter before production use.
+In the default Compose stack the Worker port is not published to the host, but any
+network peer can scrape it. API metrics, the remaining instruments, Prometheus,
+Grafana, and alerting below are still design targets, not implemented features.
+
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
 | `aegisops_deployments_total` | counter | `project`, `environment_tier`, `status` (terminal) | Deployment outcomes |
@@ -39,8 +52,9 @@ Instrumentation: `OpenTelemetry.Instrumentation.AspNetCore`, `.Http`, `.Runtime`
 | `aegisops_ai_request_latency_seconds` | histogram | `model` | Ollama round-trip |
 | `aegisops_ai_tokens_total` | counter | `model`, `kind` (`prompt`/`completion`) | Usage |
 | `aegisops_ai_sensitive_detections_total` | counter | `type`, `action` | Governance value in numbers |
-| `aegisops_jobs_processed_total` | counter | `type`, `status` | Worker throughput |
-| `aegisops_jobs_duration_seconds` | histogram | `type` | Handler time |
+| `aegisops_jobs_processed_total` | counter | `type`, `status` | Worker throughput; committed job attempts |
+| `aegisops_jobs_lease_expired_total` | counter | `type`, `status` | Stale lease recoveries, including dead letters |
+| `aegisops_jobs_duration_seconds` | histogram | `type` | Job attempt time, including completion commit |
 | `aegisops_jobs_queue_depth` | gauge | `status` (`Pending`, `Running`, `DeadLettered`) | Backlog (polled every 15 s) |
 | `aegisops_realtime_connections` | gauge | — | SignalR connected clients |
 | `aegisops_audit_events_total` | counter | `outcome` | Incl. `Denied` attempts |
@@ -90,7 +104,7 @@ Prometheus rules in `deploy/prometheus/rules.yml` (Grafana Unified Alerting disp
 
 | Alert | Condition |
 | --- | --- |
-| `JobsDeadLettered` | `increase(aegisops_jobs_processed_total{status="DeadLettered"}[15m]) > 0` |
+| `JobsDeadLettered` | `(sum(increase(aegisops_jobs_processed_total{status="DeadLettered"}[15m])) or vector(0)) + (sum(increase(aegisops_jobs_lease_expired_total{status="DeadLettered"}[15m])) or vector(0)) > 0` |
 | `WorkerStalled` | `aegisops_jobs_queue_depth{status="Pending"} > 0` for 10 m and no processed jobs |
 | `HighApiErrorRate` | 5xx ratio > 5% over 5 m |
 | `AiBlockedSpike` | blocked AI requests > 20 in 5 m |

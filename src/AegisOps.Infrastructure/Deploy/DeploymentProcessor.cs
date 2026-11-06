@@ -1,5 +1,6 @@
-using AegisOps.Application.Audit;
+using System.Diagnostics;
 using System.Text.Json;
+using AegisOps.Application.Audit;
 using AegisOps.Application.PolicyEngine;
 using AegisOps.Domain.Audit;
 using AegisOps.Domain.Deploy;
@@ -7,6 +8,7 @@ using AegisOps.Domain.Jobs;
 using AegisOps.Domain.Policy;
 using AegisOps.Infrastructure.Docker;
 using AegisOps.Infrastructure.Persistence;
+using AegisOps.Infrastructure.Observability;
 using AegisOps.Infrastructure.Scanning;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,6 +30,7 @@ public static class DeploymentProcessor {
         var job = await TryClaimOneAsync(db, time, workerId, cancellationToken);
         if (job is null) return false;
 
+        var started = Stopwatch.GetTimestamp();
         var token = job.LeaseToken!.Value;
         using var lost = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var heartbeat = RenewAsync(scopes, job.Id, token, time, lost);
@@ -51,6 +54,7 @@ public static class DeploymentProcessor {
             var pending = db.ChangeTracker.Entries<DeploymentEvent>()
                 .Where(entry => entry.State == EntityState.Added).ToArray();
             await FinishAsync(db, job, token, time, null, lost.Token);
+            JobMetrics.Record(job.Type, job.Status, Stopwatch.GetElapsedTime(started).TotalSeconds);
             foreach (var id in pending.Where(entry => entry.State == EntityState.Unchanged)
                          .Select(entry => entry.Entity.DeploymentId).Distinct())
                 await DeploymentUpdates.PublishAsync(redis, id);
@@ -61,6 +65,7 @@ public static class DeploymentProcessor {
             // HTTP/DNS exceptions may contain the URL (including query tokens). Never persist
             // them in jobs.last_error or expose them through the admin jobs API.
             await FinishAsync(db, job, token, time, job.Type == JobType.SendNotification ? "Webhook delivery failed." : exception.Message, lost.Token);
+            JobMetrics.Record(job.Type, job.Status, Stopwatch.GetElapsedTime(started).TotalSeconds);
             return true;
         } finally {
             lost.Cancel();
@@ -70,6 +75,7 @@ public static class DeploymentProcessor {
 
     public static async Task<Job?> TryClaimOneAsync(AegisOpsDbContext db, TimeProvider time, string workerId, CancellationToken cancellationToken) {
         Job? job = null;
+        var staleTransitions = new List<(JobType Type, JobStatus Status)>();
         await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken)) {
             // Serialize the short claim decision across all API and worker instances. Never hold
             // this transaction while performing external work.
@@ -99,6 +105,7 @@ public static class DeploymentProcessor {
 
             if (stale.Count > 0) {
                 await db.SaveChangesAsync(cancellationToken);
+                staleTransitions.AddRange(stale.Select(item => (item.Type, item.Status)));
             }
 
             var candidates = await db.Jobs
@@ -142,17 +149,15 @@ public static class DeploymentProcessor {
                 }
             }
 
-            if (job is null) {
-                await transaction.CommitAsync(cancellationToken);
-                return null;
+            if (job is not null) {
+                job.MarkRunning(now, workerId);
+                if (job.Type == JobType.SendNotification)
+                    db.WebhookDeliveryAttempts.Add(WebhookDeliveryAttempt.Start(job.Id, job.Attempts, now));
+                await db.SaveChangesAsync(cancellationToken);
             }
-
-            job.MarkRunning(now, workerId);
-            if (job.Type == JobType.SendNotification)
-                db.WebhookDeliveryAttempts.Add(WebhookDeliveryAttempt.Start(job.Id, job.Attempts, now));
-            await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
+        foreach (var (type, status) in staleTransitions) JobMetrics.RecordLeaseExpired(type, status);
         return job;
     }
 

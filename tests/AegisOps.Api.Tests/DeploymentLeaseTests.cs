@@ -1,4 +1,7 @@
 using System.Text.Json;
+using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
+using AegisOps.Infrastructure.Observability;
 using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Jobs;
 using AegisOps.Domain.Organization;
@@ -12,6 +15,7 @@ namespace AegisOps.Api.Tests;
 
 // Set AEGISOPS_TEST_POSTGRES to an administrative PostgreSQL connection string to
 // run against an isolated, disposable database. No Docker daemon is required.
+[Collection("WorkerMetrics")]
 public sealed class DeploymentLeaseTests {
     [Fact]
     public async Task Parallel_claims_renewal_stale_recovery_and_target_serialization() {
@@ -91,8 +95,28 @@ public sealed class DeploymentLeaseTests {
                 db.Jobs.Add(scan);
                 await db.SaveChangesAsync(ct);
             }
+            var expired = new ConcurrentQueue<(string Type, string Status)>();
+            using var listener = new MeterListener {
+                InstrumentPublished = (instrument, current) => {
+                    if (instrument.Meter.Name == JobMetrics.MeterName && instrument.Name == "aegisops_jobs_lease_expired_total")
+                        current.EnableMeasurementEvents(instrument);
+                },
+            };
+            listener.SetMeasurementEventCallback<long>((_, _, tags, _) => {
+                string? type = null;
+                string? status = null;
+                foreach (var tag in tags) {
+                    if (tag.Key == "type") type = tag.Value as string;
+                    if (tag.Key == "status") status = tag.Value as string;
+                }
+                expired.Enqueue((type!, status!));
+            });
+            listener.Start();
             var recovered = await Claim("replacement");
             Assert.Null(recovered);
+            Assert.Equal(2, expired.Count(item => item == ("ExecuteDeployment", "DeadLettered")));
+            Assert.Equal(1, expired.Count(item => item == ("ParseScanReport", "Pending")));
+            Assert.Equal(3, expired.Count);
             await using (var db = Open()) {
                 Assert.Equal(2, await db.Jobs.CountAsync(j => j.Status == JobStatus.DeadLettered, ct));
                 Assert.False(await DeploymentProcessor.RenewLeaseAsync(db, first.Id, first.LeaseToken!.Value,
