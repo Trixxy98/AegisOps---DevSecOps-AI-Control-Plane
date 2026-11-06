@@ -277,7 +277,7 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 2. Implement the remaining Phase 7 observability: metrics, tracing, dashboards, and structured logging; readiness and the UI degraded-status banner are verified (2/8 checks).
 3. Close remaining Phase 8 gaps: audit coverage, retention/cleanup, AI demo assets, and a repeatable release path.
 
-The Staging rollback, Phase 7 readiness, and signed-in degraded-status UI/API increments are committed. The SPA security-header increment and this audit update are uncommitted; the live CSP smoke test, nginx syntax check, authenticated browser navigation, and 6 Playwright tests passed. Review the diff before committing this increment.
+The Staging rollback, Phase 7 readiness, signed-in degraded-status UI/API, and SPA security-header increments are committed. Live CSP smoke, nginx syntax, authenticated browser navigation, and 6 Playwright tests were verified for the security-header increment; use current Git status before relying on historical worktree notes.
 
 2026-11-06 update: P1-02, P1-03, and P1-06 moved to Verified via `tests/AegisOps.Api.Tests/IdentityFlowTests.cs` (12 tests). Full solution run: 175 passed, 0 failed, 1 skipped. Overall estimate 47.66% → 50.08% (+2.42 percentage points).
 
