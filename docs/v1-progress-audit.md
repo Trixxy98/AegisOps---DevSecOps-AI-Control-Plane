@@ -64,11 +64,11 @@ The roadmap has been rebaselined to the three test projects already in `AegisOps
 | P1-05 | Permission matrix is tested across roles and actions | Unverified | Deployment authorization tests cover important access paths, but no complete permission × role matrix test was found. |
 | P1-06 | API-key domain model and authentication handler exist | Verified | `IdentityFlowTests` authenticates a real `aok_` key through the Smart scheme → `ApiKeyAuthenticationHandler`, asserting the `apiKey:{id}` principal and `LastUsedAt`; wrong secret, malformed, unknown-prefix, revoked, and expired keys return 401 without marking use. Scope claims are not asserted because the SQLite test model ignores the PostgreSQL scopes array. Full suite passed. |
 | P1-07 | Team/member APIs and membership scoping work | Unverified | Routes and implementation exist; deployment authorization tests cover some membership scoping, not the full organization API flow. |
-| P1-08 | Project creation provisions Dev/Staging/Production environments | Unverified | `CreateProject` provisions the three environments; no executed API/database test was found. |
-| P1-09 | Repository configuration and noop environment targets work | Unverified | Models and endpoints exist; no complete flow test/runtime verification found. |
+| P1-08 | Project creation provisions Dev/Staging/Production environments | Verified | `ProjectAndPolicyEndpointTests` creates a project through the real handler with JWT + `projects:write` authorization: 201 with normalized slug, exactly three persisted noop environments ordered Development/Staging/Production (0/1/2), a `project.created` audit event, and identical read-back via `GetProject`. Duplicate slug (409), unknown team (404), invalid input (400), Developer (403), and anonymous (401) create nothing. Full suite passed. |
+| P1-09 | Repository configuration and noop environment targets work | Verified | `ProjectAndPolicyEndpointTests` creates then replaces the GitHub repository in place (same ID, two `repository.upserted` audits, visible via `GetProject`), rejects non-GitHub providers and unknown projects, sets the Production target to noop with API-key production access, and rejects unknown target types, empty patches, cross-project environment IDs (404), and Developer access (403). Docker targets remain covered by Phase 4 checks. Full suite passed. |
 | P1-10 | Artifact registration via UI/API, lists/details, and test summary work | Unverified | API/UI implementation exists and `ArtifactReplayTests` cover identity matching; no end-to-end artifact registration flow evidence found. |
 | P1-11 | Policy entities and the six Phase 1 rule behaviors are implemented and tested | Verified | `PolicyEngineTests` covers tests, approvals, branch, prior environment, digest, and deployment window; full suite passed. |
-| P1-12 | Rule-type catalogue and policy simulation endpoints work | Unverified | Routes and handlers exist; no endpoint-level verification was found. |
+| P1-12 | Rule-type catalogue and policy simulation endpoints work | Verified | `ProjectAndPolicyEndpointTests` checks the catalogue lists exactly the `PolicyRuleType` values with valid effects and object parameters (401 anonymous). Simulation over HTTP returns Deny (failing tests/branch), RequireApproval (project-scoped two-approval rule), and Allow (tier/scope filtering excludes Production-only and other-project policies), returns 404 for unknown or cross-project inputs, and persists no deployments or audit events. The SQLite fixture persists policy tiers rather than ignoring them. Full suite passed. |
 | P1-13 | Deployment state transitions, approval quorum, and cancellation are tested | Verified | `DeploymentStateTests` exercises transitions; `DeploymentAuthorizationTests` covers approval/cancellation authorization; full suite passed. |
 | P1-14 | Request → durable PostgreSQL job → separate Worker `DeploymentJobService`/`DeploymentProcessor` → evaluate → noop execute → succeeded | Verified | With Compose running, an authenticated UI request for `circuit-service` artifact `v0.0.0-main.52181e3` to Development completed Succeeded. The timeline showed Allow, `Noop executor started`, and simulated success; the audit log recorded `deployment.requested`, `deployment.evaluated`, and `deployment.succeeded`. PostgreSQL lease/recovery tests also passed. |
 | P1-15 | Separation of duties is enforced for approvals | Verified | `DeploymentAuthorizationTests` covers requester/non-requester and role restrictions; full suite passed. |
@@ -259,7 +259,7 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | Phase | Weight (weeks) | Verified / eligible checks | Weighted contribution |
 | --- | ---: | ---: | ---: |
 | 0 | 1 | 22 / 28 | 5.07 percentage points |
-| 1 | 3 | 14 / 24 | 11.29 percentage points |
+| 1 | 3 | 17 / 24 | 13.71 percentage points |
 | 2 | 1.5 | 9 / 15 | 5.81 percentage points |
 | 3 | 2 | 5 / 13 | 4.96 percentage points |
 | 4 | 2 | 9 / 14 | 8.29 percentage points |
@@ -267,9 +267,9 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 6 | 2 | 8 / 13 | 7.94 percentage points |
 | 7 | 1.5 | 2 / 8 | 2.42 percentage points |
 | 8 | 1.5 | 3 / 16 | 1.81 percentage points |
-| **Total** | **15.5** | **77 / 144** | **50.08% complete** |
+| **Total** | **15.5** | **80 / 144** | **52.50% complete** |
 
-**Estimated remaining: 49.92%** by the same weighted, evidence-based measure. Status totals are 77 Verified, 32 Unverified, 35 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, and SPA security headers are verified; complete seeded Journeys A/D remain unverified.
+**Estimated remaining: 47.50%** by the same weighted, evidence-based measure. Status totals are 80 Verified, 29 Unverified, 35 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, and SPA security headers are verified; complete seeded Journeys A/D remain unverified.
 
 ### Highest-impact next steps
 
@@ -280,3 +280,5 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 The Staging rollback, Phase 7 readiness, and signed-in degraded-status UI/API increments are committed. The SPA security-header increment and this audit update are uncommitted; the live CSP smoke test, nginx syntax check, authenticated browser navigation, and 6 Playwright tests passed. Review the diff before committing this increment.
 
 2026-11-06 update: P1-02, P1-03, and P1-06 moved to Verified via `tests/AegisOps.Api.Tests/IdentityFlowTests.cs` (12 tests). Full solution run: 175 passed, 0 failed, 1 skipped. Overall estimate 47.66% → 50.08% (+2.42 percentage points).
+
+2026-11-06 update 2: P1-08, P1-09, and P1-12 moved to Verified via `tests/AegisOps.Api.Tests/ProjectAndPolicyEndpointTests.cs` (6 tests). Full solution run: 181 passed, 0 failed, 1 skipped. Overall estimate 50.08% → 52.50% (+2.42 percentage points).
