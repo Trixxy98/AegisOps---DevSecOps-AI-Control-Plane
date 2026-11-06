@@ -234,7 +234,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P8-01 | Security hardening checklist is verified by successful scans/review | Unverified | CI defines Gitleaks, Semgrep, and Trivy, but no successful hosted scan result or complete checklist sign-off was collected. |
 | P8-02 | Complete authorization matrix test suite covers every permission × role | Missing | Targeted deployment authorization tests cover important paths, but no exhaustive permission-by-role matrix test exists. |
 | P8-03 | Rate limits are tuned and demonstrated under load | Unverified | Auth has a 10/minute IP fixed window; AI has Redis minute/day windows and passing tests. No load/tuning evidence exists. |
-| P8-04 | SPA security headers include the planned CSP | Missing | No CSP or equivalent response-header middleware/configuration was found. |
+| P8-04 | SPA security headers include the planned CSP | Verified | nginx sends a CSP with same-origin scripts/styles, same-host SignalR WebSocket connections, and no inline/eval scripts; it also sends `nosniff`, `DENY`, and `no-referrer`. The live Compose smoke test passed against port 3000, `nginx -t` passed, a saved-vault sign-in and project navigation worked without observed CSP violations, and all 6 Playwright tests passed. |
 | P8-05 | Audit coverage test verifies all security-sensitive actions | Missing | Audit writes exist on some paths, but no audit-coverage test exists; this was also a Phase 1 acceptance check. |
 | P8-06 | AI content retention job deletes stored prompts/responses after configured retention | Missing | Settings/docs describe content retention, but no retention worker/job implementation was found. |
 | P8-07 | Scan report cleanup removes expired reports | Missing | Report storage exists; no scheduled cleanup/purge implementation was found. |
@@ -250,7 +250,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 
 ### Phase 8 verification caveat
 
-The security scanning workflow and README setup path exist, but the release/demo acceptance criterion is not demonstrated. Security headers, audit-coverage tests, retention/cleanup, and release assets are concrete gaps rather than runtime-only unknowns.
+The security scanning workflow and README setup path exist, and the nginx SPA security headers are verified against the running Compose service. The release/demo acceptance criterion remains undemonstrated; audit-coverage tests, retention/cleanup, and release assets are concrete gaps rather than runtime-only unknowns.
 
 ## Overall weighted estimate
 
@@ -266,15 +266,15 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 5 | 1 | 5 / 13 | 2.48 percentage points |
 | 6 | 2 | 8 / 13 | 7.94 percentage points |
 | 7 | 1.5 | 2 / 8 | 2.42 percentage points |
-| 8 | 1.5 | 2 / 16 | 1.21 percentage points |
-| **Total** | **15.5** | **73 / 144** | **47.06% complete** |
+| 8 | 1.5 | 3 / 16 | 1.81 percentage points |
+| **Total** | **15.5** | **74 / 144** | **47.66% complete** |
 
-**Estimated remaining: 52.94%** by the same weighted, evidence-based measure. Status totals are 73 Verified, 35 Unverified, 36 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, and API/Worker readiness with signed-in UI warnings are verified; complete seeded Journeys A/D remain unverified.
+**Estimated remaining: 52.34%** by the same weighted, evidence-based measure. Status totals are 74 Verified, 35 Unverified, 35 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, and SPA security headers are verified; complete seeded Journeys A/D remain unverified.
 
 ### Highest-impact next steps
 
-1. Use the saved local AegisOps login to complete authenticated Journeys A/D and capture each audit step; do not share the password in chat.
+1. Complete Journey A once the expected `v1.8.2` artifact and CI scan evidence arrive (do not deploy an older artifact to Staging); verify Journey D's live denial during the Friday 18:00–Monday 08:00 MYT blackout and capture the audit trail.
 2. Implement the remaining Phase 7 observability: metrics, tracing, dashboards, and structured logging; readiness and the UI degraded-status banner are verified (2/8 checks).
-3. Close Phase 8 gaps: CSP/audit coverage, retention/cleanup, AI demo assets, and a repeatable release path.
+3. Close remaining Phase 8 gaps: audit coverage, retention/cleanup, AI demo assets, and a repeatable release path.
 
-The Staging rollback and Phase 7 readiness increments are committed. The signed-in degraded-status UI/API integration and this audit update are uncommitted; the web build, 6 Playwright tests, 164 .NET tests, Compose rebuild, and live authenticated Ollama banner verification passed. Review the final diff before committing this increment.
+The Staging rollback, Phase 7 readiness, and signed-in degraded-status UI/API increments are committed. The SPA security-header increment and this audit update are uncommitted; the live CSP smoke test, nginx syntax check, authenticated browser navigation, and 6 Playwright tests passed. Review the diff before committing this increment.
