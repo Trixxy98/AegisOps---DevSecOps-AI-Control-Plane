@@ -38,6 +38,20 @@ In the default Compose stack the Worker port is not published to the host, but a
 network peer can scrape it. API metrics, the remaining instruments, Prometheus,
 Grafana, and alerting below are still design targets, not implemented features.
 
+Worker queue-depth sampling polls PostgreSQL every 15 seconds. `Pending` counts
+jobs due now (`ScheduledAt <= now`); `Delayed` counts Pending jobs waiting for
+retry/back-off. `Running` and `DeadLettered` are separate series. All four
+statuses are emitted, including zeroes. A failed poll clears the snapshot until
+sampling succeeds again. One grouped query excludes historical `Succeeded` jobs
+before aggregation, so each sample is internally consistent and the
+`(status, scheduled_at)` index can be used.
+
+Each Worker samples the same shared jobs table: dashboard/alert queries must
+scope to one AegisOps deployment and use `max by (status) (aegisops_jobs_queue_depth)`
+across Worker replicas, never `sum` across them.
+Dead-lettered jobs accumulate until retention/cleanup is implemented; alert on
+new dead-letter events via the counters below, not on the absolute gauge value.
+
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
 | `aegisops_deployments_total` | counter | `project`, `environment_tier`, `status` (terminal) | Deployment outcomes |
@@ -55,7 +69,7 @@ Grafana, and alerting below are still design targets, not implemented features.
 | `aegisops_jobs_processed_total` | counter | `type`, `status` | Worker throughput; committed job attempts |
 | `aegisops_jobs_lease_expired_total` | counter | `type`, `status` | Stale lease recoveries, including dead letters |
 | `aegisops_jobs_duration_seconds` | histogram | `type` | Job attempt time, including completion commit |
-| `aegisops_jobs_queue_depth` | gauge | `status` (`Pending`, `Running`, `DeadLettered`) | Backlog (polled every 15 s) |
+| `aegisops_jobs_queue_depth` | gauge | `status` (`Pending` due, `Delayed`, `Running`, `DeadLettered`) | Worker queue snapshot (poll every 15 s); use max across replicas |
 | `aegisops_realtime_connections` | gauge | — | SignalR connected clients |
 | `aegisops_audit_events_total` | counter | `outcome` | Incl. `Denied` attempts |
 | standard | — | — | `http_server_request_duration_seconds`, `process_*`, `dotnet_*` |
@@ -105,7 +119,7 @@ Prometheus rules in `deploy/prometheus/rules.yml` (Grafana Unified Alerting disp
 | Alert | Condition |
 | --- | --- |
 | `JobsDeadLettered` | `(sum(increase(aegisops_jobs_processed_total{status="DeadLettered"}[15m])) or vector(0)) + (sum(increase(aegisops_jobs_lease_expired_total{status="DeadLettered"}[15m])) or vector(0)) > 0` |
-| `WorkerStalled` | `aegisops_jobs_queue_depth{status="Pending"} > 0` for 10 m and no processed jobs |
+| `WorkerStalled` | `max by (status) (aegisops_jobs_queue_depth{status="Pending"}) > 0` for 10 m and no processed jobs (scope to one deployment) |
 | `HighApiErrorRate` | 5xx ratio > 5% over 5 m |
 | `AiBlockedSpike` | blocked AI requests > 20 in 5 m |
 | `OllamaDown` | readiness degraded for 5 m |

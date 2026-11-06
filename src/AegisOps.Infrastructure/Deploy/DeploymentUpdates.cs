@@ -12,6 +12,8 @@ public static class DeploymentUpdates {
             await redis.GetSubscriber().PublishAsync(RedisChannel.Literal(Channel), deploymentId.ToString("D"));
         } catch (RedisException) {
             // Polling remains available when Redis is unavailable.
+        } catch (TimeoutException) {
+            // A timed-out hint must not turn an already committed job into a failure.
         }
     }
 }

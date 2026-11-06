@@ -214,8 +214,8 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 
 | ID | Acceptance check | Status | Evidence / gap |
 | --- | --- | --- | --- |
-| P7-01 | Custom `Meter("AegisOps")` metrics cover deployment, scan, AI, jobs, and audit activity | Missing | No custom `Meter`, counter, histogram, or observable instrument was found under `src/`. |
-| P7-02 | API and Worker expose Prometheus `/metrics` endpoints | Missing | No `/metrics` route or Prometheus exporter is implemented. |
+| P7-01 | Custom `Meter("AegisOps")` metrics cover deployment, scan, AI, jobs, and audit activity | Missing | Partial: Worker job counters, attempt duration, lease-expiry and queue-depth gauge exist under `src/AegisOps.Infrastructure/Observability/`; deployment, scan, AI, and audit metrics remain missing. |
+| P7-02 | API and Worker expose Prometheus `/metrics` endpoints | Missing | Partial: Worker exposes `/metrics` with the Prometheus exporter and job instruments; API `/metrics` is still absent. |
 | P7-03 | `ActivitySource` traces use cases, policy, scans, Ollama, and Docker execution | Missing | No `ActivitySource`, `ActivityLink`, or OpenTelemetry setup was found in `src/`. |
 | P7-04 | Prometheus profile, scrape config, Grafana dashboards, and alert rules are provisioned | Missing | No tracked Prometheus/Grafana provisioning or dashboard/rule files exist. |
 | P7-05 | Readiness reports PostgreSQL/Redis/migration health and degraded Ollama/Docker states | Verified | Rebuilt API/Worker images and started PostgreSQL/Redis/API/Worker in Compose. API `/health/live` returned 200 and `/health/ready` returned 200 Degraded: PostgreSQL/Redis Healthy, Ollama Degraded. Worker `/health/live` returned 200 and `/health/ready` returned 200 Healthy: PostgreSQL/Redis/Docker/worker poll all Healthy. Local failure runs returned 503 readiness with 200 liveness; Ollama timeout remained Degraded. Six focused tests and the full 163-test .NET suite passed. |
@@ -225,7 +225,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 
 ### Phase 7 verification caveat
 
-`docs/15-observability.md` describes the target design. Readiness and the signed-in degraded-status UI are verified in Compose/browser tests; metrics, tracing, dashboards, and structured logging still lack verified implementation. Documentation alone does not earn implementation credit under the roadmap’s measurement rule.
+`docs/15-observability.md` describes the target design. Readiness and the signed-in degraded-status UI are verified in Compose/browser tests; Worker job metrics are partly implemented (including an SQLite-backed queue-depth test), but the remaining metrics, API endpoint, tracing, dashboards, and structured logging are not complete. Documentation alone does not earn implementation credit under the roadmap’s measurement rule.
 
 ## Phase 8 — Hardening, documentation, demo (weight: 1.5 / 15.5 weeks)
 

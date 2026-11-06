@@ -24,6 +24,7 @@ if (!string.IsNullOrWhiteSpace(redis)) builder.Services.AddSingleton<IConnection
     return ConnectionMultiplexer.Connect(options);
 });
 builder.Services.AddHostedService<DeploymentJobService>();
+builder.Services.AddHostedService<JobQueueDepthService>();
 builder.Services.AddOpenTelemetry().WithMetrics(metrics => metrics
     .AddMeter(JobMetrics.MeterName)
     .AddView("aegisops_jobs_duration_seconds", new ExplicitBucketHistogramConfiguration {

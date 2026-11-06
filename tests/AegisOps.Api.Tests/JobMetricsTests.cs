@@ -68,6 +68,33 @@ public sealed class JobMetricsTests {
         Assert.True(buckets.SequenceEqual(buckets.Order()));
     }
 
+    [Fact]
+    public void Queue_depth_gauge_reports_all_statuses_including_zeros() {
+        var observed = new Dictionary<string, long>();
+        using var listener = new MeterListener {
+            InstrumentPublished = (instrument, current) => {
+                if (instrument.Meter.Name == JobMetrics.MeterName && instrument.Name == "aegisops_jobs_queue_depth")
+                    current.EnableMeasurementEvents(instrument);
+            },
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, tags, _) => {
+            foreach (var tag in tags)
+                if (tag.Key == "status") observed.Add((string)tag.Value!, value);
+        });
+        listener.Start();
+        try {
+            JobMetrics.SetQueueDepth(2, 3, 0, 4);
+            listener.RecordObservableInstruments();
+            Assert.Equal(2, observed["Pending"]);
+            Assert.Equal(3, observed["Delayed"]);
+            Assert.Equal(0, observed["Running"]);
+            Assert.Equal(4, observed["DeadLettered"]);
+            Assert.Equal(4, observed.Count);
+        } finally {
+            JobMetrics.ClearQueueDepth();
+        }
+    }
+
     private static Dictionary<string, object?> CopyTags(ReadOnlySpan<KeyValuePair<string, object?>> tags) {
         var result = new Dictionary<string, object?>();
         foreach (var tag in tags) result.Add(tag.Key, tag.Value);
