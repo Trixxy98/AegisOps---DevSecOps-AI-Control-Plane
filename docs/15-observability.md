@@ -66,10 +66,10 @@ user ids, deployment ids or versions as labels.
 | Endpoint | Checks | Used by |
 | --- | --- | --- |
 | `/health/live` | process up | Docker `HEALTHCHECK` |
-| `/health/ready` | PostgreSQL (`SELECT 1`), Redis `PING`, migrations applied; Ollama and Docker socket reported as **Degraded** (not failing) | Compose `depends_on: condition: service_healthy`, UI banner |
-| Worker `/health` | same + "last successful job poll < 30 s ago" | Prometheus up/down |
+| API `/health/ready` | PostgreSQL connectivity, pending migrations, Redis `PING`; Ollama reported as **Degraded** (not failing) | Compose monitoring, UI status facade |
+| Worker `/health/ready` | PostgreSQL, Redis, migrations, Docker as Degraded, and last successful poll within 30 seconds | API status facade, internal monitoring |
 
-`AspNetCore.HealthChecks.*` packages for Npgsql/Redis; custom checks for Ollama and Docker.
+The authenticated `GET /api/v1/system/dependencies` endpoint combines the API's Ollama check with the Worker's `/health/ready` response. The API reaches the Worker at `http://worker:8081/` in Compose; set `Worker__HealthBaseUrl` when running the Worker at a different address. The signed-in UI refreshes this status every 30 seconds and on window focus, shows Ollama/Docker/Worker warnings without blocking navigation, and reports the Worker as unreachable rather than guessing Docker's state when its health endpoint cannot be read.
 
 ## 5. Grafana dashboards (provisioned)
 

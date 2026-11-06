@@ -1,6 +1,7 @@
 using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Audit;
 using AegisOps.Api.Identity;
+using AegisOps.Api.Health;
 using AegisOps.Infrastructure.Identity;
 using AegisOps.Application.Authorization;
 using AegisOps.Application.Idempotency;
@@ -26,6 +27,10 @@ builder.Services.AddDependencyReadiness()
     .AddCheck<OllamaReadinessCheck>("ollama", failureStatus: HealthStatus.Degraded,
         tags: ["ready"], timeout: TimeSpan.FromSeconds(3));
 builder.Services.AddHttpClient<OllamaReadinessCheck>(client => client.Timeout = TimeSpan.FromSeconds(3));
+builder.Services.AddHttpClient("worker-readiness", client => {
+    client.BaseAddress = new Uri(builder.Configuration["Worker:HealthBaseUrl"] ?? "http://worker:8081/");
+    client.Timeout = TimeSpan.FromSeconds(3);
+});
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddIdentityStore(builder.Configuration);
 builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
@@ -75,6 +80,7 @@ app.MapPost("/api/v1/auth/login", Login.Handle).RequireRateLimiting(AuthRateLimi
 app.MapPost("/api/v1/auth/refresh", Refresh.Handle).RequireRateLimiting(AuthRateLimitingExtensions.PolicyName);
 app.MapPost("/api/v1/auth/logout", Logout.Handle).RequireAuthorization();
 app.MapGet("/api/v1/auth/me", CurrentUser.Handle).RequireAuthorization();
+app.MapGet("/api/v1/system/dependencies", SystemDependencyHealth.Handle).RequireAuthorization();
 app.MapPost("/api/v1/auth/change-password", ChangePassword.Handle).RequireAuthorization();
 app.MapPost("/api/v1/ai/chat", AiEndpoints.Chat).RequireAuthorization(Permissions.AiChat);
 app.MapGet("/api/v1/ai/models", AiEndpoints.Models).RequireAuthorization(Permissions.AiChat);

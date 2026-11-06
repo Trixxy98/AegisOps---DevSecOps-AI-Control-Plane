@@ -47,6 +47,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .page-description { margin: 8px 0 0; color: #99a5b5; font-size: 14px; }
 .heading-badge { display: inline-flex; align-items: center; gap: 9px; color: #b5c1ce; border: 1px solid #2d3845; border-radius: 100px; padding: 8px 12px; font-size: 11px; white-space: nowrap; }
 .error-banner { background: #371d25; border: 1px solid #784452; color: #ffd4dc; padding: 12px 15px; border-radius: 8px; margin: 0 0 20px; font-size: 13px; overflow-wrap: anywhere; }
+.health-banner { background: #332918; border: 1px solid #7b6236; color: #f9e4bd; padding: 12px 15px; border-radius: 8px; margin: 0 0 20px; font-size: 13px; }
+.health-banner strong { display: block; margin-bottom: 5px; }
+.health-banner ul { margin: 0; padding-left: 18px; }
 .deployment-toast { position: fixed; z-index: 10; right: 20px; bottom: 20px; width: min(420px, calc(100vw - 40px)); display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 14px 16px; border: 1px solid #407765; border-radius: 8px; background: #193329; color: #dcf8eb; box-shadow: 0 12px 35px #0008; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .deployment-toast-error { border-color: #784452; background: #371d25; color: #ffd4dc; }
 .toast-dismiss { flex: 0 0 auto; border: 0; background: transparent; color: inherit; font-size: 20px; line-height: 1; padding: 0 2px; }

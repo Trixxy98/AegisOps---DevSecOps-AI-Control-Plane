@@ -5,6 +5,7 @@ type View = "dashboard" | "projects" | "deployments" | "approvals" | "policies" 
 type DeployTarget = { id: string; name: string; tier: string };
 type DeploymentToast = { id: number; message: string; type: "success" | "error"; approvalId?: string };
 type ApprovalItem = { id: string; projectId: string; requestedAt: string; status: string };
+type DependencyHealth = { ollama: string; docker: string; worker: string };
 const approvalQueuePath = "/api/v1/deployments/approval-queue";
 
 const navigation: Array<{ id: View; label: string; description: string }> = [
@@ -48,6 +49,7 @@ export function App() {
   const [deploymentToast, setDeploymentToast] = useState<DeploymentToast | null>(null);
   const toastId = useRef(0);
   const [approvalItems, setApprovalItems] = useState<ApprovalItem[]>([]);
+  const [dependencyHealth, setDependencyHealth] = useState<DependencyHealth | null>(null);
   const approvalHint = useRef<(id?: string) => void>(() => {});
 
   useEffect(() => {
@@ -120,6 +122,34 @@ export function App() {
     return () => { active = false; approvalHint.current = () => {}; clearInterval(timer); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVisibility); };
   }, [token]);
 
+  useEffect(() => {
+    if (!token) { setDependencyHealth(null); return; }
+    let active = true;
+    let sequence = 0;
+    setDependencyHealth(null);
+    const refresh = async () => {
+      const current = ++sequence;
+      try {
+        const health = await api<DependencyHealth>("/api/v1/system/dependencies", token);
+        if (active && current === sequence) setDependencyHealth(health);
+      } catch {
+        if (active && current === sequence) setDependencyHealth({ ollama: "Unknown", docker: "Unknown", worker: "Unreachable" });
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 30000);
+    const onFocus = () => void refresh();
+    window.addEventListener("focus", onFocus);
+    return () => { active = false; clearInterval(timer); window.removeEventListener("focus", onFocus); };
+  }, [token]);
+
+  const healthWarnings = dependencyHealth ? [
+    dependencyHealth.ollama === "Degraded" || dependencyHealth.ollama === "Unhealthy" ? "Ollama unavailable — AI features may be limited." : null,
+    dependencyHealth.docker === "Degraded" || dependencyHealth.docker === "Unhealthy" ? "Docker unavailable — deployments may be limited." : null,
+    dependencyHealth.worker === "Unhealthy" ? "Worker unhealthy — background processing may be limited." : null,
+    dependencyHealth.worker === "Unreachable" ? "Worker status unavailable — Docker status cannot be confirmed." : null,
+  ].filter((message): message is string => message !== null) : [];
+
   if (!token) {
     return <Login onToken={setToken} />;
   }
@@ -143,6 +173,7 @@ export function App() {
         </nav></div>
         <section className="content">
         <div className="page-heading"><div><p className="eyebrow">AEGISOPS / WORKSPACE</p><h1>{navigation.find((item) => item.id === view)?.label}</h1><p className="page-description">{navigation.find((item) => item.id === view)?.description}</p></div><span className="heading-badge"><span className="status-dot" /> Live workspace</span></div>
+        {healthWarnings.length > 0 && <div role="status" className="health-banner"><strong>System degraded</strong><ul>{healthWarnings.map((message) => <li key={message}>{message}</li>)}</ul></div>}
         {error && <p role="alert" className="error-banner">{error}</p>}
          {view === "dashboard" && <Dashboard token={token} onError={setError} revision={revision} />}
         {view === "projects" && <Projects token={token} onError={setError} pendingDeployments={pendingDeployments} onDeploy={requestDeployment} />}
