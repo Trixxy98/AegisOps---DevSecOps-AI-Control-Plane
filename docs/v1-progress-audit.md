@@ -47,7 +47,7 @@ Status meanings:
 
 - Full solution test run with local Redis and a disposable PostgreSQL cluster: 156 passed, 0 failed, 0 skipped.
 - `npm run build` in `src/AegisOps.Web`: passed.
-- Compose rebuild/start succeeded; PostgreSQL and Redis report healthy, API `/health/live` and `/health/ready` return HTTP 200, and the web app returns HTTP 200. The sign-in screen is reachable, but no saved local login is available to run authenticated journeys; container logs were not read for passwords.
+- At the original Compose baseline, PostgreSQL and Redis were healthy, API `/health/live` and `/health/ready` returned HTTP 200, and the web app returned HTTP 200. No saved local login was available then; a vault login was subsequently used to verify the authenticated Phase 7 UI banner.
 
 ### Phase 0 remaining gaps
 
@@ -219,13 +219,13 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P7-03 | `ActivitySource` traces use cases, policy, scans, Ollama, and Docker execution | Missing | No `ActivitySource`, `ActivityLink`, or OpenTelemetry setup was found in `src/`. |
 | P7-04 | Prometheus profile, scrape config, Grafana dashboards, and alert rules are provisioned | Missing | No tracked Prometheus/Grafana provisioning or dashboard/rule files exist. |
 | P7-05 | Readiness reports PostgreSQL/Redis/migration health and degraded Ollama/Docker states | Verified | Rebuilt API/Worker images and started PostgreSQL/Redis/API/Worker in Compose. API `/health/live` returned 200 and `/health/ready` returned 200 Degraded: PostgreSQL/Redis Healthy, Ollama Degraded. Worker `/health/live` returned 200 and `/health/ready` returned 200 Healthy: PostgreSQL/Redis/Docker/worker poll all Healthy. Local failure runs returned 503 readiness with 200 liveness; Ollama timeout remained Degraded. Six focused tests and the full 163-test .NET suite passed. |
-| P7-06 | UI displays degraded Ollama/Docker readiness | Missing | No health-status integration or Ollama/Docker readiness banner was found; generic API error banners are not a health indicator. |
+| P7-06 | UI displays degraded Ollama/Docker readiness | Verified | The signed-in UI polls authenticated `/api/v1/system/dependencies` every 30 seconds/on focus and shows Ollama/Docker/Worker warnings. A real saved-vault login in Compose displayed the Ollama degraded banner with PostgreSQL/Redis/Worker healthy; the API endpoint rejected an unauthenticated request with 401. Two Playwright tests passed for Ollama/Docker degraded and Worker unhealthy responses (Docker degradation was mocked, not induced on the live daemon), and the API handler test passed. |
 | P7-07 | Serilog structured JSON logging, enrichers, request logging, and PII policy are configured | Missing | Application code uses `ILogger`; no Serilog package/configuration/request middleware or structured logging policy was found in the implementation. |
 | P7-08 | Three provisioned dashboards show live data during a demo | Missing | API and Worker run in Compose, but no Grafana dashboards or provisioning are tracked, so a dashboard demo cannot be exercised. |
 
 ### Phase 7 verification caveat
 
-`docs/15-observability.md` describes the target design. Readiness is verified in Compose; metrics, tracing, dashboards, and structured logging still lack verified implementation. Documentation alone does not earn implementation credit under the roadmap’s measurement rule.
+`docs/15-observability.md` describes the target design. Readiness and the signed-in degraded-status UI are verified in Compose/browser tests; metrics, tracing, dashboards, and structured logging still lack verified implementation. Documentation alone does not earn implementation credit under the roadmap’s measurement rule.
 
 ## Phase 8 — Hardening, documentation, demo (weight: 1.5 / 15.5 weeks)
 
@@ -265,16 +265,16 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 4 | 2 | 9 / 14 | 8.29 percentage points |
 | 5 | 1 | 5 / 13 | 2.48 percentage points |
 | 6 | 2 | 8 / 13 | 7.94 percentage points |
-| 7 | 1.5 | 1 / 8 | 1.21 percentage points |
+| 7 | 1.5 | 2 / 8 | 2.42 percentage points |
 | 8 | 1.5 | 2 / 16 | 1.21 percentage points |
-| **Total** | **15.5** | **72 / 144** | **45.85% complete** |
+| **Total** | **15.5** | **73 / 144** | **47.06% complete** |
 
-**Estimated remaining: 54.15%** by the same weighted, evidence-based measure. Status totals are 72 Verified, 35 Unverified, 37 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, and API/Worker readiness checks are verified; complete seeded Journeys A/D remain unverified.
+**Estimated remaining: 52.94%** by the same weighted, evidence-based measure. Status totals are 73 Verified, 35 Unverified, 36 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, and API/Worker readiness with signed-in UI warnings are verified; complete seeded Journeys A/D remain unverified.
 
 ### Highest-impact next steps
 
-1. Add the local AegisOps login to Hermes Vault (`hermes vault add` or Desktop → Settings → Passwords & Logins), then run the authenticated smoke and Journeys A/D without sharing the password in chat.
-2. Implement the remaining Phase 7 observability: metrics, tracing, dashboards, structured logging, and a UI degraded-status banner; readiness is the first of eight verified checks.
+1. Use the saved local AegisOps login to complete authenticated Journeys A/D and capture each audit step; do not share the password in chat.
+2. Implement the remaining Phase 7 observability: metrics, tracing, dashboards, and structured logging; readiness and the UI degraded-status banner are verified (2/8 checks).
 3. Close Phase 8 gaps: CSP/audit coverage, retention/cleanup, AI demo assets, and a repeatable release path.
 
-The Staging rollback record is committed. Phase 7 readiness implementation and this audit update are uncommitted; Compose verification and the focused/full .NET tests passed. Review the final diff before committing the readiness increment.
+The Staging rollback and Phase 7 readiness increments are committed. The signed-in degraded-status UI/API integration and this audit update are uncommitted; the web build, 6 Playwright tests, 164 .NET tests, Compose rebuild, and live authenticated Ollama banner verification passed. Review the final diff before committing this increment.
