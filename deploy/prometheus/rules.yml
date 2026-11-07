@@ -1,0 +1,55 @@
+groups:
+  - name: aegisops-observability
+    rules:
+      - alert: ApiMetricsUnavailable
+        expr: up{job="aegisops-api"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: API metrics scrape has been unavailable for five minutes
+      - alert: WorkerMetricsUnavailable
+        expr: up{job="aegisops-worker"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Worker metrics scrape has been unavailable for five minutes
+      - alert: HighApiErrorRate
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{job="aegisops-api",http_route!~"/hubs/.*",http_response_status_code=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(http_server_request_duration_seconds_count{job="aegisops-api",http_route!~"/hubs/.*"}[5m])), 1e-9)
+          > 0.05
+          and on() sum(increase(http_server_request_duration_seconds_count{job="aegisops-api",http_route!~"/hubs/.*"}[5m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: API 5xx ratio exceeded 5% for five minutes (at least 20 requests)
+      - alert: JobsDeadLettered
+        expr: |
+          (
+            (sum(increase(aegisops_jobs_processed_total{job="aegisops-worker",status="DeadLettered"}[15m])) or vector(0))
+            +
+            (sum(increase(aegisops_jobs_lease_expired_total{job="aegisops-worker",status="DeadLettered"}[15m])) or vector(0))
+          ) > 0
+          or
+          (
+            max(aegisops_jobs_queue_depth{job="aegisops-worker",status="DeadLettered"})
+            -
+            min(min_over_time(aegisops_jobs_queue_depth{job="aegisops-worker",status="DeadLettered"}[15m]))
+          ) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A job was dead-lettered in the past 15 minutes
+      - alert: WorkerStalled
+        expr: |
+          max by (status) (aegisops_jobs_queue_depth{job="aegisops-worker",status="Pending"}) > 0
+          and on() (sum(increase(aegisops_jobs_processed_total{job="aegisops-worker"}[10m])) or vector(0)) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Due jobs remain queued while no jobs complete

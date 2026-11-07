@@ -50,8 +50,12 @@ stale-lease recovery after commit, including interrupted executions that become
 Core exporter is pinned at `1.20.1-beta.1` alongside OpenTelemetry `1.20.1` because
 its package is prerelease; revisit the exporter before production use.
 In the default Compose stack the Worker port is not published to the host, but any
-network peer can scrape it. The remaining instruments, Prometheus, Grafana,
-and alerting below are still design targets, not implemented features.
+network peer can scrape it. Prometheus and Grafana are now provisioned in an opt-in
+Compose overlay; the Prometheus binary was also run locally against the API and
+confirmed to scrape its HTTP duration series and load all five rules. Compose and
+Grafana runtime have not been exercised because the Docker daemon was unavailable.
+The remaining instruments and planned dashboard panels below are design targets,
+not implemented features.
 
 Worker queue-depth sampling polls PostgreSQL every 15 seconds. `Pending` counts
 jobs due now (`ScheduledAt <= now`); `Delayed` counts Pending jobs waiting for
@@ -65,7 +69,10 @@ Each Worker samples the same shared jobs table: dashboard/alert queries must
 scope to one AegisOps deployment and use `max by (status) (aegisops_jobs_queue_depth)`
 across Worker replicas, never `sum` across them.
 Dead-lettered jobs accumulate until retention/cleanup is implemented; alert on
-new dead-letter events via the counters below, not on the absolute gauge value.
+new events via the counters *or a rise from the 15-minute minimum of the
+DeadLettered queue gauge*, never on the absolute gauge value. The gauge comparison
+catches a first event when a zero queue snapshot was previously scraped, even
+though a new counter series first appears at 1 rather than transitioning from 0.
 
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
@@ -114,33 +121,49 @@ user ids, deployment ids or versions as labels.
 
 The authenticated `GET /api/v1/system/dependencies` endpoint combines the API's Ollama check with the Worker's `/health/ready` response. The API reaches the Worker at `http://worker:8081/` in Compose; set `Worker__HealthBaseUrl` when running the Worker at a different address. The signed-in UI refreshes this status every 30 seconds and on window focus, shows Ollama/Docker/Worker warnings without blocking navigation, and reports the Worker as unreachable rather than guessing Docker's state when its health endpoint cannot be read.
 
-## 5. Grafana dashboards (provisioned)
+## 5. Grafana dashboards (opt-in provisioning)
 
-| Dashboard | Panels |
+The opt-in `deploy/docker-compose.observability.yml` overlay provisions Prometheus
+(`prom/prometheus:v3.16.0`) and Grafana (`grafana/grafana:13.3.0`). Set
+`GRAFANA_ADMIN_PASSWORD` outside version control before enabling it; the default
+Compose stack needs no Grafana credentials. Both UIs bind to host loopback only
+(Prometheus `:9090`, Grafana `:3001`). Neither API `:9464` nor Worker `:8081` is
+published to the host. Prometheus scrapes `api:9464/metrics` and
+`worker:8081/metrics` every 15 s over the internal Compose network. Grafana's
+Prometheus datasource and **AegisOps Overview** dashboard are provisioned from
+`deploy/grafana/`; its live panels use only the implemented API request histogram
+and Worker job metrics (API p95, 5xx rate, queue depth, processed jobs). Queue
+depth uses `max by (status)` because Worker replicas read the same shared table.
+API p95 and 5xx panels exclude `/hubs/` routes: a long-lived WebSocket should not
+inflate request latency or trigger the API error-rate alert.
+
+These additional dashboards are *design targets*, not yet provisioned:
+
+| Dashboard | Planned panels |
 | --- | --- |
-| **AegisOps Overview** | Deployments/day by outcome · pending approvals · policy decisions pie · p95 API latency · error rate · jobs queue depth |
 | **Delivery** | Lead time & approval wait histograms per tier · deployment duration · rule failures top-10 · findings by severity per project |
 | **AI Governance** | Requests by status/reason · sensitive detections by type · latency per model · tokens/day · top users (by count) |
 | **Runtime** | .NET GC/heap/threads · HTTP throughput · Npgsql pool · Redis latency · SignalR connections |
 
-Dashboards are JSON files in `deploy/grafana/dashboards/`, provisioned with
-`deploy/grafana/provisioning/`. The planned Prometheus scrape config targets
-`api:9464/metrics` and `worker:8081/metrics` every 15 s; it must not scrape
-`api:8080/metrics`.
+The configuration and rule expressions pass `docker compose config` and Prometheus
+`promtool` checks, but Grafana/Compose runtime and a live dashboard demo still
+require a working Docker daemon; no dashboard acceptance credit is claimed yet.
 
 ## 6. Alerting (lightweight)
 
-Prometheus rules in `deploy/prometheus/rules.yml` (Grafana Unified Alerting displays them):
+Prometheus evaluates the rules in `deploy/prometheus/rules.yml`:
 
 | Alert | Condition |
 | --- | --- |
-| `JobsDeadLettered` | `(sum(increase(aegisops_jobs_processed_total{status="DeadLettered"}[15m])) or vector(0)) + (sum(increase(aegisops_jobs_lease_expired_total{status="DeadLettered"}[15m])) or vector(0)) > 0` |
+| `ApiMetricsUnavailable` / `WorkerMetricsUnavailable` | Prometheus scrape `up == 0` for 5 m |
+| `JobsDeadLettered` | New dead-lettered events from processed/lease-expired counter increases **or** a rise in the shared `DeadLettered` queue gauge above its 15-minute minimum; a constant historical backlog does not fire. |
 | `WorkerStalled` | `max by (status) (aegisops_jobs_queue_depth{status="Pending"}) > 0` for 10 m and no processed jobs (scope to one deployment) |
-| `HighApiErrorRate` | 5xx ratio > 5% over 5 m |
-| `AiBlockedSpike` | blocked AI requests > 20 in 5 m |
-| `OllamaDown` | readiness degraded for 5 m |
+| `HighApiErrorRate` | Non-`/hubs/` 5xx ratio > 5% over 5 m, with more than 20 non-`/hubs/` requests |
 
-Notification channel: none by default (dashboards only); a webhook can be configured.
+`AiBlockedSpike` and `OllamaDown` remain design targets until their metrics exist.
+Prometheus evaluates these rules; no Grafana alert rules or notification channel
+are provisioned by default. Rule behavior is covered by
+`deploy/prometheus/rules.test.yml` (`promtool test rules`).
 
 ## 7. What "good" looks like in a demo
 

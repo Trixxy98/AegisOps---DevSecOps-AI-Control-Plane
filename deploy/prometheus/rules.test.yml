@@ -1,0 +1,74 @@
+rule_files:
+  - rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'aegisops_jobs_queue_depth{job="aegisops-worker",status="Pending",instance="worker-1"}'
+        values: '3+0x20'
+      - series: 'aegisops_jobs_queue_depth{job="aegisops-worker",status="Pending",instance="worker-2"}'
+        values: '3+0x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: WorkerStalled
+        exp_alerts:
+          - exp_labels:
+              status: Pending
+              severity: warning
+            exp_annotations:
+              summary: Due jobs remain queued while no jobs complete
+
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="aegisops-api",http_response_status_code="200"}'
+        values: '0+20x20'
+      - series: 'http_server_request_duration_seconds_count{job="aegisops-api",http_response_status_code="500"}'
+        values: '0+2x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HighApiErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: API 5xx ratio exceeded 5% for five minutes (at least 20 requests)
+
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="aegisops-api",http_response_status_code="200",http_route="/health/live"}'
+        values: '0+20x20'
+      - series: 'http_server_request_duration_seconds_count{job="aegisops-api",http_response_status_code="500",http_route="/hubs/ops"}'
+        values: '0+2x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HighApiErrorRate
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'aegisops_jobs_processed_total{job="aegisops-worker",status="DeadLettered"}'
+        values: '_x5 1+0x15'
+      - series: 'aegisops_jobs_queue_depth{job="aegisops-worker",status="DeadLettered"}'
+        values: '0+0x4 1+0x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: JobsDeadLettered
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: A job was dead-lettered in the past 15 minutes
+      - eval_time: 20m
+        alertname: JobsDeadLettered
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'aegisops_jobs_queue_depth{job="aegisops-worker",status="DeadLettered"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: JobsDeadLettered
+        exp_alerts: []
