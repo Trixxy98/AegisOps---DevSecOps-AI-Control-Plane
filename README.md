@@ -113,6 +113,27 @@ uniquely named test project in the local database. If the database already exist
 seed password is not regenerated: keep the first-run password or reset the local database deliberately.
 The API is also exposed at `http://localhost:8080`; Web is at `http://localhost:3000`.
 
+### Optional Prometheus and Grafana
+
+Set `GRAFANA_ADMIN_PASSWORD` in your shell or the gitignored `.env` file before
+starting the opt-in overlay; there is no checked-in/default Grafana password.
+The base Compose stack does not require this variable. With a working Docker daemon:
+
+```bash
+docker compose -f docker-compose.yml -f deploy/docker-compose.observability.yml \
+  --profile observability up --build -d
+```
+
+Open Grafana at `http://127.0.0.1:3001` (user `admin`, password from your
+configuration) and the Prometheus targets/rules pages at `http://127.0.0.1:9090`.
+Only these UI ports bind to host loopback; Prometheus scrapes API `:9464` and
+Worker `:8081` internally. The provisioned **AegisOps Overview** dashboard
+shows API p95/5xx and Worker queue/throughput; additional Delivery/AI panels
+need instruments that are not yet built. Prometheus rules do not send notifications
+by default. To stop only monitoring, use the same Compose flags followed by
+`stop grafana prometheus`; do not run `down -v` because it removes persistent data.
+See [`docs/15-observability.md`](docs/15-observability.md) for metric semantics.
+
 This path uses the **noop** executor; it does not start a target container. For the
 existing `site-service` project only, the Development seed changes its **Staging**
 environment from noop to Docker (`site-service-staging`, network `aegisops-staging`,
