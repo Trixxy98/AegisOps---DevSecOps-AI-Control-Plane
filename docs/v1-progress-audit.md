@@ -215,7 +215,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | ID | Acceptance check | Status | Evidence / gap |
 | --- | --- | --- | --- |
 | P7-01 | Custom `Meter("AegisOps")` metrics cover deployment, scan, AI, jobs, and audit activity | Missing | Partial: Worker job counters, attempt duration, lease-expiry and queue-depth gauge exist under `src/AegisOps.Infrastructure/Observability/`; deployment, scan, AI, and audit metrics remain missing. |
-| P7-02 | API and Worker expose Prometheus `/metrics` endpoints | Missing | Partial: Worker exposes `/metrics` with the Prometheus exporter and job instruments; API `/metrics` is still absent. |
+| P7-02 | API and Worker expose Prometheus `/metrics` endpoints | Verified | API exports ASP.NET Core request-duration metrics at internal port `9464` only: live Kestrel smoke returned 200 there, while `/metrics` on the API's `:8080` and other routes on `:9464` returned 404. TestServer verifies histogram route labels and port gating. Worker `/metrics` previously exported live job metrics in the PostgreSQL smoke run. Compose config publishes neither metrics port to the host; Compose runtime has not been exercised for this increment (Docker daemon unavailable). |
 | P7-03 | `ActivitySource` traces use cases, policy, scans, Ollama, and Docker execution | Missing | No `ActivitySource`, `ActivityLink`, or OpenTelemetry setup was found in `src/`. |
 | P7-04 | Prometheus profile, scrape config, Grafana dashboards, and alert rules are provisioned | Missing | No tracked Prometheus/Grafana provisioning or dashboard/rule files exist. |
 | P7-05 | Readiness reports PostgreSQL/Redis/migration health and degraded Ollama/Docker states | Verified | Rebuilt API/Worker images and started PostgreSQL/Redis/API/Worker in Compose. API `/health/live` returned 200 and `/health/ready` returned 200 Degraded: PostgreSQL/Redis Healthy, Ollama Degraded. Worker `/health/live` returned 200 and `/health/ready` returned 200 Healthy: PostgreSQL/Redis/Docker/worker poll all Healthy. Local failure runs returned 503 readiness with 200 liveness; Ollama timeout remained Degraded. Six focused tests and the full 163-test .NET suite passed. |
@@ -225,7 +225,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 
 ### Phase 7 verification caveat
 
-`docs/15-observability.md` describes the target design. Readiness and the signed-in degraded-status UI are verified in Compose/browser tests; Worker job metrics are partly implemented (including an SQLite-backed queue-depth test), but the remaining metrics, API endpoint, tracing, dashboards, and structured logging are not complete. Documentation alone does not earn implementation credit under the roadmap’s measurement rule.
+`docs/15-observability.md` separates implemented metrics from the target design. Readiness and the signed-in degraded-status UI are verified in Compose/browser tests; Worker job metrics are partly implemented and API/Worker `/metrics` endpoints have passed live local smoke tests. The remaining custom metrics, tracing, Prometheus/Grafana provisioning, dashboards, and structured logging are not complete. Documentation alone does not earn implementation credit under the roadmap’s measurement rule.
 
 ## Phase 8 — Hardening, documentation, demo (weight: 1.5 / 15.5 weeks)
 
@@ -265,16 +265,16 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 4 | 2 | 9 / 14 | 8.29 percentage points |
 | 5 | 1 | 5 / 13 | 2.48 percentage points |
 | 6 | 2 | 8 / 13 | 7.94 percentage points |
-| 7 | 1.5 | 2 / 8 | 2.42 percentage points |
+| 7 | 1.5 | 3 / 8 | 3.63 percentage points |
 | 8 | 1.5 | 3 / 16 | 1.81 percentage points |
-| **Total** | **15.5** | **80 / 144** | **52.50% complete** |
+| **Total** | **15.5** | **81 / 144** | **53.71% complete** |
 
-**Estimated remaining: 47.50%** by the same weighted, evidence-based measure. Status totals are 80 Verified, 29 Unverified, 35 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, and SPA security headers are verified; complete seeded Journeys A/D remain unverified.
+**Estimated remaining: 46.29%** by the same weighted, evidence-based measure. Status totals are 81 Verified, 29 Unverified, 34 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, and SPA security headers are verified; complete seeded Journeys A/D remain unverified.
 
 ### Highest-impact next steps
 
 1. Complete Journey A once the expected `v1.8.2` artifact and CI scan evidence arrive (do not deploy an older artifact to Staging); verify Journey D's live denial during the Friday 18:00–Monday 08:00 MYT blackout and capture the audit trail.
-2. Implement the remaining Phase 7 observability: metrics, tracing, dashboards, and structured logging; readiness and the UI degraded-status banner are verified (2/8 checks).
+2. Implement the remaining Phase 7 observability: metrics, tracing, dashboards, and structured logging; readiness, the UI degraded-status banner, and API/Worker `/metrics` are verified (3/8 checks).
 3. Close remaining Phase 8 gaps: audit coverage, retention/cleanup, AI demo assets, and a repeatable release path.
 
 The Staging rollback, Phase 7 readiness, signed-in degraded-status UI/API, and SPA security-header increments are committed. Live CSP smoke, nginx syntax, authenticated browser navigation, and 6 Playwright tests were verified for the security-header increment; use current Git status before relying on historical worktree notes.

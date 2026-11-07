@@ -30,16 +30,16 @@ public static class ApiKeyGenerator {
             return false;
         }
 
-        var parts = plaintext.Trim().Split('_', 3);
-        if (parts.Length != 3
-            || !parts[0].Equals("aok", StringComparison.Ordinal)
-            || parts[1].Length != 8
-            || string.IsNullOrWhiteSpace(parts[2])) {
-                return false;
-            }
+        var value = plaintext.Trim();
+        // Base64URL may contain '_', so locate the separator after the fixed-length prefix.
+        if (!value.StartsWith("aok_", StringComparison.Ordinal)
+            || value.Length <= 13
+            || value[12] != '_') {
+            return false;
+        }
 
-            prefix = parts[1];
-            secret = parts[2];
-            return true;
+        prefix = value.Substring(4, 8);
+        secret = value[13..];
+        return !string.IsNullOrWhiteSpace(secret);
     }
 }

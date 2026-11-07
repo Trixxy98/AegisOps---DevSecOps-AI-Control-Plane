@@ -2,6 +2,7 @@ using AegisOps.Application.Audit;
 using AegisOps.Infrastructure.Audit;
 using AegisOps.Api.Identity;
 using AegisOps.Api.Health;
+using AegisOps.Api.Observability;
 using AegisOps.Infrastructure.Identity;
 using AegisOps.Application.Authorization;
 using AegisOps.Application.Idempotency;
@@ -47,6 +48,7 @@ builder.Services.AddHttpClient<ILlmClient, OllamaLlmClient>((services, client) =
     client.Timeout = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("Ai:Ollama:TimeoutSeconds", 120), 1, 600));
 });
 builder.Services.AddSignalR();
+builder.Services.AddApiMetrics();
 builder.Services.AddSingleton<DeploymentConnections>();
 builder.Services.AddAuthRateLimiting();
 var redis = builder.Configuration.GetConnectionString("Redis");
@@ -66,6 +68,7 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(optio
 });
 
 var app = builder.Build();
+app.UseApiMetrics();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
