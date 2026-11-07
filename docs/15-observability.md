@@ -22,10 +22,25 @@ Api / Worker ──► OpenTelemetry SDK ──► /metrics (Prometheus expositi
 
 ## 2. Metrics (OpenTelemetry → Prometheus)
 
-Instrumentation: `OpenTelemetry.Instrumentation.AspNetCore`, `.Http`, `.Runtime`,
-`Npgsql` (built-in tracing/metrics), custom `Meter("AegisOps")`.
+Instrumentation targets: built-in ASP.NET Core HTTP server metrics via the
+`Microsoft.AspNetCore.Hosting` meter, and the custom `Meter("AegisOps")` on the
+Worker. Runtime, Npgsql, tracing, and the remaining custom instruments below
+are design targets, not yet exported.
 
-First metrics slice: the Worker exports `/metrics` on its internal port and records
+The API exports `http_server_request_duration_seconds` via `/metrics` only on its
+internal management listener (port `9464`). The API image listens on `8080` and
+`9464` by default; Compose publishes only `8080` to the host. Requests to
+`/metrics` on the public API listener return 404, and every other route on
+`9464` returns 404. The management listener is not an authentication boundary:
+restrict access to trusted network peers. Local runs must bind both ports
+explicitly, for example with
+`ASPNETCORE_URLS='http://127.0.0.1:8080;http://127.0.0.1:9464'`.
+The HTTP histogram uses route templates rather than raw request paths (no user
+IDs in metric labels), covers responses including 5xx, and excludes scrape
+requests themselves. Grafana p95 and 5xx ratios can derive from its histogram
+buckets and count series after Prometheus is provisioned.
+
+The Worker exports `/metrics` on its internal port and records
 `aegisops_jobs_processed_total` and `aegisops_jobs_duration_seconds` after each
 committed job attempt. `status` reflects the persisted state (`Succeeded`, `Pending`
 for a retry, or `DeadLettered`); cancelled attempts that lose their lease are not
@@ -35,8 +50,8 @@ stale-lease recovery after commit, including interrupted executions that become
 Core exporter is pinned at `1.20.1-beta.1` alongside OpenTelemetry `1.20.1` because
 its package is prerelease; revisit the exporter before production use.
 In the default Compose stack the Worker port is not published to the host, but any
-network peer can scrape it. API metrics, the remaining instruments, Prometheus,
-Grafana, and alerting below are still design targets, not implemented features.
+network peer can scrape it. The remaining instruments, Prometheus, Grafana,
+and alerting below are still design targets, not implemented features.
 
 Worker queue-depth sampling polls PostgreSQL every 15 seconds. `Pending` counts
 jobs due now (`ScheduledAt <= now`); `Delayed` counts Pending jobs waiting for
@@ -109,8 +124,9 @@ The authenticated `GET /api/v1/system/dependencies` endpoint combines the API's 
 | **Runtime** | .NET GC/heap/threads · HTTP throughput · Npgsql pool · Redis latency · SignalR connections |
 
 Dashboards are JSON files in `deploy/grafana/dashboards/`, provisioned with
-`deploy/grafana/provisioning/`. Prometheus scrape config targets `api:8080/metrics` and
-`worker:8081/metrics` every 15 s.
+`deploy/grafana/provisioning/`. The planned Prometheus scrape config targets
+`api:9464/metrics` and `worker:8081/metrics` every 15 s; it must not scrape
+`api:8080/metrics`.
 
 ## 6. Alerting (lightweight)
 

@@ -227,7 +227,8 @@ public sealed class IdentityFlowTests {
         await host.WithDbAsync(async db => {
             var key = await db.ApiKeys.AsNoTracking().SingleAsync(IdentityHost.Token);
             Assert.Equal(host.Time.GetUtcNow(), key.LastUsedAt);
-            Assert.DoesNotContain(plaintext.Split('_')[2], key.KeyHash);
+            Assert.True(ApiKeyGenerator.TryParse(plaintext, out _, out var secret));
+            Assert.DoesNotContain(secret, key.KeyHash);
         });
     }
 
@@ -236,11 +237,11 @@ public sealed class IdentityFlowTests {
         await using var host = await IdentityHost.StartAsync();
         var userId = await host.CreateUserAsync("owner@example.test");
         var (_, plaintext) = await host.CreateApiKeyAsync(userId, host.Time.GetUtcNow().AddDays(1));
-        var parts = plaintext.Split('_', 3);
+        Assert.True(ApiKeyGenerator.TryParse(plaintext, out var prefix, out var secret));
 
-        Assert.Null(await host.WhoAmIAsync($"aok_{parts[1]}_{new string('x', parts[2].Length)}"));
+        Assert.Null(await host.WhoAmIAsync($"aok_{prefix}_{new string('x', secret.Length)}"));
         Assert.Null(await host.WhoAmIAsync("aok_short_secret"));
-        Assert.Null(await host.WhoAmIAsync($"aok_ZZZZZZZZ_{parts[2]}"));
+        Assert.Null(await host.WhoAmIAsync($"aok_ZZZZZZZZ_{secret}"));
 
         var (revokedId, revoked) = await host.CreateApiKeyAsync(userId, host.Time.GetUtcNow().AddDays(30));
         await host.WithDbAsync(async db => {
