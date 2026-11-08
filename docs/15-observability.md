@@ -1,6 +1,6 @@
 # 15 — Observability
 
-Phase 7 deliverable; health checks and structured logging exist from Phase 1.
+Phase 7 deliverable; health checks exist from Phase 1, while Serilog structured logging remains a design target.
 
 ```
 Api / Worker ──► OpenTelemetry SDK ──► /metrics (Prometheus exposition) ──► Prometheus ──► Grafana
@@ -23,9 +23,9 @@ Api / Worker ──► OpenTelemetry SDK ──► /metrics (Prometheus expositi
 ## 2. Metrics (OpenTelemetry → Prometheus)
 
 Instrumentation targets: built-in ASP.NET Core HTTP server metrics via the
-`Microsoft.AspNetCore.Hosting` meter, and the custom `Meter("AegisOps")` on the
-Worker. Runtime, Npgsql, tracing, and the remaining custom instruments below
-are design targets, not yet exported.
+`Microsoft.AspNetCore.Hosting` and `AegisOps.Ai` meters on the API, and the custom
+`Meter("AegisOps")` on the Worker. Runtime, Npgsql, tracing, and the remaining
+custom instruments below are design targets, not yet exported.
 
 The API exports `http_server_request_duration_seconds` via `/metrics` only on its
 internal management listener (port `9464`). The API image listens on `8080` and
@@ -50,12 +50,28 @@ stale-lease recovery after commit, including interrupted executions that become
 Core exporter is pinned at `1.20.1-beta.1` alongside OpenTelemetry `1.20.1` because
 its package is prerelease; revisit the exporter before production use.
 In the default Compose stack the Worker port is not published to the host, but any
-network peer can scrape it. Prometheus and Grafana are now provisioned in an opt-in
-Compose overlay; the Prometheus binary was also run locally against the API and
-confirmed to scrape its HTTP duration series and load all five rules. Compose and
-Grafana runtime have not been exercised because the Docker daemon was unavailable.
-The remaining instruments and planned dashboard panels below are design targets,
-not implemented features.
+network peer can scrape it. Prometheus and Grafana are provisioned in an opt-in
+Compose overlay. A prior live Compose run verified both scrape targets, five
+alerts, and an Overview screenshot with API p95 and Worker queue-depth data;
+its 5xx and processed-job panels had no matching series at that time. The new
+Delivery and AI Governance dashboards have passed file/contract checks, and
+a locally rebuilt API/Worker stack now exports their zero-valued counter
+baselines to Prometheus. Neither new dashboard has been inspected with live
+events in Grafana yet.
+
+The API records `aegisops_ai_requests_total{status,reason}` only after the AI
+request and audit event save succeeds. `reason` is a bounded gateway result (or
+`Other`), not a provider exception. It records
+`aegisops_ai_sensitive_detections_total{type,policy_action}` once per known
+inbound sensitive type per committed request, using the active policy action
+or `NoPolicy` when none was available; unknown detector types are excluded.
+Neither series has model, user, or prompt labels; cancelled or failed saves
+do not emit events. API startup pre-seeds all bounded AI counter labels with
+zero values after the meter provider starts. Worker startup does the same for
+processed-job and lease-expiry counters before its job processor starts. A
+Prometheus zero scrape *before* the first event lets `rate()`/`increase()`
+observe that event. Job-duration histograms are not seeded with fake samples;
+an idle service can still have no duration series.
 
 Worker queue-depth sampling polls PostgreSQL every 15 seconds. `Pending` counts
 jobs due now (`ScheduledAt <= now`); `Delayed` counts Pending jobs waiting for
@@ -72,7 +88,11 @@ Dead-lettered jobs accumulate until retention/cleanup is implemented; alert on
 new events via the counters *or a rise from the 15-minute minimum of the
 DeadLettered queue gauge*, never on the absolute gauge value. The gauge comparison
 catches a first event when a zero queue snapshot was previously scraped, even
-though a new counter series first appears at 1 rather than transitioning from 0.
+if no zero counter sample was scraped before the event. Pre-seeding counters
+alone cannot recover an event that occurred before the first Prometheus scrape.
+
+The table includes both implemented instruments (described above) and remaining
+design targets; a row alone does not assert that a metric is exported.
 
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
@@ -84,10 +104,10 @@ though a new counter series first appears at 1 rather than transitioning from 0.
 | `aegisops_policy_rule_failures_total` | counter | `rule_type`, `effect` | Which rules block most |
 | `aegisops_scan_findings` | gauge | `project`, `scanner`, `severity` | Open findings on the latest artifact |
 | `aegisops_scan_ingest_duration_seconds` | histogram | `scanner`, `format` | Parsing time |
-| `aegisops_ai_requests_total` | counter | `model`, `status`, `reason` | Completed / Blocked(reason) / Failed |
+| `aegisops_ai_requests_total` | counter | `status`, `reason` (bounded) | Committed gateway request outcomes |
 | `aegisops_ai_request_latency_seconds` | histogram | `model` | Ollama round-trip |
 | `aegisops_ai_tokens_total` | counter | `model`, `kind` (`prompt`/`completion`) | Usage |
-| `aegisops_ai_sensitive_detections_total` | counter | `type`, `action` | Governance value in numbers |
+| `aegisops_ai_sensitive_detections_total` | counter | `type`, `policy_action` | Distinct known inbound types per committed request; policy setting, not actual block outcome |
 | `aegisops_jobs_processed_total` | counter | `type`, `status` | Worker throughput; committed job attempts |
 | `aegisops_jobs_lease_expired_total` | counter | `type`, `status` | Stale lease recoveries, including dead letters |
 | `aegisops_jobs_duration_seconds` | histogram | `type` | Job attempt time, including completion commit |
@@ -130,24 +150,35 @@ Compose stack needs no Grafana credentials. Both UIs bind to host loopback only
 (Prometheus `:9090`, Grafana `:3001`). Neither API `:9464` nor Worker `:8081` is
 published to the host. Prometheus scrapes `api:9464/metrics` and
 `worker:8081/metrics` every 15 s over the internal Compose network. Grafana's
-Prometheus datasource and **AegisOps Overview** dashboard are provisioned from
-`deploy/grafana/`; its live panels use only the implemented API request histogram
+Prometheus datasource and **three dashboards** are provisioned from
+`deploy/grafana/`. Overview panels use only the implemented API request histogram
 and Worker job metrics (API p95, 5xx rate, queue depth, processed jobs). Queue
 depth uses `max by (status)` because Worker replicas read the same shared table.
 API p95 and 5xx panels exclude `/hubs/` routes: a long-lived WebSocket should not
 inflate request latency or trigger the API error-rate alert.
 
-These additional dashboards are *design targets*, not yet provisioned:
+The **Delivery** dashboard currently shows Worker EvaluateDeployment and
+ExecuteDeployment *job attempts* by persisted job status and p95 attempt
+duration. These are not deployment outcomes, approvals, or end-to-end lead time.
+The **AI Governance** dashboard shows committed gateway request rates by
+status/reason and inbound sensitive detection rates by type/policy action. The
+policy action is a configuration label, not proof that an individual request
+was blocked. Both dashboards filter zero-valued rates (`> 0`) to keep idle
+combinations out of the legend; their counters remain seeded in Prometheus so
+the first event after a baseline scrape is visible. Neither dashboard has yet
+been verified with real event data in Grafana.
+
+The following panels remain *design targets*, not yet instrumented:
 
 | Dashboard | Planned panels |
 | --- | --- |
-| **Delivery** | Lead time & approval wait histograms per tier · deployment duration · rule failures top-10 · findings by severity per project |
-| **AI Governance** | Requests by status/reason · sensitive detections by type · latency per model · tokens/day · top users (by count) |
+| **Delivery** | Lead time & approval wait histograms per tier · deployment duration · rule failures top-10 · findings by severity per project · policy decisions |
+| **AI Governance** | Ollama latency per model · tokens/day · top users (by count; requires a privacy review, not a user-ID metric label) |
 | **Runtime** | .NET GC/heap/threads · HTTP throughput · Npgsql pool · Redis latency · SignalR connections |
 
-The configuration and rule expressions pass `docker compose config` and Prometheus
-`promtool` checks, but Grafana/Compose runtime and a live dashboard demo still
-require a working Docker daemon; no dashboard acceptance credit is claimed yet.
+The dashboard contract validates three unique provisioned JSON dashboards and
+implemented series. Earlier Compose evidence applies to Overview only. P7-08
+remains Missing until all three dashboards show live data during a demo.
 
 ## 6. Alerting (lightweight)
 

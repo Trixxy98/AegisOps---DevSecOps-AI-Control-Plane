@@ -52,4 +52,31 @@ public sealed class ApiMetricsTests
         Assert.DoesNotContain("http_route=\"/metrics\"", body);
         Assert.DoesNotContain("http_route=\"/api/items/123\"", body);
     }
+
+    [Fact]
+    public async Task Scrape_exposes_zero_ai_baselines_before_any_gateway_request()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddApiMetrics();
+        await using var app = builder.Build();
+        app.Use((context, next) => {
+            context.Connection.LocalPort = ApiMetrics.ScrapePort;
+            return next(context);
+        });
+        app.UseApiMetrics();
+        await app.StartAsync(TestContext.Current.CancellationToken);
+
+        using var response = await app.GetTestClient().GetAsync("/metrics", TestContext.Current.CancellationToken);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        var lines = (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Split('\n');
+        var requests = lines.Where(line => line.StartsWith("aegisops_ai_requests_total{", StringComparison.Ordinal)).ToArray();
+        var detections = lines.Where(line => line.StartsWith("aegisops_ai_sensitive_detections_total{", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(33, requests.Length);
+        Assert.Equal(48, detections.Length);
+        Assert.Contains(requests, line => line.Contains("status=\"Completed\"") &&
+            line.Contains("reason=\"SensitiveData\"") && line.TrimEnd().EndsWith(" 0", StringComparison.Ordinal));
+        Assert.Contains(detections, line => line.Contains("type=\"PRIVATE_KEY\"") &&
+            line.Contains("policy_action=\"NoPolicy\"") && line.TrimEnd().EndsWith(" 0", StringComparison.Ordinal));
+    }
 }

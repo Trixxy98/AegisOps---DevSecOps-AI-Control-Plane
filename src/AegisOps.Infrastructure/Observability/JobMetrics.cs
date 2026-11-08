@@ -15,6 +15,15 @@ public static class JobMetrics {
         "aegisops_jobs_queue_depth", () => Volatile.Read(ref _queueDepth));
     public static IReadOnlyList<double> DurationBuckets { get; } = Array.AsReadOnly<double>([0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300]);
 
+    public static void InitializeZeroSeries() {
+        foreach (var type in Enum.GetValues<JobType>())
+            foreach (var status in new[] { JobStatus.Pending, JobStatus.Succeeded, JobStatus.DeadLettered }) {
+                var tags = new TagList { { "type", type.ToString() }, { "status", status.ToString() } };
+                Processed.Add(0, tags);
+                LeaseExpired.Add(0, tags);
+            }
+    }
+
     public static void Record(JobType type, JobStatus status, double durationSeconds) {
         var tags = new TagList {
             { "type", type.ToString() },
