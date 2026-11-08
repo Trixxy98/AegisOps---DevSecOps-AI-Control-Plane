@@ -53,11 +53,15 @@ In the default Compose stack the Worker port is not published to the host, but a
 network peer can scrape it. Prometheus and Grafana are provisioned in an opt-in
 Compose overlay. A prior live Compose run verified both scrape targets, five
 alerts, and an Overview screenshot with API p95 and Worker queue-depth data;
-its 5xx and processed-job panels had no matching series at that time. The new
-Delivery and AI Governance dashboards have passed file/contract checks, and
-a locally rebuilt API/Worker stack now exports their zero-valued counter
-baselines to Prometheus. Neither new dashboard has been inspected with live
-events in Grafana yet.
+its 5xx and processed-job panels had no matching series at that time. The
+Delivery and AI Governance dashboards passed file/contract checks. A locally
+rebuilt API/Worker stack exported zero-valued counter baselines, and an
+authorized local demo produced nonzero Delivery and AI Governance rates in
+Prometheus. Signed-in screenshots on 2026-11-08 then showed live Overview API
+p95 and processed jobs, Delivery job-attempt rates, and AI Governance request
+outcomes and inbound email detection. The Delivery job-attempt-duration p95
+panel remains blank after just one observation per job type; this is not a
+claim of missing job attempts or a deployment lead-time measurement.
 
 The API records `aegisops_ai_requests_total{status,reason}` only after the AI
 request and audit event save succeeds. `reason` is a bounded gateway result (or
