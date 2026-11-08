@@ -1,0 +1,33 @@
+{
+  "id": null,
+  "uid": "aegisops-ai-governance",
+  "title": "AegisOps AI Governance",
+  "description": "Committed AI gateway requests and inbound sensitive-data detections; no user or prompt labels. Only positive event rates are plotted; counter baselines are seeded at zero.",
+  "tags": ["aegisops", "ai-governance"],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "AI gateway requests / second by persisted status and reason",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
+      "targets": [{ "refId": "A", "editorMode": "code", "expr": "sum by (status, reason) (rate(aegisops_ai_requests_total{job=\"aegisops-api\"}[5m])) > 0", "legendFormat": "{{status}} {{reason}}", "range": true }]
+    },
+    {
+      "id": 2,
+      "title": "Inbound sensitive detections / second by type and policy action",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
+      "targets": [{ "refId": "A", "editorMode": "code", "expr": "sum by (type, policy_action) (rate(aegisops_ai_sensitive_detections_total{job=\"aegisops-api\"}[5m])) > 0", "legendFormat": "{{type}} {{policy_action}}", "range": true }]
+    }
+  ]
+}

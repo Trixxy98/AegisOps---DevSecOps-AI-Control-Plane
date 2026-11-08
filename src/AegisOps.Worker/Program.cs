@@ -4,6 +4,7 @@ using AegisOps.Infrastructure.Deploy;
 using AegisOps.Infrastructure.Identity;
 using AegisOps.Infrastructure.Health;
 using AegisOps.Infrastructure.Observability;
+using AegisOps.Worker.Observability;
 using OpenTelemetry.Metrics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -23,6 +24,7 @@ if (!string.IsNullOrWhiteSpace(redis)) builder.Services.AddSingleton<IConnection
     options.AbortOnConnectFail = false;
     return ConnectionMultiplexer.Connect(options);
 });
+builder.Services.AddHostedService<JobMetricsSeedService>();
 builder.Services.AddHostedService<DeploymentJobService>();
 builder.Services.AddHostedService<JobQueueDepthService>();
 builder.Services.AddOpenTelemetry().WithMetrics(metrics => metrics

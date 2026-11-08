@@ -7,6 +7,7 @@ using AegisOps.Domain.Ai;
 using AegisOps.Domain.Audit;
 using AegisOps.Domain.Policy;
 using AegisOps.Infrastructure.Persistence;
+using AegisOps.Infrastructure.Observability;
 using Microsoft.EntityFrameworkCore;
 
 namespace AegisOps.Infrastructure.Ai;
@@ -99,6 +100,8 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
             audit.Write(AuditEvent.Record(now, "User", userId, "AI user", "ai.request", "AiRequest", request.Id,
                 status == 200 ? "Succeeded" : "Denied", correlationId[..Math.Min(64, correlationId.Length)]));
             await db.SaveChangesAsync(ct);
+            AiMetrics.Record(request.Status, reason, inspectionOrEmpty().Types,
+                policy?.SensitiveDataAction);
             return new AiGatewayResult(status, request, reply?.Content, rate);
         }
         string safePreviewOrEmpty() => inspection?.Redacted ?? "";

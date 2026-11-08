@@ -3,6 +3,7 @@ using AegisOps.Infrastructure.Audit;
 using AegisOps.Domain.Ai;
 using AegisOps.Domain.Policy;
 using AegisOps.Infrastructure.Persistence;
+using AegisOps.Infrastructure.Observability;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -30,11 +31,80 @@ using Xunit;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Diagnostics.Metrics;
 using StackExchange.Redis;
 
 namespace AegisOps.Api.Tests;
 
 public sealed class AiGatewayTests {
+    [Fact]
+    public async Task Gateway_emits_committed_blocked_request_and_sensitive_detection_without_identity_labels() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("metrics-model"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("metrics-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Block, [], false, false, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var events = new List<(string Name, Dictionary<string, object?> Tags)>();
+        using var listener = new MeterListener {
+            InstrumentPublished = (instrument, current) => {
+                if (instrument.Meter.Name == "AegisOps.Ai") current.EnableMeasurementEvents(instrument);
+            },
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) => {
+            if (value == 0) return;
+            Assert.Equal(1, value);
+            events.Add((instrument.Name, tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value)));
+        });
+        listener.Start();
+        AiMetrics.InitializeZeroSeries();
+
+        var fake = new FakeLlm();
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
+        var result = await gateway.Chat(fixture.UserId, null, model.Name,
+            [new LlmMessage("user", "AKIA1234567890123456")], "metrics", TestContext.Current.CancellationToken);
+
+        Assert.Equal(422, result.StatusCode);
+        Assert.Equal(0, fake.Calls);
+        Assert.Single(await fixture.Db.AiRequests.ToArrayAsync(TestContext.Current.CancellationToken));
+        var request = Assert.Single(events, e => e.Name == "aegisops_ai_requests_total");
+        Assert.Equal("Blocked", request.Tags["status"]);
+        Assert.Equal("SensitiveData", request.Tags["reason"]);
+        Assert.Equal(2, request.Tags.Count);
+        var detection = Assert.Single(events, e => e.Name == "aegisops_ai_sensitive_detections_total");
+        Assert.Equal("AWS_ACCESS_KEY", detection.Tags["type"]);
+        Assert.Equal("Block", detection.Tags["policy_action"]);
+        Assert.DoesNotContain("action", detection.Tags);
+        Assert.Equal(2, detection.Tags.Count);
+    }
+
+    [Fact]
+    public async Task Gateway_does_not_attribute_a_sensitive_detection_to_a_missing_policy() {
+        await using var fixture = new GatewayFixture();
+        var detections = new List<Dictionary<string, object?>>();
+        using var listener = new MeterListener {
+            InstrumentPublished = (instrument, current) => {
+                if (instrument.Meter.Name == "AegisOps.Ai" && instrument.Name == "aegisops_ai_sensitive_detections_total")
+                    current.EnableMeasurementEvents(instrument);
+            },
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, tags, _) => {
+            if (value != 0) detections.Add(tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value));
+        });
+        listener.Start();
+        AiMetrics.InitializeZeroSeries();
+
+        var gateway = new AiGateway(fixture.Db, new FakeLlm(), new FakeLimiter(),
+            new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
+        var result = await gateway.Chat(fixture.UserId, null, null,
+            [new LlmMessage("user", "contact sample@example.invalid")], "metrics", TestContext.Current.CancellationToken);
+
+        Assert.Equal(503, result.StatusCode);
+        Assert.Equal("EMAIL", Assert.Single(detections)["type"]);
+        Assert.Equal("NoPolicy", detections[0]["policy_action"]);
+        Assert.DoesNotContain("action", detections[0]);
+    }
+
     [Theory]
     [InlineData("Admin", "/policies", "GET", 200)]
     [InlineData("Developer", "/policies", "PUT", 403)]

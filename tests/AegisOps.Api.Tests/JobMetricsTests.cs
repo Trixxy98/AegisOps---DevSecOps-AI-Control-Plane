@@ -10,6 +10,34 @@ public sealed class WorkerMetricsGroup { }
 [Collection("WorkerMetrics")]
 public sealed class JobMetricsTests {
     [Fact]
+    public void InitializeZeroSeries_primes_job_counters_before_the_first_job() {
+        var samples = new List<(string Name, long Value, Dictionary<string, object?> Tags)>();
+        using var listener = new MeterListener {
+            InstrumentPublished = (instrument, current) => {
+                if (instrument.Meter.Name == JobMetrics.MeterName &&
+                    instrument.Name is "aegisops_jobs_processed_total" or "aegisops_jobs_lease_expired_total")
+                    current.EnableMeasurementEvents(instrument);
+            },
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            samples.Add((instrument.Name, value, CopyTags(tags))));
+        listener.Start();
+
+        JobMetrics.InitializeZeroSeries();
+
+        var statuses = new[] { JobStatus.Pending, JobStatus.Succeeded, JobStatus.DeadLettered };
+        var names = new[] { "aegisops_jobs_processed_total", "aegisops_jobs_lease_expired_total" };
+        Assert.Equal(Enum.GetValues<JobType>().Length * statuses.Length * names.Length, samples.Count);
+        Assert.All(samples, sample => Assert.Equal(0, sample.Value));
+        foreach (var name in names)
+            foreach (var type in Enum.GetValues<JobType>())
+                foreach (var status in statuses)
+                    Assert.Single(samples, sample => sample.Name == name &&
+                        sample.Tags["type"]?.ToString() == type.ToString() &&
+                        sample.Tags["status"]?.ToString() == status.ToString());
+    }
+
+    [Fact]
     public void Record_emits_bounded_type_status_labels_and_duration() {
         var measurements = new List<(string Name, double Value, Dictionary<string, object?> Tags)>();
         using var listener = new MeterListener {
