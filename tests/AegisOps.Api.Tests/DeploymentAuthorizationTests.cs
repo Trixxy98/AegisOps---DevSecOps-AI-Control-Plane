@@ -1,7 +1,11 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Encodings.Web;
 using AegisOps.Api.Deploy;
 using AegisOps.Application.Idempotency;
+using AegisOps.Application.Observability;
 using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Jobs;
@@ -10,6 +14,7 @@ using AegisOps.Domain.Policy;
 using AegisOps.Domain.Security;
 using AegisOps.Infrastructure.Persistence;
 using AegisOps.Infrastructure.Audit;
+using AegisOps.Infrastructure.Observability;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authentication;
@@ -383,6 +388,48 @@ public sealed class DeploymentAuthorizationTests {
     }
 
     [Fact]
+    public async Task Deployment_keeps_unique_server_correlation_when_client_supplies_a_reusable_id() {
+        using var fixture = new Fixture();
+        fixture.Join(fixture.Creator);
+        Assert.Equal(202, await fixture.Request(Fixture.UserPrincipal(fixture.Creator), incomingCorrelation: "reusable-client-id"));
+        var deployment = Assert.Single(fixture.Db.Deployments.Where(item => item.Id != fixture.Source.Id));
+        Assert.True(Guid.TryParse(deployment.CorrelationId, out _));
+        Assert.NotEqual("reusable-client-id", deployment.CorrelationId);
+        var job = Assert.Single(fixture.Db.Jobs.Where(item => item.Type == JobType.EvaluateDeployment));
+        Assert.Equal(deployment.CorrelationId, job.CorrelationId);
+    }
+
+    [Fact]
+    public async Task Authorized_request_persists_linkable_trace_context_for_worker_job() {
+        var stopped = new ConcurrentBag<Activity>();
+        using var listener = new ActivityListener {
+            ShouldListenTo = source => source.Name == AegisOpsTracing.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = stopped.Add,
+        };
+        ActivitySource.AddActivityListener(listener);
+        using var fixture = new Fixture();
+        fixture.Join(fixture.Creator);
+        ActivityContext requestContext;
+        using (var incoming = AegisOpsTracing.Source.StartActivity("Api.Request")) {
+            Assert.NotNull(incoming);
+            Assert.Equal(202, await fixture.Request(Fixture.UserPrincipal(fixture.Creator)));
+            requestContext = Assert.Single(stopped, activity => activity.DisplayName == "RequestDeployment"
+                && activity.TraceId == incoming.TraceId && activity.ParentSpanId == incoming.SpanId).Context;
+        }
+
+        var job = Assert.Single(fixture.Db.Jobs.Where(item => item.Type == JobType.EvaluateDeployment));
+        var deployment = Assert.Single(fixture.Db.Deployments.Where(item => item.Id != fixture.Source.Id));
+        using var payload = JsonDocument.Parse(job.Payload);
+        Assert.Equal(deployment.Id, payload.RootElement.GetProperty("deploymentId").GetGuid());
+        Assert.Equal(deployment.CorrelationId, payload.RootElement.GetProperty("correlationId").GetString());
+        using var worker = JobTraceContext.StartJob(job);
+        Assert.NotNull(worker);
+        Assert.Equal(requestContext.TraceId, Assert.Single(worker.Links).Context.TraceId);
+        Assert.Equal(requestContext.SpanId, Assert.Single(worker.Links).Context.SpanId);
+    }
+
+    [Fact]
     public async Task AuthorizedUserCanRequest_AndRollbackStateConflictOccursAfterAuthorization() {
         using var fixture = new Fixture();
         var user = fixture.AddUser();
@@ -735,8 +782,10 @@ public sealed class DeploymentAuthorizationTests {
             return http;
         }
 
-        public async Task<int> Request(ClaimsPrincipal principal, RequestDeploymentRequest? request = null) {
-            var result = await DeploymentEndpoints.Request(request ?? new RequestDeploymentRequest(Artifact.Id, Environment.Id, null, null), principal, Users, Db, new EfAuditWriter(Db), TimeProvider.System, Replay, Context());
+        public async Task<int> Request(ClaimsPrincipal principal, RequestDeploymentRequest? request = null, string? incomingCorrelation = null) {
+            var context = Context();
+            if (incomingCorrelation is not null) context.Items["correlationId"] = incomingCorrelation;
+            var result = await DeploymentEndpoints.Request(request ?? new RequestDeploymentRequest(Artifact.Id, Environment.Id, null, null), principal, Users, Db, new EfAuditWriter(Db), TimeProvider.System, Replay, context);
             return ((IStatusCodeHttpResult)result).StatusCode ?? 200;
         }
 

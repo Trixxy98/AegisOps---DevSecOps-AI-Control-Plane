@@ -1,6 +1,8 @@
 using AegisOps.Application.Audit;
 using System.Security.Claims;
 using System.Text.Json;
+using AegisOps.Application.Observability;
+using AegisOps.Infrastructure.Observability;
 using AegisOps.Api.Idempotency;
 using AegisOps.Application.Idempotency;
 using AegisOps.Domain.Audit;
@@ -31,6 +33,7 @@ public static class DeploymentEndpoints {
         IIdempotencyStore idempotency,
         HttpContext http
     ) {
+        using var trace = AegisOpsTracing.Source.StartActivity("RequestDeployment");
         var actor = await ActorResult.ResolveAsync(principal, users);
         if (actor.Error is not null) {
             return actor.Error;
@@ -89,6 +92,7 @@ public static class DeploymentEndpoints {
         IIdempotencyStore idempotency,
         HttpContext http
     ) {
+        using var trace = AegisOpsTracing.Source.StartActivity("RequestDeployment");
         var actor = await ActorResult.ResolveAsync(principal, users);
         if (actor.Error is not null) {
             return actor.Error;
@@ -311,7 +315,7 @@ public static class DeploymentEndpoints {
         } else {
             deployment.ReceiveApproval();
             db.DeploymentEvents.Add(DeploymentEvent.Create(deployment.Id, sequence, now, DeploymentEventType.ApprovalReceived, "Approval received."));
-            db.Jobs.Add(Job.Enqueue(JobType.EvaluateDeployment, JsonSerializer.Serialize(new { deploymentId = deployment.Id }), now, deployment.CorrelationId));
+            db.Jobs.Add(Job.Enqueue(JobType.EvaluateDeployment, JobTraceContext.DeploymentPayload(deployment.Id, deployment.CorrelationId), now, deployment.CorrelationId));
         }
 
         audit.Write(AuditEvent.Record(now, "User", actor.UserId, actor.Display, "deployment." + decision.ToString().ToLowerInvariant(), "Deployment", deployment.Id, decision.ToString(), deployment.CorrelationId));
@@ -426,7 +430,7 @@ public static class DeploymentEndpoints {
         db.DeploymentEvents.Add(DeploymentEvent.Create(deployment.Id, 1, now, DeploymentEventType.Requested, reason is not null && reason.StartsWith("rollback of ", StringComparison.Ordinal) ? reason : "Deployment requested."));
         db.Jobs.Add(Job.Enqueue(
             JobType.EvaluateDeployment,
-            JsonSerializer.Serialize(new { deploymentId = deployment.Id }),
+            JobTraceContext.DeploymentPayload(deployment.Id, deployment.CorrelationId),
             now,
             deployment.CorrelationId
         ));

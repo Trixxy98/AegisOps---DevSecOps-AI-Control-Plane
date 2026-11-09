@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AegisOps.Application.Observability;
 using System.Text.RegularExpressions;
 using AegisOps.Domain.Organization;
 using AegisOps.Domain.Policy;
@@ -104,6 +105,11 @@ public static class PolicyEngine {
         PolicyContext context,
         IEnumerable<ApplicablePolicy> policies
     ) {
+        using var activity = AegisOpsTracing.Source.StartActivity("PolicyEngine.Evaluate");
+        EvaluationResult Record(EvaluationResult result) {
+            activity?.SetTag("decision", result.Decision.ToString());
+            return result;
+        }
         var results = new List<RuleResult>();
         var approvalsRequired = 0;
 
@@ -130,25 +136,25 @@ public static class PolicyEngine {
 
         var denies = results.Where(result => !result.Passed && result.Effect == nameof(RuleEffect.Deny) && result.Type != nameof(PolicyRuleType.RequireApprovals)).ToArray();
         if (denies.Length > 0) {
-            return new EvaluationResult(PolicyDecision.Deny, approvalsRequired, denies[0].Message, results);
+            return Record(new EvaluationResult(PolicyDecision.Deny, approvalsRequired, denies[0].Message, results));
         }
 
         var escalations = results.Any(result => !result.Passed && result.Effect == nameof(RuleEffect.RequireApproval) && result.Type != nameof(PolicyRuleType.RequireApprovals));
         var required = Math.Max(approvalsRequired, escalations ? 1 : 0);
         if (required > 0) {
             if (context.SatisfiedApprovals >= required) {
-                return new EvaluationResult(PolicyDecision.Allow, required, null, results);
+                return Record(new EvaluationResult(PolicyDecision.Allow, required, null, results));
             }
 
-            return new EvaluationResult(
+            return Record(new EvaluationResult(
                 PolicyDecision.RequireApproval,
                 required,
                 $"{required} approval(s) required.",
                 results
-            );
+            ));
         }
 
-        return new EvaluationResult(PolicyDecision.Allow, 0, null, results);
+        return Record(new EvaluationResult(PolicyDecision.Allow, 0, null, results));
     }
 
     private static (bool Passed, string Message, int Quorum) EvaluateRule(ApplicableRule rule, PolicyContext context) {

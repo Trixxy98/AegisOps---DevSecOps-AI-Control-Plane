@@ -61,22 +61,7 @@ public static class TeamWebhookSender {
         string signature;
         try { signature = Sign(key, timestamp, body); }
         finally { CryptographicOperations.ZeroMemory(key); }
-        var handler = handlerOverride ?? new SocketsHttpHandler {
-            UseProxy = false, AllowAutoRedirect = false, UseCookies = false,
-            ConnectCallback = async (context, token) => {
-                var host = context.DnsEndPoint.Host;
-                var addresses = await Dns.GetHostAddressesAsync(host, token);
-                // Reject the entire DNS answer set, not just the first address. Pin the socket
-                // to a vetted IP while TLS still verifies the original hostname.
-                if (addresses.Length == 0 || addresses.Any(ip => !IsPublicIpv4(ip)))
-                    throw new InvalidOperationException("Webhook destination is not allowed.");
-                var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                try {
-                    await socket.ConnectAsync(new IPEndPoint(addresses[0], 443), token);
-                    return new NetworkStream(socket, ownsSocket: true);
-                } catch { socket.Dispose(); throw; }
-            },
-        };
+        var handler = handlerOverride ?? CreateHandler();
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
         using var request = new HttpRequestMessage(HttpMethod.Post, uri) {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
@@ -87,6 +72,25 @@ public static class TeamWebhookSender {
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Webhook delivery failed.");
     }
+
+    internal static SocketsHttpHandler CreateHandler() => new() {
+        UseProxy = false, AllowAutoRedirect = false, UseCookies = false,
+        // The webhook is a trust boundary: never forward traceparent or correlation baggage.
+        ActivityHeadersPropagator = null,
+        ConnectCallback = async (context, token) => {
+            var host = context.DnsEndPoint.Host;
+            var addresses = await Dns.GetHostAddressesAsync(host, token);
+            // Reject the entire DNS answer set, not just the first address. Pin the socket
+            // to a vetted IP while TLS still verifies the original hostname.
+            if (addresses.Length == 0 || addresses.Any(ip => !IsPublicIpv4(ip)))
+                throw new InvalidOperationException("Webhook destination is not allowed.");
+            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            try {
+                await socket.ConnectAsync(new IPEndPoint(addresses[0], 443), token);
+                return new NetworkStream(socket, ownsSocket: true);
+            } catch { socket.Dispose(); throw; }
+        },
+    };
 
     public static bool TryValidateUrl(string? value, out Uri uri) {
         uri = null!;

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using AegisOps.Application.Observability;
 using AegisOps.Domain.Security;
 
 namespace AegisOps.Application.Scanning;
@@ -29,6 +30,8 @@ public static class SarifReportParser {
     };
 
     public static IReadOnlyList<ParsedFinding> Parse(ScannerType scanner, ReadOnlyMemory<byte> report) {
+        using var activity = AegisOpsTracing.Source.StartActivity("Scanner.ParseReport");
+        activity?.SetTag("scanner.type", scanner.ToString());
         using var document = JsonDocument.Parse(report, Json);
         if (!document.RootElement.TryGetProperty("runs", out var runs) || runs.ValueKind != JsonValueKind.Array) {
             return [];

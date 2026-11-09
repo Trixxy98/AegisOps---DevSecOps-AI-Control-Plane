@@ -125,15 +125,70 @@ user ids, deployment ids or versions as labels.
 
 ## 3. Tracing
 
-- `ActivitySource("AegisOps")`; spans for use-case handlers (`RequestDeployment`,
-  `EvaluateDeployment`), policy evaluation (`PolicyEngine.Evaluate` with `decision`
-  attribute), scanner parsing, Ollama calls (`gen_ai.request.model`, token counts per
-  semantic conventions), Docker executor steps.
-- Correlation: incoming `X-Correlation-Id` stored as span attribute and baggage; job
-  payloads carry `correlationId` so Worker spans link to the originating request
-  (`ActivityLink`).
-- Export: console in Development; `OTLP` if `OTEL_EXPORTER_OTLP_ENDPOINT` set (Jaeger /
-  Grafana Tempo optional, not in the default compose).
+The API and Worker now register `ActivitySource("AegisOps")` with OpenTelemetry.
+Custom spans cover API deployment requests, evaluation/execution jobs, policy
+engine decisions (`decision` is bounded), SARIF parsing (`scanner.type`), Ollama
+chat (nonnegative token counts), and Docker executor steps (fixed names and
+bounded outcome only). The model name is deliberately **not** exported: it can
+be user-defined, so the earlier target of `gen_ai.request.model` remains a
+privacy-gated design item. Prompts, responses, scan contents, image references,
+container names, URLs, and exception messages are not set as trace attributes.
+
+For API requests, a single `X-Correlation-Id` with 1–64 ASCII letters, digits,
+`-`, or `_` is accepted; otherwise an opaque identifier is generated. The
+result becomes a span attribute and baggage entry for the request. Each
+Deployment instead receives a server-generated correlation ID for its audit,
+job, and payload records, so clients cannot reuse another deployment's audit
+correlation. Deployment job payloads persist that server-generated ID plus W3C
+`traceparent`; queued scan payloads carry `traceparent`. The Worker creates a
+consumer span and links valid persisted context via `ActivityLink`;
+legacy/malformed payloads omit the link without changing their existing job
+failure path. SQLite tests cover persisted
+API-request → job-payload → Worker-link behavior. On 2026-11-09, a single
+approved Development noop deployment succeeded in rebuilt local API/Worker
+containers. Console-exported Worker `EvaluateDeployment` linked to the API
+`RequestDeployment` span, and the Worker `ExecuteDeployment` job linked to its
+preceding evaluation span; both persisted jobs succeeded.
+
+In a separate approved read-only probe on 2026-11-09, a temporary OTLP/HTTP
+receiver accepted two protobuf trace batches from rebuilt local containers.
+Unauthenticated API GETs (404 and 401) produced `Api.Request` spans with the
+`aegisops-api` service resource in both batches. No job or deployment was
+submitted for this probe, so Worker OTLP export was not observed. The temporary
+receiver was stopped and the original API/Worker Compose environment restored;
+40 deployments and zero active jobs remained afterward.
+
+A separately approved isolated Docker probe used an in-memory artifact/target,
+not a Staging environment or queued job. The real Docker executor pulled a
+public test image, created and started a dedicated temporary container, passed
+its health check, and returned success. A local `ActivityListener` observed
+`Docker.PullImage`, `Docker.CreateContainer`, `Docker.StartContainer`,
+`Docker.HealthCheck`, and `Docker.Execute` (status `Ok`). The probe container and
+its host port were cleared afterward; deployment records stayed at 40. This
+first run did **not** export Docker spans to OTLP: the scratch harness set the
+HTTP endpoint without `/v1/traces`, and the receiver captured no batch. After
+configuring that path, a separate synthetic `Probe.OtlpSmoke` span reached the
+collector. Do not conflate that smoke batch with the actual Docker spans or
+with Worker OTLP export.
+
+The trace provider uses the console exporter in Development and an optional OTLP
+exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (a collector such as Jaeger or
+Tempo is not in the default Compose stack). An unsampled ASP.NET ambient parent
+initially suppressed ordinary custom spans; the provider now starts before
+work and uses an always-on sampler for bounded `AegisOps` spans. A read-only
+unauthenticated API request then produced a console-exported `Api.Request`
+span without sending a sampled `traceparent`. Because ASP.NET's own request
+Activity is not exported, `Api.Request` is started as a root span (or as a child
+of a valid incoming W3C `traceparent`) rather than as a child of that missing
+span, and caller-supplied `baggage` is not inherited. Failed jobs, Docker steps,
+`Docker.Execute`, and Ollama calls set span status `Error` without exception
+messages or events. An unhealthy Docker health check and failed restore step
+also mark their spans `Error`. API and Worker export distinct `service.name`
+resource values; the third-party webhook HTTP handler does not propagate trace
+headers or correlation baggage. Review always-on sampling volume before
+production use. Worker OTLP collector export and Docker executor spans exported
+from a real Worker job remain unobserved; real scanner/Ollama traffic is also
+not covered by this probe. P7-03 remains Unverified.
 
 ## 4. Health checks
 
@@ -169,8 +224,10 @@ status/reason and inbound sensitive detection rates by type/policy action. The
 policy action is a configuration label, not proof that an individual request
 was blocked. Both dashboards filter zero-valued rates (`> 0`) to keep idle
 combinations out of the legend; their counters remain seeded in Prometheus so
-the first event after a baseline scrape is visible. Neither dashboard has yet
-been verified with real event data in Grafana.
+the first event after a baseline scrape is visible. Signed-in screenshots on
+2026-11-08 verified live event data on Overview, Delivery, and AI Governance;
+Delivery's p95 attempt-duration panel remained blank with only one observation
+of each job type.
 
 The following panels remain *design targets*, not yet instrumented:
 
@@ -181,8 +238,8 @@ The following panels remain *design targets*, not yet instrumented:
 | **Runtime** | .NET GC/heap/threads · HTTP throughput · Npgsql pool · Redis latency · SignalR connections |
 
 The dashboard contract validates three unique provisioned JSON dashboards and
-implemented series. Earlier Compose evidence applies to Overview only. P7-08
-remains Missing until all three dashboards show live data during a demo.
+implemented series. P7-08 was verified with signed-in live screenshots of all
+three dashboards and matching persisted event/Prometheus evidence.
 
 ## 6. Alerting (lightweight)
 
