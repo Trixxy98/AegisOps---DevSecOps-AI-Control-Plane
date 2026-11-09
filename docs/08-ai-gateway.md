@@ -51,7 +51,7 @@ Global policy; `Security` may edit Team policies.
 | **Prompt size** | `MaxPromptChars` (default 16 000) | Sum of message contents |
 | **Blocked patterns** | `BlockedPatterns[]` (regex) | e.g. `(?i)ignore (all|previous) instructions`, jailbreak boilerplate; hit → `PromptRejected` |
 | **Sensitive data** | `SensitiveDataAction: Allow \| Redact \| Block` | `ISensitiveDataDetector` (§4) |
-| **Content retention** | `StoreContent` (default `false`) | If false, only `PromptHash` + redacted 500-char previews are stored |
+| **Content retention** | `StoreContent` (default `false`) | If false, only `PromptHash` + redacted 500-char previews are stored. If true, the Worker's `AiContentRetentionService` clears `prompt_content`/`response_content` after `Ai:ContentRetentionDays` (default 30; runs at start-up and daily); hash, previews, detections and token counts are kept |
 | **Response checks** | `Ai:ScanResponses` (app setting) | Run the secret detectors on the completion; log `ResponseContainedSecret` metric |
 | **Timeouts** | `Ai:Ollama:TimeoutSeconds` (default 120) | `HttpClient` timeout + `CancellationToken` from request |
 

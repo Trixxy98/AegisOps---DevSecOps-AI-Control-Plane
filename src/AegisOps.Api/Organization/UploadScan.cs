@@ -44,7 +44,13 @@ public static class UploadScan {
             return Results.Problem(title: "Artifact was not found.", statusCode: StatusCodes.Status404NotFound);
         }
 
-        var form = await request.ReadFormAsync(cancellationToken);
+        IFormCollection form;
+        try {
+            form = await request.ReadFormAsync(cancellationToken);
+        } catch (Exception exception) when (exception is InvalidDataException or BadHttpRequestException) {
+            // The form limit equals MaxBytes, so an oversized report fails while reading the form.
+            return Results.Problem(title: "Report must be 20 MB or smaller.", statusCode: StatusCodes.Status400BadRequest);
+        }
         if (!Enum.TryParse<ScannerType>(form["scanner"].ToString(), true, out var scanner) || !Enum.IsDefined(scanner)) {
             return Results.Problem(title: "Scanner must be Gitleaks, Trivy, or Semgrep.", statusCode: StatusCodes.Status400BadRequest);
         }
@@ -166,6 +172,10 @@ public static class SuppressFinding {
         }
 
         var now = time.GetUtcNow();
+        if (request.ExpiresAt is { } expiresAt && expiresAt <= now) {
+            return Results.Problem(title: "Suppression expiry must be in the future.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var suppression = await db.FindingSuppressions.SingleOrDefaultAsync(
             item => item.ProjectId == project.Id && item.Fingerprint == request.Fingerprint.Trim(),
             cancellationToken
@@ -173,6 +183,9 @@ public static class SuppressFinding {
         if (suppression is null) {
             suppression = FindingSuppression.Create(project.Id, request.Fingerprint, request.Reason, actor.UserId.Value, now, request.ExpiresAt);
             db.FindingSuppressions.Add(suppression);
+        } else {
+            // Re-suppressing (e.g. an expired entry) must apply the new reason/expiry to later scans too.
+            suppression.Renew(request.Reason, actor.UserId.Value, now, request.ExpiresAt);
         }
 
         var fingerprint = request.Fingerprint.Trim();

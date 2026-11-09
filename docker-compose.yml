@@ -75,6 +75,11 @@ services:
     volumes:
       - reports:/app/reports
       - /var/run/docker.sock:/var/run/docker.sock
+    # Grant the socket's group, not root: set DOCKER_GID to `stat -c %g /var/run/docker.sock`
+    # on Linux hosts (Docker Desktop's VM socket is group 0). Mounting the socket is
+    # root-equivalent on the host; see docs/14 for the docker-socket-proxy alternative.
+    group_add:
+      - "${DOCKER_GID:-0}"
     depends_on:
       api:
         condition: service_started
@@ -93,9 +98,38 @@ services:
     networks:
       - aegisops
 
+  # Opt-in local LLM: `docker compose --profile ai up -d`. The API's default
+  # Ai:Ollama:BaseUrl is http://ollama:11434/. Not published to the host.
+  ollama:
+    image: ollama/ollama:0.12.6
+    profiles: ["ai"]
+    volumes:
+      - ollama:/root/.ollama
+    networks:
+      - aegisops
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  ollama-init:
+    image: ollama/ollama:0.12.6
+    profiles: ["ai"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-llama3.2:3b}"]
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - aegisops
+
 volumes:
   pgdata:
   reports:
+  ollama:
 
 networks:
   aegisops:

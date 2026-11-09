@@ -1,0 +1,18 @@
+{
+  "project": "notification-service",
+  "version": "v0.0.0-ci.replay",
+  "commitSha": "89abcdef0123456789abcdef0123456789abcdef",
+  "branch": "main",
+  "imageReference": "ghcr.io/aegisops/notification-service:replay",
+  "imageDigest": "sha256:89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567",
+  "buildStatus": "Passed",
+  "testStatus": "Passed",
+  "testSummary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationSeconds": 1
+  },
+  "deployTo": "Staging"
+}
