@@ -88,7 +88,8 @@ before aggregation, so each sample is internally consistent and the
 Each Worker samples the same shared jobs table: dashboard/alert queries must
 scope to one AegisOps deployment and use `max by (status) (aegisops_jobs_queue_depth)`
 across Worker replicas, never `sum` across them.
-Dead-lettered jobs accumulate until retention/cleanup is implemented; alert on
+Dead-lettered jobs are intentionally retained until an Admin retries them (the
+Worker's `JobCleanupService` deletes only `Succeeded` jobs older than seven days); alert on
 new events via the counters *or a rise from the 15-minute minimum of the
 DeadLettered queue gauge*, never on the absolute gauge value. The gauge comparison
 catches a first event when a zero queue snapshot was previously scraped, even

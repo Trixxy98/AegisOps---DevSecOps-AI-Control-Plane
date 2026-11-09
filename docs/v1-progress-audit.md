@@ -150,7 +150,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P4-09 | Docker socket proxy option is documented | Verified | `docs/14-devops-and-infrastructure.md` documents the proxy alternative. |
 | P4-10 | Rollback API endpoint is available and authorized | Verified | Endpoint is mapped; rollback authorization/state tests are included in the focused API test run (28 passed). |
 | P4-11 | Admin can list dead-letter jobs and retry eligible jobs | Verified | Admin jobs endpoints expose list/status and retry; API project compiles and tests pass. |
-| P4-12 | Queue-depth metric is emitted | Missing | No queue-depth metric implementation was found under `src/`. |
+| P4-12 | Queue-depth metric is emitted | Verified | `JobQueueDepthService` polls PostgreSQL every 15 seconds and emits `aegisops_jobs_queue_depth` for Pending (due), Delayed, Running, and DeadLettered; `JobQueueDepthServiceTests` cover persisted counts and stale-value clearing. The rebuilt Worker was scraped live on `worker:8081` with queue-depth series (see P7-02), and the Overview dashboard shows the gauge (P7-04). The earlier Missing status predated that implementation. |
 | P4-13 | Worker exits cleanly on shutdown cancellation | Verified | `DeploymentJobService` catches the stopping-token cancellation and returns. |
 | P4-14 | Docker-backed Staging deployment serves the new version and rolls back on forced health failure | Verified | Published healthy image run `40439154412` deployed successfully and returned healthy `/health`; distinct forced-failure image run `40442951347` passed CI/scans, received `Allow`, then recorded the 60-second health failure and automatic rollback. Production stayed on its existing noop target/artifact. See `docs/staging-rollback-validation.md`. |
 | P4-15 | Optional `RunSecurityScan` scanner-container job is implemented | Missing (optional) | No `Worker:RunScans`/`RunSecurityScan` implementation was found; optional, so excluded from mandatory completion scoring unless scope is reaffirmed. |
@@ -238,7 +238,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P8-05 | Audit coverage test verifies all security-sensitive actions | Missing | Audit writes exist on some paths, but no audit-coverage test exists; this was also a Phase 1 acceptance check. |
 | P8-06 | AI content retention job deletes stored prompts/responses after configured retention | Missing | Settings/docs describe content retention, but no retention worker/job implementation was found. |
 | P8-07 | Scan report cleanup removes expired reports | Missing | Report storage exists; no scheduled cleanup/purge implementation was found. |
-| P8-08 | Job cleanup removes succeeded jobs after seven days and handles dead letters | Missing | Database design documents this behavior, but no cleanup implementation was found. |
+| P8-08 | Job cleanup removes succeeded jobs after seven days and handles dead letters | Verified | `JobCleanupService` (Worker hosted service, runs at start and every 24 hours) deletes `Succeeded` jobs whose `completed_at` is more than seven days old in batches of 500; their webhook delivery attempts cascade. `DeadLettered` jobs are kept until an Admin retries them, and Pending/Running jobs are never touched, matching `docs/11-database-design.md`. `JobCleanupServiceTests` verify the 8-day/6-day boundary, retention of dead-lettered/pending/running jobs, cascade of attempt history, idempotent re-runs, and multi-batch draining. The team webhook delivery history reports purged old events as `Expired` instead of `NotQueued` (tested). Evidence is SQLite-backed automated tests; the service has not yet been observed deleting rows in the live PostgreSQL Worker. |
 | P8-09 | `reset-demo.sh` resets seeded/demo state | Missing | No tracked reset script exists. |
 | P8-10 | `docs/demo-script.md` walks through the four v1 journeys | Missing | No tracked demo script exists; only Compose setup and a deployment smoke script are present. |
 | P8-11 | README includes a 60-second GIF and screenshots | Missing | No tracked GIF/screenshots were found. |
@@ -262,14 +262,14 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 1 | 3 | 17 / 24 | 13.71 percentage points |
 | 2 | 1.5 | 9 / 15 | 5.81 percentage points |
 | 3 | 2 | 5 / 13 | 4.96 percentage points |
-| 4 | 2 | 9 / 14 | 8.29 percentage points |
+| 4 | 2 | 10 / 14 | 9.22 percentage points |
 | 5 | 1 | 5 / 13 | 2.48 percentage points |
 | 6 | 2 | 8 / 13 | 7.94 percentage points |
 | 7 | 1.5 | 5 / 8 | 6.05 percentage points |
-| 8 | 1.5 | 3 / 16 | 1.81 percentage points |
-| **Total** | **15.5** | **83 / 144** | **56.13% complete** |
+| 8 | 1.5 | 4 / 16 | 2.42 percentage points |
+| **Total** | **15.5** | **85 / 144** | **57.65% complete** |
 
-**Estimated remaining: 43.87%** by the same weighted, evidence-based measure. Status totals are 83 Verified, 30 Unverified, 31 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, SPA security headers, and live Overview, Delivery, and AI Governance dashboards are verified; complete seeded Journeys A/D remain unverified. The local P7-03 tracing increment is not yet live-verified.
+**Estimated remaining: 42.35%** by the same weighted, evidence-based measure. Status totals are 85 Verified, 30 Unverified, 29 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, SPA security headers, and live Overview, Delivery, and AI Governance dashboards are verified; complete seeded Journeys A/D remain unverified. The local P7-03 tracing increment is not yet live-verified.
 
 ### Highest-impact next steps
 
@@ -282,3 +282,5 @@ The Staging rollback, Phase 7 readiness, signed-in degraded-status UI/API, and S
 2026-11-06 update: P1-02, P1-03, and P1-06 moved to Verified via `tests/AegisOps.Api.Tests/IdentityFlowTests.cs` (12 tests). Full solution run: 175 passed, 0 failed, 1 skipped. Overall estimate 47.66% → 50.08% (+2.42 percentage points).
 
 2026-11-06 update 2: P1-08, P1-09, and P1-12 moved to Verified via `tests/AegisOps.Api.Tests/ProjectAndPolicyEndpointTests.cs` (6 tests). Full solution run: 181 passed, 0 failed, 1 skipped. Overall estimate 50.08% → 52.50% (+2.42 percentage points).
+
+2026-11-09 update: P8-08 moved to Verified via the new Worker `JobCleanupService` and `tests/AegisOps.Api.Tests/JobCleanupServiceTests.cs` (SQLite-backed; live PostgreSQL deletion not yet observed). P4-12 corrected from Missing to Verified: the queue-depth gauge was already implemented, tested, and scraped live (P7-02/P7-04 evidence). Full solution run: 212 passed, 0 failed, 1 skipped. Overall estimate 56.13% → 57.65% (+1.52 percentage points).
