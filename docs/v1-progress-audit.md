@@ -237,7 +237,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P8-04 | SPA security headers include the planned CSP | Verified | nginx sends a CSP with same-origin scripts/styles, same-host SignalR WebSocket connections, and no inline/eval scripts; it also sends `nosniff`, `DENY`, and `no-referrer`. The live Compose smoke test passed against port 3000, `nginx -t` passed, a saved-vault sign-in and project navigation worked without observed CSP violations, and all 6 Playwright tests passed. |
 | P8-05 | Audit coverage test verifies all security-sensitive actions | Missing | Audit writes exist on some paths, but no audit-coverage test exists; this was also a Phase 1 acceptance check. |
 | P8-06 | AI content retention job deletes stored prompts/responses after configured retention | Missing | Settings/docs describe content retention, but no retention worker/job implementation was found. |
-| P8-07 | Scan report cleanup removes expired reports | Missing | Report storage exists; no scheduled cleanup/purge implementation was found. |
+| P8-07 | Scan report cleanup removes expired reports | Verified | Worker `ScanReportCleanupService` (start-up and every 24 hours) clears `raw_report_path` for finished scans older than `Storage:ReportRetentionDays` (default 90) and deletes unreferenced `.sarif` files older than one hour, including reports orphaned by re-uploads or rejected SARIF; scans, summaries and findings are kept and Queued/Running scans keep their report. Compose now gives the Worker the shared `Storage__ReportsPath`. `ScanReportCleanupServiceTests` cover retention expiry, the one-hour in-flight grace, queued scans, non-artifact directories and non-SARIF files, a differently spelled root, configurable retention, and idempotent re-runs. Evidence is SQLite plus temporary-directory automated tests; deletion on the live Compose `reports` volume has not been observed. |
 | P8-08 | Job cleanup removes succeeded jobs after seven days and handles dead letters | Verified | `JobCleanupService` (Worker hosted service, runs at start and every 24 hours) deletes `Succeeded` jobs whose `completed_at` is more than seven days old in batches of 500; their webhook delivery attempts cascade. `DeadLettered` jobs are kept until an Admin retries them, and Pending/Running jobs are never touched, matching `docs/11-database-design.md`. `JobCleanupServiceTests` verify the 8-day/6-day boundary, retention of dead-lettered/pending/running jobs, cascade of attempt history, idempotent re-runs, and multi-batch draining. The team webhook delivery history reports purged old events as `Expired` instead of `NotQueued` (tested). Evidence is SQLite-backed automated tests; the service has not yet been observed deleting rows in the live PostgreSQL Worker. |
 | P8-09 | `reset-demo.sh` resets seeded/demo state | Missing | No tracked reset script exists. |
 | P8-10 | `docs/demo-script.md` walks through the four v1 journeys | Missing | No tracked demo script exists; only Compose setup and a deployment smoke script are present. |
@@ -266,10 +266,10 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 5 | 1 | 5 / 13 | 2.48 percentage points |
 | 6 | 2 | 8 / 13 | 7.94 percentage points |
 | 7 | 1.5 | 5 / 8 | 6.05 percentage points |
-| 8 | 1.5 | 4 / 16 | 2.42 percentage points |
-| **Total** | **15.5** | **85 / 144** | **57.65% complete** |
+| 8 | 1.5 | 5 / 16 | 3.02 percentage points |
+| **Total** | **15.5** | **86 / 144** | **58.26% complete** |
 
-**Estimated remaining: 42.35%** by the same weighted, evidence-based measure. Status totals are 85 Verified, 30 Unverified, 29 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, SPA security headers, and live Overview, Delivery, and AI Governance dashboards are verified; complete seeded Journeys A/D remain unverified. The local P7-03 tracing increment is not yet live-verified.
+**Estimated remaining: 41.74%** by the same weighted, evidence-based measure. Status totals are 86 Verified, 30 Unverified, 28 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, SPA security headers, and live Overview, Delivery, and AI Governance dashboards are verified; complete seeded Journeys A/D remain unverified. The local P7-03 tracing increment is not yet live-verified.
 
 ### Highest-impact next steps
 
@@ -284,3 +284,5 @@ The Staging rollback, Phase 7 readiness, signed-in degraded-status UI/API, and S
 2026-11-06 update 2: P1-08, P1-09, and P1-12 moved to Verified via `tests/AegisOps.Api.Tests/ProjectAndPolicyEndpointTests.cs` (6 tests). Full solution run: 181 passed, 0 failed, 1 skipped. Overall estimate 50.08% → 52.50% (+2.42 percentage points).
 
 2026-11-09 update: P8-08 moved to Verified via the new Worker `JobCleanupService` and `tests/AegisOps.Api.Tests/JobCleanupServiceTests.cs` (SQLite-backed; live PostgreSQL deletion not yet observed). P4-12 corrected from Missing to Verified: the queue-depth gauge was already implemented, tested, and scraped live (P7-02/P7-04 evidence). Full solution run: 212 passed, 0 failed, 1 skipped. Overall estimate 56.13% → 57.65% (+1.52 percentage points).
+
+2026-11-09 update 2: P8-07 moved to Verified via the new Worker `ScanReportCleanupService` and `tests/AegisOps.Api.Tests/ScanReportCleanupServiceTests.cs` (SQLite and temporary-directory tests; the live Compose `reports` volume was not touched). Full solution run: 214 passed, 0 failed, 1 skipped. Overall estimate 57.65% → 58.26% (+0.61 percentage points).

@@ -55,6 +55,16 @@ The policy engine does not care which mode produced a scan.
 Raw reports are stored on disk (`Storage:ReportsPath`, Docker volume) with path
 `reports/{artifactId}/{scanner}-{timestamp}.sarif` for download/audit.
 
+Report retention: the Worker's `ScanReportCleanupService` runs at start-up and every
+24 hours. Finished (`Completed`/`Failed`) scans older than `Storage:ReportRetentionDays`
+(default 90, Compose `REPORT_RETENTION_DAYS`) have their `raw_report_path` cleared;
+the scan row, summary and findings are kept. Any `.sarif` file under an
+`{artifactId}` directory that no scan references (an expired report, a scan replaced
+by a re-upload, or an upload rejected as invalid SARIF) is deleted once it is more
+than one hour old, so in-flight uploads are never removed. Queued/Running scans keep
+their report. Files are matched by name within the artifact directory, so API and
+Worker may spell the shared volume path differently.
+
 ## 4. Normalization (SARIF → `SecurityFinding`)
 
 SARIF 2.1.0 is the common denominator. One parser (`SarifReportParser`) plus small

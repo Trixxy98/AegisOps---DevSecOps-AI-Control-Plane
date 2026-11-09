@@ -70,6 +70,8 @@ services:
       WebhookSecrets__Keys__key1: ${WEBHOOK_SECRETS_KEY_1:-}
       WebhookSecrets__Keys__key2: ${WEBHOOK_SECRETS_KEY_2:-}
       DOCKER_HEALTH_HOST: host.docker.internal
+      Storage__ReportsPath: /app/reports
+      Storage__ReportRetentionDays: ${REPORT_RETENTION_DAYS:-90}
     volumes:
       - reports:/app/reports
       - /var/run/docker.sock:/var/run/docker.sock

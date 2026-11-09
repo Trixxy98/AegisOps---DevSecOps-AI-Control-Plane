@@ -31,6 +31,7 @@ builder.Services.AddHostedService<JobMetricsSeedService>();
 builder.Services.AddHostedService<DeploymentJobService>();
 builder.Services.AddHostedService<JobQueueDepthService>();
 builder.Services.AddHostedService<JobCleanupService>();
+builder.Services.AddHostedService<AegisOps.Infrastructure.Scanning.ScanReportCleanupService>();
 builder.Services.AddOpenTelemetry().WithMetrics(metrics => metrics
     .AddMeter(JobMetrics.MeterName)
     .AddView("aegisops_jobs_duration_seconds", new ExplicitBucketHistogramConfiguration {
