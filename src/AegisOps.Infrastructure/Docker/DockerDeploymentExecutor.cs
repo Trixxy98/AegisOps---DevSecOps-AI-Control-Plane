@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using AegisOps.Application.Deploy;
+using AegisOps.Application.Observability;
 using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Organization;
 using AegisOps.Domain.Security;
@@ -19,6 +21,9 @@ public static class DockerDeploymentExecutor {
         Func<DeploymentEventType, string, CancellationToken, Task> record,
         CancellationToken cancellationToken
     ) {
+        using var activity = AegisOpsTracing.Source.StartActivity("Docker.Execute");
+        activity?.SetTag("outcome", "Failed");
+        activity?.SetStatus(ActivityStatusCode.Error);
         if (!string.Equals(target.Type, "docker", StringComparison.OrdinalIgnoreCase)) {
             return new DockerExecution(false, "Target is not a docker target.");
         }
@@ -31,11 +36,11 @@ public static class DockerDeploymentExecutor {
         var image = DockerImageRef.ForPull(artifact.ImageReference, artifact.ImageDigest);
         var platform = System.Environment.GetEnvironmentVariable("DOCKER_PLATFORM");
         try {
-            await PullImageAsync(client, image, platform, cancellationToken);
+            await TraceStepAsync("Docker.PullImage", () => PullImageAsync(client, image, platform, cancellationToken));
         } catch (Exception exception) when (string.IsNullOrWhiteSpace(platform) && exception.Message.Contains("no matching manifest", StringComparison.OrdinalIgnoreCase)) {
             platform = "linux/amd64";
             try {
-                await PullImageAsync(client, image, platform, cancellationToken);
+                await TraceStepAsync("Docker.PullImage", () => PullImageAsync(client, image, platform, cancellationToken));
             } catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
                 throw;
             } catch (Exception retry) {
@@ -62,14 +67,16 @@ public static class DockerDeploymentExecutor {
                     return new DockerExecution(false, $"Backup {name}-previous already exists; reconcile it before retrying.");
                 }
 
-                await client.Containers.StopContainerAsync(previous.ID, new ContainerStopParameters { WaitBeforeKillSeconds = 10 }, cancellationToken);
-                await client.Containers.RenameContainerAsync(previous.ID, new ContainerRenameParameters { NewName = name + "-previous" }, cancellationToken);
+                await TraceStepAsync("Docker.StopPrevious", async () => {
+                    await client.Containers.StopContainerAsync(previous.ID, new ContainerStopParameters { WaitBeforeKillSeconds = 10 }, cancellationToken);
+                    await client.Containers.RenameContainerAsync(previous.ID, new ContainerRenameParameters { NewName = name + "-previous" }, cancellationToken);
+                });
                 previousId = previous.ID;
             }
 
             var containerPort = target.ContainerPort < 1 ? 8080 : target.ContainerPort;
             var binding = $"{containerPort}/tcp";
-            var created = await client.Containers.CreateContainerAsync(new CreateContainerParameters {
+            var created = await TraceStepAsync("Docker.CreateContainer", () => client.Containers.CreateContainerAsync(new CreateContainerParameters {
                 Name = name,
                 Image = image,
                 Platform = platform,
@@ -86,40 +93,61 @@ public static class DockerDeploymentExecutor {
                         [binding] = [new PortBinding { HostPort = target.HostPort.ToString(System.Globalization.CultureInfo.InvariantCulture) }],
                     },
                 },
-            }, cancellationToken);
+            }, cancellationToken));
             createdId = created.ID;
             if (!string.IsNullOrWhiteSpace(target.Network)) {
-                await EnsureNetworkAsync(client, target.Network, created.ID, cancellationToken);
+                await TraceStepAsync("Docker.EnsureNetwork", () => EnsureNetworkAsync(client, target.Network, created.ID, cancellationToken));
             }
 
-            await client.Containers.StartContainerAsync(created.ID, new ContainerStartParameters(), cancellationToken);
+            await TraceStepAsync("Docker.StartContainer", () => client.Containers.StartContainerAsync(created.ID, new ContainerStartParameters(), cancellationToken));
             await record(DeploymentEventType.ContainerStarted, name, cancellationToken);
             var path = string.IsNullOrWhiteSpace(target.HealthPath) ? "/health" : target.HealthPath;
             var timeout = target.HealthTimeoutSeconds < 1 ? 60 : target.HealthTimeoutSeconds;
-            if (await HealthyAsync(target.HostPort, path, timeout, cancellationToken)) {
+            if (await TraceStepAsync("Docker.HealthCheck", () => HealthyAsync(target.HostPort, path, timeout, cancellationToken), healthy => healthy)) {
                 await record(DeploymentEventType.HealthCheckPassed, $"GET {path} returned 200.", cancellationToken);
                 if (previousId is not null) {
-                    await RemoveAsync(client, previousId, cancellationToken);
+                    await TraceStepAsync("Docker.RemovePrevious", () => RemoveAsync(client, previousId, cancellationToken));
                 }
 
+                activity?.SetTag("outcome", "Succeeded");
+                activity?.SetStatus(ActivityStatusCode.Ok);
                 return new DockerExecution(true, "Container is healthy.");
             }
 
             await record(DeploymentEventType.HealthCheckFailed, $"GET {path} did not return 200 within {timeout} seconds.", cancellationToken);
-            await RemoveAsync(client, created.ID, cancellationToken);
+            await TraceStepAsync("Docker.RemoveContainer", () => RemoveAsync(client, created.ID, cancellationToken));
             createdId = null;
             await RestoreAsync(client, previousId, name, record, cancellationToken);
             return new DockerExecution(false, "Health check failed and the new container was removed.");
         } catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
             // A lost lease must not rollback containers belonging to a replacement owner.
+            activity?.SetTag("outcome", "Cancelled");
             throw;
         } catch (Exception exception) {
             if (createdId is not null) {
-                await RemoveAsync(client, createdId, CancellationToken.None);
+                await TraceStepAsync("Docker.RemoveContainer", () => RemoveAsync(client, createdId, CancellationToken.None));
             }
 
             await RestoreAsync(client, previousId, name, record, CancellationToken.None);
             return new DockerExecution(false, Clip(exception.Message));
+        }
+    }
+
+    // Step names and outcome are fixed; Docker identifiers, image names, URLs and errors
+    // must not become trace attributes or exception events.
+    private static async Task TraceStepAsync(string name, Func<Task> step) =>
+        await TraceStepAsync(name, async () => { await step(); return true; });
+
+    internal static async Task<T> TraceStepAsync<T>(string name, Func<Task<T>> step, Func<T, bool>? succeeded = null) {
+        using var activity = AegisOpsTracing.Source.StartActivity(name);
+        try {
+            var result = await step();
+            if (succeeded is not null && !succeeded(result)) activity?.SetStatus(ActivityStatusCode.Error);
+            return result;
+        } catch {
+            // Status only: no exception event or description, which could carry Docker details.
+            activity?.SetStatus(ActivityStatusCode.Error);
+            throw;
         }
     }
 
@@ -134,9 +162,11 @@ public static class DockerDeploymentExecutor {
             return;
         }
 
-        await client.Containers.RenameContainerAsync(previousId, new ContainerRenameParameters { NewName = name }, cancellationToken);
-        await client.Containers.StartContainerAsync(previousId, new ContainerStartParameters(), cancellationToken);
-        await record(DeploymentEventType.RolledBack, $"Restored {name}.", cancellationToken);
+        await TraceStepAsync("Docker.RestorePrevious", async () => {
+            await client.Containers.RenameContainerAsync(previousId, new ContainerRenameParameters { NewName = name }, cancellationToken);
+            await client.Containers.StartContainerAsync(previousId, new ContainerStartParameters(), cancellationToken);
+            await record(DeploymentEventType.RolledBack, $"Restored {name}.", cancellationToken);
+        });
     }
 
     private static Task PullImageAsync(DockerClient client, string image, string? platform, CancellationToken cancellationToken) {

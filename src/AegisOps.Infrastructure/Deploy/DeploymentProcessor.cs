@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using AegisOps.Application.Observability;
 using AegisOps.Application.Audit;
 using AegisOps.Application.PolicyEngine;
 using AegisOps.Domain.Audit;
@@ -29,6 +30,7 @@ public static class DeploymentProcessor {
     ) {
         var job = await TryClaimOneAsync(db, time, workerId, cancellationToken);
         if (job is null) return false;
+        using var activity = JobTraceContext.StartJob(job);
 
         var started = Stopwatch.GetTimestamp();
         var token = job.LeaseToken!.Value;
@@ -54,17 +56,23 @@ public static class DeploymentProcessor {
             var pending = db.ChangeTracker.Entries<DeploymentEvent>()
                 .Where(entry => entry.State == EntityState.Added).ToArray();
             await FinishAsync(db, job, token, time, null, lost.Token);
+            activity?.SetTag("job.status", job.Status.ToString());
             JobMetrics.Record(job.Type, job.Status, Stopwatch.GetElapsedTime(started).TotalSeconds);
             foreach (var id in pending.Where(entry => entry.State == EntityState.Unchanged)
                          .Select(entry => entry.Entity.DeploymentId).Distinct())
                 await DeploymentUpdates.PublishAsync(redis, id);
             return true;
         } catch (OperationCanceledException) when (lost.IsCancellationRequested) {
+            activity?.SetTag("job.status", "LeaseLostOrCancelled");
+            activity?.SetStatus(ActivityStatusCode.Error);
             return true;
         } catch (Exception exception) {
             // HTTP/DNS exceptions may contain the URL (including query tokens). Never persist
             // them in jobs.last_error or expose them through the admin jobs API.
             await FinishAsync(db, job, token, time, job.Type == JobType.SendNotification ? "Webhook delivery failed." : exception.Message, lost.Token);
+            activity?.SetTag("job.status", job.Status.ToString());
+            // Never attach the exception: messages can contain URLs or Docker details.
+            activity?.SetStatus(ActivityStatusCode.Error);
             JobMetrics.Record(job.Type, job.Status, Stopwatch.GetElapsedTime(started).TotalSeconds);
             return true;
         } finally {
@@ -227,6 +235,7 @@ public static class DeploymentProcessor {
         TimeProvider time,
         CancellationToken cancellationToken
     ) {
+        using var activity = AegisOpsTracing.Source.StartActivity("EvaluateDeployment");
         var deployment = await db.Deployments.SingleAsync(item => item.Id == deploymentId, cancellationToken);
         if (deployment.Status is DeploymentStatus.Requested) {
             deployment.BeginEvaluation();
@@ -234,6 +243,7 @@ public static class DeploymentProcessor {
         }
 
         var outcome = await DecideAsync(db, deployment, time, cancellationToken);
+        activity?.SetTag("decision", outcome.Decision.ToString());
         deployment.ApplyDecision(outcome, time.GetUtcNow());
         var message = outcome.Decision switch {
             PolicyDecision.Deny => outcome.Message ?? "Denied.",
@@ -250,7 +260,7 @@ public static class DeploymentProcessor {
         if (outcome.Decision == PolicyDecision.Allow) {
             db.Jobs.Add(Job.Enqueue(
                 JobType.ExecuteDeployment,
-                JsonSerializer.Serialize(new { deploymentId = deployment.Id }),
+                JobTraceContext.DeploymentPayload(deployment.Id, deployment.CorrelationId),
                 time.GetUtcNow(),
                 deployment.CorrelationId
             ));
@@ -277,6 +287,7 @@ public static class DeploymentProcessor {
         CancellationToken cancellationToken,
         IConnectionMultiplexer? redis = null
     ) {
+        using var activity = AegisOpsTracing.Source.StartActivity("ExecuteDeployment");
         var deployment = await db.Deployments.SingleAsync(item => item.Id == deploymentId, cancellationToken);
         var outcome = await DecideAsync(db, deployment, time, cancellationToken);
         if (outcome.Decision != PolicyDecision.Allow) {

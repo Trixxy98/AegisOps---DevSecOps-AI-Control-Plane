@@ -20,6 +20,9 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
+using AegisOps.Application.Observability;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 
 
@@ -49,6 +52,14 @@ builder.Services.AddHttpClient<ILlmClient, OllamaLlmClient>((services, client) =
 });
 builder.Services.AddSignalR();
 builder.Services.AddApiMetrics();
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("aegisops-api"))
+    .WithTracing(traces => {
+        // ASP.NET can supply an unsampled ambient parent; still export bounded AegisOps spans.
+        traces.AddSource(AegisOpsTracing.SourceName).SetSampler(new AlwaysOnSampler());
+        if (builder.Environment.IsDevelopment()) traces.AddConsoleExporter();
+        if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"])) traces.AddOtlpExporter();
+    });
 builder.Services.AddSingleton<DeploymentConnections>();
 builder.Services.AddAuthRateLimiting();
 var redis = builder.Configuration.GetConnectionString("Redis");
@@ -68,7 +79,10 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(optio
 });
 
 var app = builder.Build();
+// Activate the listener before the first authenticated request creates an Activity.
+_ = app.Services.GetRequiredService<TracerProvider>();
 app.UseApiMetrics();
+app.UseApiRequestTracing();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();

@@ -23,6 +23,12 @@ using ProjectEnvironment = AegisOps.Domain.Organization.Environment;
 namespace AegisOps.Api.Tests;
 
 public sealed class TeamWebhookTests {
+    [Fact]
+    public void Webhook_handler_does_not_propagate_trace_context() {
+        using var handler = TeamWebhookSender.CreateHandler();
+        Assert.Null(handler.ActivityHeadersPropagator);
+    }
+
     [Theory]
     [InlineData("http://example.com/hook")]
     [InlineData("https://127.0.0.1/hook")]

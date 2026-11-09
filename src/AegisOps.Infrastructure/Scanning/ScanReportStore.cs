@@ -3,6 +3,7 @@ using AegisOps.Application.Scanning;
 using AegisOps.Domain.Jobs;
 using AegisOps.Domain.Security;
 using AegisOps.Infrastructure.Persistence;
+using AegisOps.Infrastructure.Observability;
 using Microsoft.EntityFrameworkCore;
 
 namespace AegisOps.Infrastructure.Scanning;
@@ -41,7 +42,7 @@ public static class ScanReportStore {
         } else {
             db.Jobs.Add(Job.Enqueue(
                 JobType.ParseScanReport,
-                JsonSerializer.Serialize(new { scanId = scan.Id }),
+                JobTraceContext.ScanPayload(scan.Id),
                 now,
                 scan.Id.ToString("N")
             ));
