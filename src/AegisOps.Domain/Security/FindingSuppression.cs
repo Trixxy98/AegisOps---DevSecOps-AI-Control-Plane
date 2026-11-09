@@ -41,6 +41,18 @@ public sealed class FindingSuppression {
         };
     }
 
+    /// <summary>Re-suppress an existing fingerprint (e.g. after it expired) with a new reason and expiry.</summary>
+    public void Renew(string reason, Guid actorId, DateTimeOffset now, DateTimeOffset? expiresAt) {
+        if (actorId == Guid.Empty || string.IsNullOrWhiteSpace(reason)) {
+            throw new ArgumentException("Actor and reason are required.");
+        }
+
+        Reason = reason.Trim();
+        CreatedById = actorId;
+        CreatedAt = now;
+        ExpiresAt = expiresAt;
+    }
+
     public bool IsActive(DateTimeOffset now) {
         return ExpiresAt is null || ExpiresAt > now;
     }

@@ -98,8 +98,7 @@ users, a team, and policies. Use a fresh random JWT signing key (32+ bytes); nev
 the `.env.example` value outside local development.
 
 ```bash
-cp .env.example .env
-# Edit JWT_SIGNING_KEY in .env before starting.
+scripts/gen-secrets.sh   # writes a mode-600 .env with random keys (or: cp .env.example .env and edit JWT_SIGNING_KEY)
 docker compose up --build -d
 docker compose logs api | grep 'Development user admin@aegisops.local created'
 # Copy the printed password (only generated on first startup) and open http://localhost:3000
@@ -180,6 +179,54 @@ old API container's `/app/reports` (or re-upload those reports after upgrading);
 existing container's private filesystem is **not** migrated automatically into the new
 volume. Do not run `docker compose down -v`: it deletes the database and reports volumes.
 Check the mount wiring with `python3 tests/report-storage-contract.py`.
+
+### Optional local AI model (Ollama) and hardware
+
+The AI gateway talks to Ollama at `http://ollama:11434/`. Ollama is opt-in:
+
+```bash
+docker compose --profile ai up -d   # starts ollama, then ollama-init pulls the model once
+OLLAMA_MODEL=qwen2.5-coder:7b docker compose --profile ai up -d ollama-init   # optional second model
+```
+
+| Model | Download | Practical minimum | Notes |
+| --- | --- | --- | --- |
+| `llama3.2:3b` (default) | ~2 GB | 8 GB RAM, 4 CPU cores, no GPU | Chat, deployment summaries; expect a few seconds per reply on CPU |
+| `qwen2.5-coder:7b` (optional) | ~4.7 GB | 16 GB RAM; GPU or Apple Silicon recommended | Better finding explanations; slow on CPU-only laptops |
+
+- Leave at least 4 GB free for PostgreSQL, Redis, the API/Worker and the browser on top
+  of the model's memory. Models are kept in the `ollama` volume, so pulls happen once.
+- Docker Desktop on macOS runs Ollama in a Linux VM **without** Metal GPU access, so it
+  is CPU-only. For faster replies, run native Ollama on the host and set
+  `Ai__Ollama__BaseUrl=http://host.docker.internal:11434/` for the API.
+- NVIDIA GPUs on Linux need the NVIDIA Container Toolkit and a `gpus: all` override for
+  the `ollama` service.
+- Without Ollama the platform still runs: readiness reports Ollama as Degraded, and AI
+  requests fail with `ProviderUnavailable` (sensitive-data blocks still apply first).
+
+## Interview notes — design trade-offs
+
+- **PostgreSQL job queue instead of a broker.** Jobs are leased with
+  `FOR UPDATE SKIP LOCKED`, heartbeats and lease tokens, so a single dependency gives
+  transactional outbox semantics (a timeline event and its notification job commit
+  together). The cost is polling and a write-heavy table, which retention cleanup bounds.
+- **Policy engine as a pure function.** `PolicyEngine.Evaluate(context, policies)` has no
+  I/O, so every decision is explainable rule-by-rule, simulated before saving, and
+  re-checked just before execution (approvals can go stale).
+- **Docker socket on a single trusted host.** Mounting the socket is root-equivalent; v1
+  accepts that for a single-host demo, adds ownership labels so the Worker only replaces
+  its own containers, and documents a docker-socket-proxy alternative (docs/14).
+- **Local LLM behind a gateway.** Ollama keeps prompts on the machine; the gateway
+  enforces per-team model allow-lists, rate limits and sensitive-data redaction/blocking
+  before any provider call, and stores previews rather than content by default.
+- **Real-time with a fallback.** SignalR pushes timelines and approval toasts, Redis
+  carries Worker hints to API instances, and polling remains as a fallback; correctness
+  never depends on a message being delivered.
+- **Bounded telemetry.** Metric labels and span attributes are fixed enums (no user ids,
+  prompts, image names or exception messages); zero-valued series are seeded so the first
+  event is visible to `rate()`.
+- **Evidence-based progress.** `docs/v1-progress-audit.md` counts only verified checks,
+  so the score is a floor rather than a claim.
 
 ## License
 

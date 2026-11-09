@@ -1,0 +1,27 @@
+# Weekly dependency updates (docs/14-devops-and-infrastructure.md §3).
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      opentelemetry:
+        patterns: ["OpenTelemetry*"]
+      microsoft:
+        patterns: ["Microsoft.*", "System.*"]
+  - package-ecosystem: npm
+    directory: "/src/AegisOps.Web"
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directories:
+      - "/src/AegisOps.Api"
+      - "/src/AegisOps.Worker"
+      - "/src/AegisOps.Web"
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
