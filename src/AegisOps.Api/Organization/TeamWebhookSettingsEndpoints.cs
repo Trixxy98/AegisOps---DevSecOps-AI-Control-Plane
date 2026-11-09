@@ -20,7 +20,7 @@ public sealed record TeamWebhookDeliveryResponse(Guid EventId, string EventType,
 
 public static class TeamWebhookSettingsEndpoints {
     public static async Task<IResult> Deliveries(
-        string slug, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, HttpContext http
+        string slug, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, TimeProvider time, HttpContext http
     ) {
         var access = await FindAuthorizedTeam(slug, principal, users, db, http.RequestAborted);
         if (access.Error is not null) return access.Error;
@@ -53,9 +53,13 @@ public static class TeamWebhookSettingsEndpoints {
             .ToListAsync(http.RequestAborted);
         var attemptsByJob = attempts.GroupBy(attempt => attempt.JobId).ToDictionary(group => group.Key, group => group.ToArray());
         var jobsById = jobs.ToDictionary(job => job.Id);
+        var retentionCutoff = time.GetUtcNow() - JobCleanupService.SucceededRetention;
         return Results.Ok(events.Select(item => {
             if (!jobIdsByEvent.TryGetValue(item.Id, out var jobId) || !jobsById.TryGetValue(jobId, out var job))
-                return new TeamWebhookDeliveryResponse(item.Id, item.Type.ToString(), item.Timestamp, "NotQueued", 0, 0, null, null);
+                // Succeeded notification jobs are purged after the retention window; don't report
+                // an old, delivered event as never queued.
+                return new TeamWebhookDeliveryResponse(item.Id, item.Type.ToString(), item.Timestamp,
+                    item.Timestamp < retentionCutoff ? "Expired" : "NotQueued", 0, 0, null, null);
             var history = attemptsByJob.TryGetValue(jobId, out var records)
                 ? records.OrderBy(record => record.AttemptNumber).Select(record => new TeamWebhookAttemptResponse(record.AttemptNumber, record.StartedAt, record.CompletedAt, record.Status, record.Error)).ToArray()
                 : Array.Empty<TeamWebhookAttemptResponse>();

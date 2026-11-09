@@ -116,8 +116,8 @@ public sealed class TeamWebhookManagementTests {
         await fixture.Db.SaveChangesAsync(cancellationToken);
         fixture.Db.ChangeTracker.Clear();
         var persistedAttempt = await fixture.Db.WebhookDeliveryAttempts.SingleAsync(cancellationToken);
-        var ownerResult = await TeamWebhookSettingsEndpoints.Deliveries(fixture.Team.Slug, Principal(fixture.Owner.Id), fixture.Users, fixture.Db, Context(cancellationToken));
-        var memberResult = await TeamWebhookSettingsEndpoints.Deliveries(fixture.Team.Slug, Principal(fixture.Member.Id), fixture.Users, fixture.Db, Context(cancellationToken));
+        var ownerResult = await TeamWebhookSettingsEndpoints.Deliveries(fixture.Team.Slug, Principal(fixture.Owner.Id), fixture.Users, fixture.Db, TimeProvider.System, Context(cancellationToken));
+        var memberResult = await TeamWebhookSettingsEndpoints.Deliveries(fixture.Team.Slug, Principal(fixture.Member.Id), fixture.Users, fixture.Db, TimeProvider.System, Context(cancellationToken));
 
         Assert.Equal(StatusCodes.Status200OK, Status(ownerResult));
         var delivery = Assert.Single(Assert.IsAssignableFrom<IEnumerable<TeamWebhookDeliveryResponse>>(Assert.IsAssignableFrom<IValueHttpResult>(ownerResult).Value));
@@ -128,6 +128,35 @@ public sealed class TeamWebhookManagementTests {
             Assert.Equal("Webhook delivery failed.", item.Error);
         });
         Assert.Equal(StatusCodes.Status404NotFound, Status(memberResult));
+    }
+
+    [Fact]
+    public async Task Delivery_history_reports_purged_old_jobs_as_expired_not_unqueued() {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var fixture = await Fixture.Create(cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var project = Project.Create(fixture.Team.Id, "Retention project", $"retention-{Guid.NewGuid():N}", now);
+        fixture.Db.Projects.Add(project);
+        var artifact = Artifact.Create(project.Id, "1.0.0", "abcdef1234567", "main", "example/image:1", CheckStatus.Passed, CheckStatus.Passed, now, createdById: fixture.Owner.Id);
+        fixture.Db.Artifacts.Add(artifact);
+        var environment = AegisOps.Domain.Organization.Environment.Create(project.Id, "dev", EnvironmentTier.Development, 1, DeploymentTarget.Noop());
+        fixture.Db.Environments.Add(environment);
+        var deployment = Deployment.Request(project.Id, environment.Id, artifact.Id, now, "test", fixture.Owner.Id, null, "test");
+        fixture.Db.Deployments.Add(deployment);
+        await fixture.Db.SaveChangesAsync(cancellationToken);
+        var old = DeploymentEvent.Create(deployment.Id, 1, now.AddDays(-10), DeploymentEventType.Succeeded, "old");
+        var recent = DeploymentEvent.Create(deployment.Id, 2, now, DeploymentEventType.Failed, "recent");
+        fixture.Db.DeploymentEvents.AddRange(old, recent);
+        await fixture.Db.SaveChangesAsync(cancellationToken);
+        // Simulate retention cleanup having removed the notification jobs.
+        await fixture.Db.Jobs.ExecuteDeleteAsync(cancellationToken);
+        fixture.Db.ChangeTracker.Clear();
+
+        var result = await TeamWebhookSettingsEndpoints.Deliveries(fixture.Team.Slug, Principal(fixture.Owner.Id), fixture.Users, fixture.Db, TimeProvider.System, Context(cancellationToken));
+
+        var deliveries = Assert.IsAssignableFrom<IEnumerable<TeamWebhookDeliveryResponse>>(Assert.IsAssignableFrom<IValueHttpResult>(result).Value).ToArray();
+        Assert.Equal("Expired", Assert.Single(deliveries, item => item.EventId == old.Id).Status);
+        Assert.Equal("NotQueued", Assert.Single(deliveries, item => item.EventId == recent.Id).Status);
     }
 
     [Fact]
