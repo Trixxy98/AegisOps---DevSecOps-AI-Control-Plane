@@ -16,6 +16,7 @@ using AegisOps.Infrastructure.Deploy;
 using AegisOps.Infrastructure.Redis;
 using AegisOps.Infrastructure.Persistence;
 using AegisOps.Infrastructure.Health;
+using AegisOps.Infrastructure.Observability;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
@@ -27,6 +28,9 @@ using OpenTelemetry.Trace;
 
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddAegisOpsSerilog(builder.Configuration, builder.Environment, new AegisOpsLoggingOptions(AegisOpsLogging.ApiServiceName) {
+    DevelopmentDisclosureSources = [nameof(DevelopmentUserSeed)],
+});
 builder.Services.AddDependencyReadiness()
     .AddCheck<OllamaReadinessCheck>("ollama", failureStatus: HealthStatus.Degraded,
         tags: ["ready"], timeout: TimeSpan.FromSeconds(3));
@@ -83,6 +87,7 @@ var app = builder.Build();
 _ = app.Services.GetRequiredService<TracerProvider>();
 app.UseApiMetrics();
 app.UseApiRequestTracing();
+app.UseApiRequestLogging();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();

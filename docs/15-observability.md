@@ -1,6 +1,6 @@
 # 15 — Observability
 
-Phase 7 deliverable; health checks exist from Phase 1, while Serilog structured logging remains a design target.
+Phase 7 deliverable; health checks exist from Phase 1, and Serilog structured logging is configured for the Api and Worker.
 
 ```
 Api / Worker ──► OpenTelemetry SDK ──► /metrics (Prometheus exposition) ──► Prometheus ──► Grafana
@@ -13,12 +13,36 @@ Api / Worker ──► OpenTelemetry SDK ──► /metrics (Prometheus expositi
 
 | Aspect | Decision |
 | --- | --- |
-| Sinks | Console; compact JSON (`Serilog.Formatting.Compact`) when `DOTNET_RUNNING_IN_CONTAINER` |
-| Enrichers | `CorrelationId`, `UserId`/`ApiKeyId`, `Module`, `MachineName`, `TraceId`/`SpanId` |
-| Request logging | Serilog `UseSerilogRequestLogging` with path, status, elapsed, principal type; health/metrics excluded |
-| Levels | `Information` default; `Microsoft.AspNetCore` = `Warning`; `AegisOps.Policies` = `Debug` in Development |
-| PII | Never log prompt content, tokens, passwords, API keys; `Destructure.ByTransforming` for DTOs with sensitive fields |
+| Setup | `AegisOpsLogging.AddAegisOpsSerilog` (`src/AegisOps.Infrastructure/Observability/AegisOpsLogging.cs`), shared by Api and Worker; `builder.Services.AddSerilog(..., preserveStaticLogger: true)`, so the static `Log.Logger` is never touched and parallel test hosts keep separate loggers. Existing `ILogger<T>` and `[LoggerMessage]` call sites log through Serilog unchanged. |
+| Sinks | Console only: compact JSON (`Serilog.Formatting.Compact`, CLEF) in every environment except Development, which uses a readable single-line template |
+| Enrichers | `ServiceName` (`aegisops-api` / `aegisops-worker`), `Environment`, `MachineName`, `CorrelationId` (Api: the validated `correlationId` HttpContext item set by request tracing; Worker: the `correlationId` Activity baggage of job spans), `TraceId`/`SpanId` (also `@tr`/`@sp`), plus log-context and `SourceContext` |
+| Request logging | `UseSerilogRequestLogging` (`src/AegisOps.Api/Observability/ApiRequestLogging.cs`), after request tracing: one event per request with `RequestMethod`, `RouteTemplate` (`(unmatched)` when no endpoint matched), `StatusCode`, `Elapsed` ms, `CorrelationId`, `PrincipalType` and an opaque `UserId`/`ApiKeyId`. `/health*` and `/metrics` are logged at `Verbose` (dropped at the default level); 5xx/exceptions at `Error` |
+| Levels | Code defaults `Information`; `Microsoft.AspNetCore`, `Microsoft.EntityFrameworkCore`, `System.Net.Http.HttpClient` = `Warning`; refined by the `Serilog:MinimumLevel` section of `appsettings*.json` (`AegisOps.Policies` = `Debug` in Development) |
+| PII | See "Logging and PII" below; secrets never logged (docs/17 §3) |
 | Event naming | Message templates with stable property names: `Deployment {DeploymentId} transitioned {From} -> {To}` |
+
+### Logging and PII
+
+**Logged:** the request method, route template, status code, elapsed time, CorrelationId, trace/span ids,
+principal type and opaque user/API-key GUIDs; application events through their message-template properties;
+service, environment and machine name.
+
+**Never logged:** `Authorization` and `Cookie` headers (no header is logged at all), request and response bodies,
+query strings, raw request paths (the `RequestPath` that ASP.NET log scopes attach is removed; only route
+templates are written), prompts and AI responses, emails, passwords, tokens, API keys and secrets.
+
+**Enforcement:** `SensitivePropertyMasker` is the last enricher in the pipeline. It replaces with `***` the value of
+any property, at any depth (destructured objects, dictionaries, sequences), whose name, ignoring case and
+separators, contains `password`, `passwd`, `secret`, `token`, `apikey`, `authorization`, `cookie`, `credential`,
+`email`, `prompt`, `connectionstring`, `privatekey` or `signingkey`. Compact JSON writes message templates, not
+rendered messages, so masked values do not leak through `@mt`. Code must still not put sensitive values into
+properties with innocuous names: the masker is a backstop, not a licence.
+
+**Single exception:** in the Development environment only, events from the `DevelopmentUserSeed` source are not
+masked, because the randomly generated first-run passwords of the synthetic demo accounts are shown only in that
+log line (`docker compose logs api | grep 'Development user'`). The exemption is inert in every other environment.
+
+Verified by `tests/AegisOps.Api.Tests/StructuredLoggingTests.cs`.
 
 ## 2. Metrics (OpenTelemetry → Prometheus)
 

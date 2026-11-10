@@ -741,6 +741,7 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
                 "--Worker:HealthBaseUrl=http://127.0.0.1:1/",
                 "--Database:MigrateOnStartup=false",
                 "--Logging:LogLevel:Default=None",
+                "--Serilog:MinimumLevel:Default=Fatal",
             ];
             var built = new TaskCompletionSource<IHost>(TaskCreationOptions.RunContinuationsAsynchronously);
             using (DiagnosticListener.AllListeners.Subscribe(new HostingObserver(built))) {
