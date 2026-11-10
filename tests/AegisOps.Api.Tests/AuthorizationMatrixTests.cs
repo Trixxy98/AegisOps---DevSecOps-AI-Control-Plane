@@ -162,6 +162,8 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         new("PATCH", "/api/v1/teams/{slug}", "teams:write", "teams:write", AdminDev),
         new("GET", "/api/v1/teams/{slug}/webhook", "teams:write", "teams:write", AdminDev),
         new("GET", "/api/v1/teams/{slug}/webhook/deliveries", "teams:write", "teams:write", AdminDev),
+        new("GET", "/api/v1/teams/{slug}/webhook/summary", "teams:write", "teams:write", AdminDev),
+        new("POST", "/api/v1/teams/{slug}/webhook/deliveries/{eventId:guid}/replay", "teams:write", "teams:write", AdminDev),
         new("PUT", "/api/v1/teams/{slug}/webhook", "teams:write", "teams:write", AdminDev),
         new("POST", "/api/v1/admin/webhooks/rewrap", "users:manage", "users:manage", AdminOnly),
         new("PUT", "/api/v1/teams/{slug}/members/{userId:guid}", "teams:write", "teams:write", AdminDev),
@@ -182,6 +184,7 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         new("PATCH", "/api/v1/artifacts/{id:guid}", "artifacts:write", "artifacts:write", AdminSec),
         new("POST", "/api/v1/artifacts/{id:guid}/scans", "scans:write", "scans:write", AdminSec),
         new("GET", "/api/v1/artifacts/{id:guid}/findings", "findings:read", "findings:read", AllRoles),
+        new("GET", "/api/v1/projects/{slug}/findings", "findings:read", "findings:read", AllRoles),
         new("POST", "/api/v1/findings/{id:guid}/ai-explain", "findings:read+ai:chat", "findings:read+ai:chat", AllRoles),
         new("POST", "/api/v1/projects/{slug}/finding-suppressions", "findings:suppress", "findings:suppress", AdminSec),
         new("POST", "/api/v1/policies", "policies:write", "policies:write", AdminSec),
@@ -281,7 +284,7 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         Assert.True(missing.Length == 0 && unexpected.Length == 0,
             "Program.cs endpoints differ from the authorization matrix. Add new routes to Routes with their docs/09 permission.\n" +
             $"Not in Program.cs: {string.Join("; ", missing)}\nNot in matrix: {string.Join("; ", unexpected)}");
-        Assert.Equal(64, actual.Length);
+        Assert.Equal(67, actual.Length);
     }
 
     [Fact]

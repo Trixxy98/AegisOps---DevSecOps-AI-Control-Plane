@@ -10,6 +10,7 @@ public sealed class JobMetricsSeedService : IHostedService {
     public Task StartAsync(CancellationToken cancellationToken) {
         JobMetrics.InitializeZeroSeries();
         DomainMetrics.InitializeZeroSeries();
+        WebhookMetrics.InitializeZeroSeries();
         return Task.CompletedTask;
     }
 

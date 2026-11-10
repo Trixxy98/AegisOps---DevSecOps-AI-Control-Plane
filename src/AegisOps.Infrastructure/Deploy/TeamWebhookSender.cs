@@ -11,11 +11,15 @@ namespace AegisOps.Infrastructure.Deploy;
 
 /// <summary>Worker-only, operator-configured team webhooks. Never persist URLs, keys or response bodies in jobs.</summary>
 public static class TeamWebhookSender {
-    public static Task SendAsync(AegisOpsDbContext db, IConfiguration config, Guid eventId, CancellationToken ct) =>
+    /// <summary>
+    /// Sends one signed event. Returns true when the receiver acknowledged it with 2xx, false when the
+    /// event was skipped (deleted, not subscribed, or no destination configured). Throws on a failed attempt.
+    /// </summary>
+    public static Task<bool> SendAsync(AegisOpsDbContext db, IConfiguration config, Guid eventId, CancellationToken ct) =>
         SendAsync(db, config, eventId, null, ct);
 
     // Internal override supports local TLS integration tests; the worker always uses the hardened handler below.
-    internal static async Task SendAsync(
+    internal static async Task<bool> SendAsync(
         AegisOpsDbContext db,
         IConfiguration config,
         Guid eventId,
@@ -23,15 +27,15 @@ public static class TeamWebhookSender {
         CancellationToken ct
     ) {
         var item = await db.DeploymentEvents.AsNoTracking().SingleOrDefaultAsync(e => e.Id == eventId, ct);
-        if (item is null) return;
+        if (item is null) return false;
         var deployment = await db.Deployments.AsNoTracking().SingleOrDefaultAsync(d => d.Id == item.DeploymentId, ct);
-        if (deployment is null) return;
+        if (deployment is null) return false;
         var teamId = await db.Projects.AsNoTracking().Where(p => p.Id == deployment.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
         var storedSettings = await db.TeamWebhookSettings.AsNoTracking().SingleOrDefaultAsync(settings => settings.TeamId == teamId, ct);
-        if (storedSettings is not null && !storedSettings.SubscribesTo(item.Type.ToString())) return;
+        if (storedSettings is not null && !storedSettings.SubscribesTo(item.Type.ToString())) return false;
         var section = config.GetSection($"Webhooks:Teams:{teamId:D}");
         var address = storedSettings?.Url ?? section["Url"];
-        if (string.IsNullOrEmpty(address)) return; // Opt-in only. No untrusted API can configure a destination.
+        if (string.IsNullOrEmpty(address)) return false; // Opt-in only. No untrusted API can configure a destination.
         if (!TryValidateUrl(address, out var uri)) throw new InvalidOperationException("Webhook configuration is invalid.");
         byte[] key;
         if (storedSettings is not null) {
@@ -71,6 +75,7 @@ public static class TeamWebhookSender {
         request.Headers.Add("X-AegisOps-Signature", "sha256=" + signature);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Webhook delivery failed.");
+        return true;
     }
 
     internal static SocketsHttpHandler CreateHandler() => new() {

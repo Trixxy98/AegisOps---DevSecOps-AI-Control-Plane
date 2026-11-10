@@ -1,42 +1,44 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { AiPlayground } from "./AiPlayground";
+import { api } from "./api";
 import { connectDeploymentUpdates, type UpdateConnectionStatus } from "./deploymentUpdates";
+import { Findings } from "./Findings";
 
-type View = "dashboard" | "projects" | "deployments" | "approvals" | "policies" | "ai" | "audit" | "admin";
+type View =
+  | "dashboard"
+  | "projects"
+  | "deployments"
+  | "approvals"
+  | "findings"
+  | "policies"
+  | "ai"
+  | "ai-chat"
+  | "audit"
+  | "admin";
 type DeployTarget = { id: string; name: string; tier: string };
 type DeploymentToast = { id: number; message: string; type: "success" | "error"; approvalId?: string };
 type ApprovalItem = { id: string; projectId: string; requestedAt: string; status: string };
 type DependencyHealth = { ollama: string; docker: string; worker: string };
 const approvalQueuePath = "/api/v1/deployments/approval-queue";
 
-const navigation: Array<{ id: View; label: string; description: string }> = [
+// `permission` entries are shown only when /auth/me grants that permission (the API still enforces it).
+const navigation: Array<{ id: View; label: string; description: string; permission?: string }> = [
   { id: "dashboard", label: "Overview", description: "Deployment activity at a glance" },
   { id: "projects", label: "Projects", description: "Environments, artifacts, and access" },
   { id: "deployments", label: "Deployments", description: "Track releases and review outcomes" },
   { id: "approvals", label: "Approvals", description: "Review requests awaiting a decision" },
+  {
+    id: "findings",
+    label: "Findings",
+    description: "Explore and triage security findings",
+    permission: "findings:read",
+  },
   { id: "policies", label: "Policies", description: "Manage deployment guardrails" },
   { id: "ai", label: "AI Governance", description: "Review governed AI usage and controls" },
+  { id: "ai-chat", label: "AI Playground", description: "Chat through the governed AI gateway", permission: "ai:chat" },
   { id: "audit", label: "Audit log", description: "A record of platform activity" },
   { id: "admin", label: "Administration", description: "People, teams, and background jobs" },
 ];
-
-async function api<T>(path: string, token: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { title?: string };
-    throw new Error(body.title ?? response.statusText);
-  }
-  if (response.status === 204) {
-    return undefined as T;
-  }
-  return response.json() as Promise<T>;
-}
 
 export function App() {
   const [token, setToken] = useState<string | null>(null);
@@ -51,6 +53,23 @@ export function App() {
   const [approvalItems, setApprovalItems] = useState<ApprovalItem[]>([]);
   const [dependencyHealth, setDependencyHealth] = useState<DependencyHealth | null>(null);
   const approvalHint = useRef<(id?: string) => void>(() => {});
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const visibleNavigation = navigation.filter((item) => !item.permission || permissions.includes(item.permission));
+
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    api<{ permissions?: string[] }>("/api/v1/auth/me", token)
+      .then((me) => {
+        if (active) setPermissions(me.permissions ?? []);
+      })
+      .catch(() => {
+        if (active) setPermissions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
 
   useEffect(() => {
     if (!deploymentToast) return;
@@ -207,6 +226,7 @@ export function App() {
     setDeploymentToast(null);
     setApprovalItems([]);
     setDependencyHealth(null);
+    setPermissions([]);
     setUpdateStatus("connecting");
     setToken(null);
   }
@@ -229,7 +249,7 @@ export function App() {
         </div>
         <div className="sidebar-label">WORKSPACE</div>
         <nav className="navigation" aria-label="Main navigation">
-          {navigation.map((item) => (
+          {visibleNavigation.map((item) => (
             <button
               key={item.id}
               className={`nav-item ${view === item.id ? "is-active" : ""}`}
@@ -265,7 +285,7 @@ export function App() {
         </header>
         <div className="mobile-navigation">
           <nav className="navigation" aria-label="Main navigation">
-            {navigation.map((item) => (
+            {visibleNavigation.map((item) => (
               <button
                 key={item.id}
                 className={`nav-item ${view === item.id ? "is-active" : ""}`}
@@ -320,8 +340,10 @@ export function App() {
           {view === "approvals" && (
             <Approvals token={token} onError={setError} items={approvalItems} refresh={() => approvalHint.current()} />
           )}
+          {view === "findings" && <Findings token={token} permissions={permissions} />}
           {view === "policies" && <Policies token={token} onError={setError} />}
           {view === "ai" && <AiGovernance token={token} />}
+          {view === "ai-chat" && <AiPlayground token={token} />}
           {view === "audit" && <Audit token={token} onError={setError} />}
           {view === "admin" && <Admin token={token} onError={setError} />}
         </section>

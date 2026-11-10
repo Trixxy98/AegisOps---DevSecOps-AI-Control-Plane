@@ -89,6 +89,7 @@ public sealed partial class AuditCoverageTests {
         new("PATCH", "/api/v1/teams/{slug}", "team.updated", nameof(TeamLifecycleAndMembershipChangesAreAudited)),
         new("PUT", "/api/v1/teams/{slug}/webhook", "team.webhook_updated", nameof(WebhookSettingsAndKeyRewrapAreAudited)),
         new("POST", "/api/v1/admin/webhooks/rewrap", "team.webhook_keys_rewrapped", nameof(WebhookSettingsAndKeyRewrapAreAudited)),
+        new("POST", "/api/v1/teams/{slug}/webhook/deliveries/{eventId:guid}/replay", "webhook.replayed", nameof(WebhookReplayIsAudited)),
         new("PUT", "/api/v1/teams/{slug}/members/{userId:guid}", "team.member_upserted", nameof(TeamLifecycleAndMembershipChangesAreAudited)),
         new("DELETE", "/api/v1/teams/{slug}/members/{userId:guid}", "team.member_removed", nameof(TeamLifecycleAndMembershipChangesAreAudited)),
         new("POST", "/api/v1/projects", "project.created", nameof(ProjectEnvironmentRepositoryAndApiKeyChangesAreAudited)),
@@ -399,6 +400,33 @@ public sealed partial class AuditCoverageTests {
             admin.Principal, Users(services), Db(services), Audit(services), rotating, http));
         Assert.Equal(StatusCodes.Status200OK, rewrap.Status);
         AssertSingleAudit(rewrap.Rows, "team.webhook_keys_rewrapped", "User", admin.Id, admin.Email, "TeamWebhook", null, "Succeeded");
+    }
+
+    [Fact]
+    public async Task WebhookReplayIsAudited() {
+        await using var host = await AuditHost.StartAsync();
+        var admin = await host.CreateUserAsync("admin@example.test", "Admin");
+        var world = await host.SeedWorldAsync();
+        var deploymentId = await host.SeedDeploymentAsync(world, admin.Id, awaitingApproval: false);
+        var eventId = await host.WithDbAsync(async db => {
+            var item = DeploymentEvent.Create(deploymentId, 1, DateTimeOffset.UtcNow, DeploymentEventType.Succeeded, "done");
+            db.DeploymentEvents.Add(item);
+            await db.SaveChangesAsync(Token);
+            // The original outbox job has finished and been purged by retention.
+            await db.Jobs.ExecuteDeleteAsync(Token);
+            return item.Id;
+        });
+
+        var replayed = await host.CallAsync((services, http) => TeamWebhookSettingsEndpoints.Replay("platform", eventId,
+            admin.Principal, Users(services), Db(services), Audit(services), TimeProvider.System, http));
+        Assert.Equal(StatusCodes.Status202Accepted, replayed.Status);
+        AssertSingleAudit(replayed.Rows, "webhook.replayed", "User", admin.Id, admin.Email, "DeploymentEvent", eventId, "Succeeded");
+
+        // A duplicate while the replay is pending is refused and writes nothing.
+        var duplicate = await host.CallAsync((services, http) => TeamWebhookSettingsEndpoints.Replay("platform", eventId,
+            admin.Principal, Users(services), Db(services), Audit(services), TimeProvider.System, http));
+        Assert.Equal(StatusCodes.Status409Conflict, duplicate.Status);
+        Assert.Empty(duplicate.Rows);
     }
 
     // ---------- Projects, environments, repositories, API keys ----------

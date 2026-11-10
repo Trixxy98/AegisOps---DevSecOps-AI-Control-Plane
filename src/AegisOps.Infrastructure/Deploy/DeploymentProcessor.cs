@@ -37,11 +37,14 @@ public static class DeploymentProcessor {
         using var lost = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var heartbeat = RenewAsync(scopes, job.Id, token, time, lost);
         Guid? executedDeploymentId = null;
+        long? webhookStarted = null;
+        var webhookDelivered = false;
         try {
             if (job.Type == JobType.SendNotification) {
                 var eventId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("eventId").GetGuid();
                 await using var configScope = scopes.CreateAsyncScope();
-                await TeamWebhookSender.SendAsync(db, configScope.ServiceProvider.GetRequiredService<IConfiguration>(), eventId, lost.Token);
+                webhookStarted = Stopwatch.GetTimestamp();
+                webhookDelivered = await TeamWebhookSender.SendAsync(db, configScope.ServiceProvider.GetRequiredService<IConfiguration>(), eventId, lost.Token);
             } else if (job.Type == JobType.ParseScanReport) {
                 var scanId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("scanId").GetGuid();
                 await ScanReportStore.ParseQueuedAsync(db, scanId, time.GetUtcNow(), lost.Token);
@@ -57,9 +60,12 @@ public static class DeploymentProcessor {
 
             var pending = db.ChangeTracker.Entries<DeploymentEvent>()
                 .Where(entry => entry.State == EntityState.Added).ToArray();
-            await FinishAsync(db, job, token, time, null, lost.Token);
+            var webhookDuration = webhookStarted is { } sendStarted ? Stopwatch.GetElapsedTime(sendStarted).TotalSeconds : (double?)null;
+            // A skipped notification (no destination or not subscribed) is not a delivery attempt.
+            var webhook = await FinishAsync(db, job, token, time, null, lost.Token, webhookAttempted: webhookDelivered);
             activity?.SetTag("job.status", job.Status.ToString());
             JobMetrics.Record(job.Type, job.Status, Stopwatch.GetElapsedTime(started).TotalSeconds);
+            if (webhook is { } delivered) WebhookMetrics.Record(delivered, webhookDuration);
             foreach (var id in pending.Where(entry => entry.State == EntityState.Unchanged)
                          .Select(entry => entry.Entity.DeploymentId).Distinct())
                 await DeploymentUpdates.PublishAsync(redis, id);
@@ -74,11 +80,14 @@ public static class DeploymentProcessor {
         } catch (Exception exception) {
             // HTTP/DNS exceptions may contain the URL (including query tokens). Never persist
             // them in jobs.last_error or expose them through the admin jobs API.
-            await FinishAsync(db, job, token, time, job.Type == JobType.SendNotification ? "Webhook delivery failed." : exception.Message, lost.Token);
+            var webhookDuration = webhookStarted is { } sendStarted ? Stopwatch.GetElapsedTime(sendStarted).TotalSeconds : (double?)null;
+            var webhook = await FinishAsync(db, job, token, time, job.Type == JobType.SendNotification ? "Webhook delivery failed." : exception.Message, lost.Token,
+                webhookAttempted: job.Type == JobType.SendNotification);
             activity?.SetTag("job.status", job.Status.ToString());
             // Never attach the exception: messages can contain URLs or Docker details.
             activity?.SetStatus(ActivityStatusCode.Error);
             JobMetrics.Record(job.Type, job.Status, Stopwatch.GetElapsedTime(started).TotalSeconds);
+            if (webhook is { } failed) WebhookMetrics.Record(failed, webhookDuration);
             return true;
         } finally {
             lost.Cancel();
@@ -89,6 +98,7 @@ public static class DeploymentProcessor {
     public static async Task<Job?> TryClaimOneAsync(AegisOpsDbContext db, TimeProvider time, string workerId, CancellationToken cancellationToken) {
         Job? job = null;
         var staleTransitions = new List<(JobType Type, JobStatus Status)>();
+        var staleWebhooks = new List<WebhookDeliveryOutcome>();
         await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken)) {
             // Serialize the short claim decision across all API and worker instances. Never hold
             // this transaction while performing external work.
@@ -112,6 +122,10 @@ public static class DeploymentProcessor {
                     if (item.Type == JobType.SendNotification) {
                         var attempt = await db.WebhookDeliveryAttempts.SingleOrDefaultAsync(record => record.JobId == item.Id && record.AttemptNumber == item.Attempts, cancellationToken);
                         attempt?.Fail(now);
+                        var outcome = item.Status == JobStatus.DeadLettered ? WebhookDeliveryOutcome.DeadLettered : WebhookDeliveryOutcome.Failed;
+                        if (TeamWebhookDeliveryStatsStore.TryReadEventId(item.Payload) is { } staleEventId &&
+                            await TeamWebhookDeliveryStatsStore.RecordAsync(db, staleEventId, outcome, now, cancellationToken))
+                            staleWebhooks.Add(outcome);
                     }
                 }
             }
@@ -171,6 +185,7 @@ public static class DeploymentProcessor {
             await transaction.CommitAsync(cancellationToken);
         }
         foreach (var (type, status) in staleTransitions) JobMetrics.RecordLeaseExpired(type, status);
+        foreach (var outcome in staleWebhooks) WebhookMetrics.Record(outcome, null);
         return job;
     }
 
@@ -194,7 +209,13 @@ public static class DeploymentProcessor {
                                  j.LockedAt >= now.AddMinutes(-2))
             .ExecuteUpdateAsync(set => set.SetProperty(j => j.LockedAt, now), ct) == 1;
 
-    private static async Task FinishAsync(AegisOpsDbContext db, Job job, Guid token, TimeProvider time, string? error, CancellationToken ct) {
+    /// <summary>
+    /// Commits the job result. For a SendNotification job it also completes the attempt row and, when
+    /// <paramref name="webhookAttempted"/>, increments the team's durable counters in the same transaction.
+    /// Returns the webhook outcome to emit as telemetry after commit, or null when nothing was counted.
+    /// </summary>
+    private static async Task<WebhookDeliveryOutcome?> FinishAsync(AegisOpsDbContext db, Job job, Guid token, TimeProvider time, string? error,
+        CancellationToken ct, bool webhookAttempted = false) {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var owner = await db.Jobs.FromSqlInterpolated($"SELECT * FROM jobs.jobs WHERE id = {job.Id} FOR UPDATE")
             .AsNoTracking().ToListAsync(ct);
@@ -216,10 +237,6 @@ public static class DeploymentProcessor {
                 }
             }
         }
-        if (job.Type == JobType.SendNotification) {
-            var attempt = await db.WebhookDeliveryAttempts.SingleAsync(item => item.JobId == job.Id && item.AttemptNumber == current.Attempts, ct);
-            if (error is null) attempt.Succeed(time.GetUtcNow()); else attempt.Fail(time.GetUtcNow());
-        }
         if (error is null) job.Succeed(time.GetUtcNow());
         else {
             // A failed attempt must not commit partially tracked deployment changes.
@@ -229,8 +246,30 @@ public static class DeploymentProcessor {
                 job.Abandon($"Execution interrupted; inspect the Docker target before retrying: {error}", time.GetUtcNow());
             else job.Fail(error, time.GetUtcNow());
         }
+        // After the failure branch above, which detaches every other tracked change: completing the
+        // attempt earlier would discard its Failed status.
+        var webhook = job.Type == JobType.SendNotification
+            ? await CompleteWebhookAttemptAsync(db, job, current.Attempts, error is null, webhookAttempted, time.GetUtcNow(), ct)
+            : null;
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+        return webhook;
+    }
+
+    /// <summary>
+    /// Completes the attempt row of a SendNotification job whose status was already updated, and when the
+    /// attempt really contacted (or tried to contact) a receiver, increments the team's durable counters.
+    /// Runs inside the caller's transaction; the caller saves and commits.
+    /// </summary>
+    internal static async Task<WebhookDeliveryOutcome?> CompleteWebhookAttemptAsync(
+        AegisOpsDbContext db, Job job, int attemptNumber, bool succeeded, bool attempted, DateTimeOffset now, CancellationToken ct
+    ) {
+        var attempt = await db.WebhookDeliveryAttempts.SingleAsync(item => item.JobId == job.Id && item.AttemptNumber == attemptNumber, ct);
+        if (succeeded) attempt.Succeed(now); else attempt.Fail(now);
+        if (!attempted || TeamWebhookDeliveryStatsStore.TryReadEventId(job.Payload) is not { } eventId) return null;
+        var outcome = succeeded ? WebhookDeliveryOutcome.Succeeded
+            : job.Status == JobStatus.DeadLettered ? WebhookDeliveryOutcome.DeadLettered : WebhookDeliveryOutcome.Failed;
+        return await TeamWebhookDeliveryStatsStore.RecordAsync(db, eventId, outcome, now, ct) ? outcome : null;
     }
 
     public static async Task EvaluateAsync(

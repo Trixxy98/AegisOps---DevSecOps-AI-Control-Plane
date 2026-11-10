@@ -490,8 +490,8 @@ public sealed class ScanUploadEndpointTests : IDisposable {
                 UploadScan.Handle(id, request, principal, users, db, audit, time, environment, configuration))
                 .DisableAntiforgery()
                 .RequireAuthorization(Permissions.ScansWrite);
-            app.MapGet("/api/v1/artifacts/{id:guid}/findings", (Guid id, AegisOpsDbContext db, HttpContext http) =>
-                ListFindings.Handle(id, db, http))
+            app.MapGet("/api/v1/artifacts/{id:guid}/findings", (Guid id, ClaimsPrincipal principal, UserManager<User> users,
+                AegisOpsDbContext db, HttpContext http) => ListFindings.Handle(id, principal, users, db, http))
                 .RequireAuthorization(Permissions.FindingsRead);
             app.MapPost("/api/v1/projects/{slug}/finding-suppressions", (string slug, SuppressFindingRequest body,
                 ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, IAuditWriter audit,

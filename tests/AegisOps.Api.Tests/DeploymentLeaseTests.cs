@@ -20,7 +20,7 @@ public sealed class DeploymentLeaseTests {
     [Fact]
     public async Task Parallel_claims_renewal_stale_recovery_and_target_serialization() {
         var connection = System.Environment.GetEnvironmentVariable("AEGISOPS_TEST_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connection)) return;
+        if (string.IsNullOrWhiteSpace(connection)) Assert.Skip("Set AEGISOPS_TEST_POSTGRES to run the PostgreSQL lease test.");
         var ct = TestContext.Current.CancellationToken;
         var name = "aegisops_lease_" + Guid.NewGuid().ToString("N");
         var admin = new NpgsqlConnectionStringBuilder(connection);
