@@ -43,6 +43,7 @@ builder.Services.AddOpenTelemetry().WithMetrics(metrics => metrics
     })
     .AddView("aegisops_deployment_duration_seconds", new ExplicitBucketHistogramConfiguration { Boundaries = DomainMetrics.DurationBuckets.ToArray() })
     .AddView("aegisops_deployment_lead_time_seconds", new ExplicitBucketHistogramConfiguration { Boundaries = DomainMetrics.DurationBuckets.ToArray() })
+    .AddView("aegisops_webhook_delivery_duration_seconds", new ExplicitBucketHistogramConfiguration { Boundaries = WebhookMetrics.DurationBuckets.ToArray() })
     .AddPrometheusExporter());
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService("aegisops-worker"))

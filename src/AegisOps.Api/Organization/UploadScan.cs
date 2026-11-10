@@ -117,11 +117,34 @@ public static class UploadScan {
 }
 
 public static class ListFindings {
-    public static async Task<IResult> Handle(Guid id, AegisOpsDbContext db, HttpContext http) {
-        var findings = await db.SecurityFindings.AsNoTracking()
+    public static async Task<IResult> Handle(Guid id, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, HttpContext http) {
+        var cancellationToken = http.RequestAborted;
+        // docs/09 §6: Admin and Security read every project; others only their teams' artifacts.
+        // Unknown and out-of-scope artifacts both return 404 so other teams' artifacts stay hidden.
+        var actor = await ActorResult.ResolveAsync(principal, users);
+        if (actor.Error is not null) {
+            return actor.Error;
+        }
+
+        var teamId = await db.Artifacts.AsNoTracking()
+            .Where(item => item.Id == id)
+            .Join(db.Projects.AsNoTracking(), artifact => artifact.ProjectId, project => project.Id, (_, project) => (Guid?)project.TeamId)
+            .SingleOrDefaultAsync(cancellationToken);
+        var user = actor.UserId is Guid userId ? await users.FindByIdAsync(userId.ToString()) : null;
+        var roles = user is null ? [] : await users.GetRolesAsync(user);
+        var canReadAll = roles.Contains("Admin", StringComparer.Ordinal) || roles.Contains("Security", StringComparer.Ordinal);
+        if (teamId is null || user is null || (!canReadAll && !await db.TeamMembers.AsNoTracking().AnyAsync(
+                member => member.TeamId == teamId && member.UserId == user.Id, cancellationToken))) {
+            return Results.Problem(title: "Artifact was not found.", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var rows = await db.SecurityFindings.AsNoTracking()
             .Where(item => item.ArtifactId == id)
+            .ToListAsync(cancellationToken);
+        // Severity is stored as text, so order by the enum value in memory (not alphabetically).
+        var findings = rows
             .OrderByDescending(item => item.Severity)
-            .ThenBy(item => item.Title)
+            .ThenBy(item => item.Title, StringComparer.Ordinal)
             .Select(item => new {
                 item.Id,
                 severity = item.Severity.ToString(),
@@ -137,7 +160,7 @@ public static class ListFindings {
                 status = item.Status.ToString(),
                 item.SuppressionReason,
             })
-            .ToListAsync(http.RequestAborted);
+            .ToList();
         return Results.Ok(findings);
     }
 }

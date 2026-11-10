@@ -20,6 +20,7 @@ public sealed class AegisOpsDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<TeamMember> TeamMembers => Set<TeamMember>();
     public DbSet<TeamWebhookSettings> TeamWebhookSettings => Set<TeamWebhookSettings>();
+    public DbSet<TeamWebhookDeliveryStats> TeamWebhookDeliveryStats => Set<TeamWebhookDeliveryStats>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<AegisOps.Domain.Organization.Environment> Environments => Set<AegisOps.Domain.Organization.Environment>();
     public DbSet<Repository> Repositories => Set<Repository>();

@@ -1040,3 +1040,148 @@ textarea:hover {
     gap: 4px;
   }
 }
+
+/* AI playground (P6-09) */
+.ai-playground {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 20px;
+  align-items: start;
+}
+.playground-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.playground-notice {
+  margin: 0;
+}
+.chat-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 460px;
+  overflow-y: auto;
+}
+.chat-message {
+  border: 1px solid #2b3440;
+  border-radius: 8px;
+  background: #1a2029;
+  padding: 11px 14px;
+  color: #dce3ec;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.chat-message-assistant {
+  border-color: #355c50;
+  background: #172922;
+}
+.chat-message strong {
+  font-size: 12px;
+  color: #f0f3f7;
+}
+.chat-message p {
+  margin: 6px 0 0;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.chat-message small {
+  display: block;
+  margin-top: 6px;
+  color: #a9cbbb;
+  font-size: 11px;
+}
+.chat-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chat-form textarea,
+.suppress-form textarea {
+  font: inherit;
+  resize: vertical;
+}
+.governance-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.governance-list div {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(0, 1.2fr);
+  gap: 10px;
+  font-size: 12px;
+}
+.governance-list dt {
+  color: #91a0b2;
+}
+.governance-list dd {
+  margin: 0;
+  color: #e2e8f0;
+  overflow-wrap: anywhere;
+}
+.governance-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+/* Findings explorer (P3-06) */
+.findings-filters {
+  margin-bottom: 16px;
+}
+.severity-badge {
+  display: inline-block;
+  border-radius: 5px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 650;
+  background: #2a323d;
+  color: #dce3ec;
+}
+.severity-critical {
+  background: #5c1d2a;
+  color: #ffd4dc;
+}
+.severity-high {
+  background: #5a3315;
+  color: #ffe0c2;
+}
+.severity-medium {
+  background: #4f4515;
+  color: #fff1b8;
+}
+.severity-low {
+  background: #1d3a5c;
+  color: #cfe3ff;
+}
+.finding-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 16px;
+  color: #afbccc;
+  font-size: 12px;
+}
+.finding-description {
+  white-space: pre-wrap;
+}
+.suppress-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #2a323d;
+}
+.suppress-form .primary-button {
+  align-self: flex-start;
+}
+@media (max-width: 900px) {
+  .ai-playground {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

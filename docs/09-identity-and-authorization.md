@@ -86,7 +86,8 @@ How the narrowed cells are enforced:
   allows `Admin` or an `Owner` of the target team (for a project, the project's team). A `Member` or a
   non-member gets `404` so the resource is not revealed. `Security`/`Approver` do not hold these
   permissions, so they get `403` even if they are a team Owner. The team write routes (`PATCH
-  /teams/{slug}`, `PUT`/`DELETE /teams/{slug}/members/{userId}`, team webhook settings) require `teams:write`.
+  /teams/{slug}`, `PUT`/`DELETE /teams/{slug}/members/{userId}`, team webhook settings, deliveries,
+  summary and `POST /teams/{slug}/webhook/deliveries/{eventId}/replay`) require `teams:write`.
 - Creating a team (`POST /teams`) requires `users:manage` (Admin): the "Owner of team" condition cannot
   apply to a team that does not exist yet. The creator becomes its Owner.
 - `ai:policies:read` is a route policy, not a role permission: `GET /ai/policies` is allowed to whoever

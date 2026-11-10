@@ -94,6 +94,12 @@ developer's access token (`POST /api/v1/ai/chat`, see [08 AI gateway](08-ai-gate
 
 ## Reset
 
-`docker compose down` keeps data. `reset-demo.sh` (Phase 8) is not written yet. Until
-it exists, reset deliberately by removing the stack's volumes, which deletes the
-database and reports, and re-seed. Never do this on a stack whose data you need.
+`docker compose down` keeps data. To start a demo from a clean seed, run `scripts/reset-demo.sh`.
+After you type `reset` to confirm, it:
+
+1. deletes only this Compose project's `pgdata` and `reports` volumes (the `ollama` model volume
+   is kept);
+2. starts the stack again, which migrates the database and re-seeds the demo data;
+3. prints the new first-run demo passwords.
+
+Use `--dry-run` to see the commands first. Never run it on a stack whose data you need.

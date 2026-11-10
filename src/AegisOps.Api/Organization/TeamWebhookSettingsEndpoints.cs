@@ -16,9 +16,71 @@ namespace AegisOps.Api.Organization;
 public sealed record SetTeamWebhookRequest(string? Url, string? SecretBase64, string[]? EventTypes = null);
 public sealed record TeamWebhookSettingsResponse(string? Url, bool SecretConfigured, DateTimeOffset? UpdatedAt, string[] EventTypes);
 public sealed record TeamWebhookAttemptResponse(int AttemptNumber, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string Status, string? Error);
+/// <summary>All-time counters that survive job retention. FailedAttempts includes each attempt of a dead-lettered job.</summary>
+public sealed record TeamWebhookSummaryResponse(long Delivered, long FailedAttempts, long DeadLettered, DateTimeOffset? LastSuccessAt, DateTimeOffset? LastFailureAt);
+public sealed record TeamWebhookReplayResponse(Guid EventId, Guid JobId);
 public sealed record TeamWebhookDeliveryResponse(Guid EventId, string EventType, DateTimeOffset OccurredAt, string Status, int Attempts, int MaxAttempts, DateTimeOffset? CompletedAt, string? LastError, IReadOnlyList<TeamWebhookAttemptResponse>? AttemptHistory = null);
 
 public static class TeamWebhookSettingsEndpoints {
+    public const string ReplayedAction = "webhook.replayed";
+
+    public static async Task<IResult> Summary(
+        string slug, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, HttpContext http
+    ) {
+        var access = await FindAuthorizedTeam(slug, principal, users, db, http.RequestAborted);
+        if (access.Error is not null) return access.Error;
+        var stats = await db.TeamWebhookDeliveryStats.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.TeamId == access.Team!.Id, http.RequestAborted);
+        return Results.Ok(stats is null
+            ? new TeamWebhookSummaryResponse(0, 0, 0, null, null)
+            : new TeamWebhookSummaryResponse(stats.Delivered, stats.FailedAttempts, stats.DeadLettered, stats.LastSuccessAt, stats.LastFailureAt));
+    }
+
+    /// <summary>
+    /// Re-sends a stored deployment event of this team by enqueueing a new SendNotification job, so it
+    /// goes through the normal Worker sender (SSRF checks, current settings, fresh signature). At most
+    /// one Pending/Running notification job may exist per event; a second request gets 409.
+    /// </summary>
+    public static async Task<IResult> Replay(
+        string slug, Guid eventId, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db,
+        IAuditWriter audit, TimeProvider time, HttpContext http
+    ) {
+        var ct = http.RequestAborted;
+        var access = await FindAuthorizedTeam(slug, principal, users, db, ct);
+        if (access.Error is not null) return access.Error;
+        var exists = await (from item in db.DeploymentEvents.AsNoTracking()
+                            join deployment in db.Deployments.AsNoTracking() on item.DeploymentId equals deployment.Id
+                            join project in db.Projects.AsNoTracking() on deployment.ProjectId equals project.Id
+                            where item.Id == eventId && project.TeamId == access.Team!.Id
+                            select item.Id).AnyAsync(ct);
+        // Another team's event is indistinguishable from a missing one.
+        if (!exists) return Results.Problem(title: "Deployment event was not found.", statusCode: StatusCodes.Status404NotFound);
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true) {
+            // Serialize replays of the same event across API instances until this transaction ends.
+            await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtextextended({0}, 643720))",
+                [eventId.ToString("D")], ct);
+        }
+        var activePayloads = await db.Jobs.AsNoTracking()
+            .Where(job => job.Type == AegisOps.Domain.Jobs.JobType.SendNotification &&
+                          (job.Status == AegisOps.Domain.Jobs.JobStatus.Pending || job.Status == AegisOps.Domain.Jobs.JobStatus.Running))
+            .Select(job => job.Payload)
+            .ToListAsync(ct);
+        if (activePayloads.Any(payload => TeamWebhookDeliveryStatsStore.TryReadEventId(payload) == eventId)) {
+            return Results.Problem(title: "A delivery for this event is already pending or running.", statusCode: StatusCodes.Status409Conflict);
+        }
+
+        var now = time.GetUtcNow();
+        var job = AegisOps.Domain.Jobs.Job.Enqueue(AegisOps.Domain.Jobs.JobType.SendNotification,
+            JsonSerializer.Serialize(new { eventId }), now, Guid.CreateVersion7().ToString("N"));
+        db.Jobs.Add(job);
+        audit.Write(now, access.User!.Id, access.User.Email ?? access.User.DisplayName, ReplayedAction, "DeploymentEvent", eventId);
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return Results.Accepted(value: new TeamWebhookReplayResponse(eventId, job.Id));
+    }
+
     public static async Task<IResult> Deliveries(
         string slug, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, TimeProvider time, HttpContext http
     ) {

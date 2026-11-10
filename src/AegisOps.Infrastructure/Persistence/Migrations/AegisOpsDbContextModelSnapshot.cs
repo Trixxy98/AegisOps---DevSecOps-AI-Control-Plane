@@ -1113,6 +1113,42 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("AegisOps.Domain.Organization.TeamWebhookDeliveryStats", b =>
+                {
+                    b.Property<Guid>("TeamId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("team_id");
+
+                    b.Property<long>("DeadLettered")
+                        .HasColumnType("bigint")
+                        .HasColumnName("dead_lettered");
+
+                    b.Property<long>("Delivered")
+                        .HasColumnType("bigint")
+                        .HasColumnName("delivered");
+
+                    b.Property<long>("FailedAttempts")
+                        .HasColumnType("bigint")
+                        .HasColumnName("failed_attempts");
+
+                    b.Property<DateTimeOffset?>("LastFailureAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_failure_at");
+
+                    b.Property<DateTimeOffset?>("LastSuccessAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_success_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("TeamId")
+                        .HasName("pk_team_webhook_delivery_stats");
+
+                    b.ToTable("team_webhook_delivery_stats", "org");
+                });
+
             modelBuilder.Entity("AegisOps.Domain.Organization.TeamWebhookSettings", b =>
                 {
                     b.Property<Guid>("TeamId")
@@ -2085,6 +2121,16 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_team_members_asp_net_users_user_id");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Organization.TeamWebhookDeliveryStats", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Organization.Team", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_team_webhook_delivery_stats_teams_team_id");
                 });
 
             modelBuilder.Entity("AegisOps.Domain.Organization.TeamWebhookSettings", b =>

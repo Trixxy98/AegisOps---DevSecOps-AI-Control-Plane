@@ -141,6 +141,8 @@ design targets; a row alone does not assert that a metric is exported.
 | `aegisops_jobs_processed_total` | counter | `type`, `status` | Worker throughput; committed job attempts |
 | `aegisops_jobs_lease_expired_total` | counter | `type`, `status` | Stale lease recoveries, including dead letters |
 | `aegisops_jobs_duration_seconds` | histogram | `type` | Job attempt time, including completion commit |
+| `aegisops_webhook_deliveries_total` | counter | `outcome` (`Succeeded`/`Failed`/`DeadLettered`) | **Implemented** (Worker, after the attempt commits): one per webhook attempt; `Failed` = retry scheduled, `DeadLettered` = final attempt failed; skipped notifications are not counted. Zero-seeded. No team, URL or event labels |
+| `aegisops_webhook_delivery_duration_seconds` | histogram | `outcome` | **Implemented**: outbound HTTP attempt time (buckets 0.05–30 s); none for lease expiry. Durable per-team totals: `GET /teams/{slug}/webhook/summary` (docs/phase5-webhooks.md) |
 | `aegisops_jobs_queue_depth` | gauge | `status` (`Pending` due, `Delayed`, `Running`, `DeadLettered`) | Worker queue snapshot (poll every 15 s); use max across replicas |
 | `aegisops_realtime_connections` | gauge | — | SignalR connected clients |
 | `aegisops_audit_events_total` | counter | `outcome` (known set, else `Other`) | **Implemented** (at commit). Incl. `Denied` attempts |
