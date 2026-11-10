@@ -65,6 +65,8 @@ public static class JwtAuthenticationExtensions {
             });
 
         services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+        // docs/09 section 5: policy-level denials return 403 Problem Details and are audited as Denied.
+        services.AddSingleton<IAuthorizationMiddlewareResultHandler, AuditingAuthorizationResultHandler>();
         services.AddAuthorization(authorization => {
             authorization.AddPolicy("ai:policies:read", policy =>
                 policy.Requirements.Add(new PermissionRequirement(Permissions.AiPoliciesWrite)));

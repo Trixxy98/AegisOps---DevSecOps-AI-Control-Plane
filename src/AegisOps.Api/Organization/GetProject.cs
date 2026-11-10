@@ -44,8 +44,9 @@ public static class GetProject {
             );
         }
 
-        var isAdmin = await users.IsInRoleAsync(user, "Admin");
-        if (!isAdmin) {
+        // docs/09 section 6: Admin and Security see every project (Security read-only; this is a read handler).
+        var seesAllProjects = await users.IsInRoleAsync(user, "Admin") || await users.IsInRoleAsync(user, "Security");
+        if (!seesAllProjects) {
             var isMember = await db.TeamMembers.AnyAsync(
                 member => member.TeamId == project.TeamId && member.UserId == userId,
                 cancellationToken

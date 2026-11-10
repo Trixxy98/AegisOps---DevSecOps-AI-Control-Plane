@@ -38,7 +38,7 @@ public static class ScanReportStore {
         var scan = SecurityScan.Begin(artifact.Id, scanner, ScanSource.CiUploaded, format, now, toolVersion, reportPath, inline);
         db.SecurityScans.Add(scan);
         if (inline) {
-            await CompleteAsync(db, scan, artifact.ProjectId, report, now, cancellationToken);
+            await CompleteAsync(db, scan, artifact.ProjectId, report, now, inline: true, cancellationToken);
         } else {
             db.Jobs.Add(Job.Enqueue(
                 JobType.ParseScanReport,
@@ -68,7 +68,7 @@ public static class ScanReportStore {
         }
 
         var bytes = await File.ReadAllBytesAsync(scan.RawReportPath, cancellationToken);
-        await CompleteAsync(db, scan, artifact.ProjectId, bytes, now, cancellationToken);
+        await CompleteAsync(db, scan, artifact.ProjectId, bytes, now, inline: false, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -78,8 +78,10 @@ public static class ScanReportStore {
         Guid projectId,
         ReadOnlyMemory<byte> report,
         DateTimeOffset now,
+        bool inline,
         CancellationToken cancellationToken
     ) {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         var parsed = SarifReportParser.Parse(scan.Scanner, report);
         var suppressions = await db.FindingSuppressions
             .Where(item => item.ProjectId == projectId)
@@ -110,5 +112,6 @@ public static class ScanReportStore {
 
         db.SecurityFindings.AddRange(findings);
         scan.Complete(ScanSummary.From(findings), now);
+        DomainMetrics.RecordScanIngest(scan.Scanner, inline, System.Diagnostics.Stopwatch.GetElapsedTime(started));
     }
 }

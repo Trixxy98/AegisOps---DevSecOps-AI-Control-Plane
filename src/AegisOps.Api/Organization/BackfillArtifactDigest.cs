@@ -41,8 +41,16 @@ public static class BackfillArtifactDigest {
 
         var actorDisplay = "api-key";
         Guid? actorId = null;
+        var auditActorType = "User";
         var actorType = principal.FindFirst("actor_type")?.Value;
         if (string.Equals(actorType, "apiKey", StringComparison.OrdinalIgnoreCase)) {
+            auditActorType = "ApiKey";
+            const string keyPrefix = "apikey:";
+            var keySubject = principal.FindFirst("sub")?.Value;
+            if (keySubject is not null && keySubject.StartsWith(keyPrefix, StringComparison.OrdinalIgnoreCase) &&
+                Guid.TryParse(keySubject.AsSpan(keyPrefix.Length), out var apiKeyId)) {
+                actorId = apiKeyId;
+            }
             var projectClaim = principal.FindFirst("project")?.Value;
             if (!Guid.TryParse(projectClaim, out var apiKeyProjectId) || apiKeyProjectId != artifact.ProjectId) {
                 return Results.Problem(
@@ -73,7 +81,7 @@ public static class BackfillArtifactDigest {
 
         try {
             artifact.BackfillDigest(request.ImageDigest);
-            audit.Write(TimeProvider.System.GetUtcNow(), actorId, actorDisplay, "artifact.digest_backfilled", "Artifact", artifact.Id);
+            audit.Write(TimeProvider.System.GetUtcNow(), auditActorType, actorId, actorDisplay, "artifact.digest_backfilled", "Artifact", artifact.Id);
             await db.SaveChangesAsync(cancellationToken);
         } catch (ArgumentException exception) {
             return Results.Problem(

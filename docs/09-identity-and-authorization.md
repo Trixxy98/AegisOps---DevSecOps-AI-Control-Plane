@@ -29,7 +29,11 @@ selected by the `aok_` prefix via a policy scheme (`"Smart"` scheme forwards to 
 - Email confirmation: **disabled** in v1 (no mail server); admin creates users and sets a
   temporary password (`MustChangePassword` flag).
 - Refresh tokens stored hashed (`RefreshToken.TokenHash`); reuse of a rotated token revokes
-  the whole family and is audited (`auth.refresh_reuse_detected`).
+  the whole family and is audited (`auth.refresh_reuse_detected`, `Outcome = Denied`, owner as actor) in the
+  same save as the revocation. Each successful rotation is audited as `auth.refreshed`.
+- Failed logins (unknown email, wrong password, inactive user) are audited as `auth.login_failed`
+  (`ActorType = Anonymous`, display `anonymous`, `Outcome = Denied`, `ResourceId` = the account id only when it
+  exists). The submitted email and password are never recorded.
 - MFA (TOTP): V2.
 
 ### Auth endpoints
@@ -68,10 +72,25 @@ to the UI via `/auth/me` so buttons can hide themselves.
 | `ai:chat` | ✓ | ✓ | ✓ | ✓ |
 | `ai:requests:read` (all users') | ✓ | own only | ✓ | own only |
 | `ai:policies:write` | ✓ (Global + Team) | — | ✓ (Team) | — |
+| `ai:policies:read` (policy, satisfied by `ai:policies:write`) | ✓ | — | ✓ | — |
 | `audit:read` | ✓ | — | ✓ | — |
 | `users:manage`, `roles:manage`, `models:manage` | ✓ | — | — | — |
 
 A user may hold multiple roles (e.g. `Security` + `Approver`).
+
+How the narrowed cells are enforced:
+
+- A narrowed grant ("Owner of team", "team member", "requester / team Owner", "own only") is granted to
+  the role in `RolePermissions`, so the route permission admits it, and the handler then narrows it.
+- "Owner of team" (`teams:write`, `projects:write`, `environments:write`, `apikeys:manage`): the handler
+  allows `Admin` or an `Owner` of the target team (for a project, the project's team). A `Member` or a
+  non-member gets `404` so the resource is not revealed. `Security`/`Approver` do not hold these
+  permissions, so they get `403` even if they are a team Owner. The team write routes (`PATCH
+  /teams/{slug}`, `PUT`/`DELETE /teams/{slug}/members/{userId}`, team webhook settings) require `teams:write`.
+- Creating a team (`POST /teams`) requires `users:manage` (Admin): the "Owner of team" condition cannot
+  apply to a team that does not exist yet. The creator becomes its Owner.
+- `ai:policies:read` is a route policy, not a role permission: `GET /ai/policies` is allowed to whoever
+  holds `ai:policies:write`.
 
 ## 5. Policy-based authorization in ASP.NET Core
 
@@ -92,16 +111,23 @@ var authz = await authorizationService.AuthorizeAsync(user, project, Operations.
 | `ApproveDeploymentHandler` | `deployments:approve` **and** approver ≠ requester **and** (team member or Admin) **and** role ∈ roles required by the policy evaluation |
 | `CancelDeploymentHandler` | requester, team Owner, or Admin |
 | `SuppressFindingHandler` | `findings:suppress` and project access |
-| `EditPolicyHandler` | Global → Admin; Team → Security/Admin; Project → Security/Admin with team access |
+| `EditPolicyHandler` | Global → Admin; Team → Security/Admin; Project → Admin, or Security who is a member of the project's team. Enforced on create, enable/disable, archive and replace (`PolicyEditAccess`); otherwise `403` |
 
 Denied authorization returns `403` with Problem Details and writes an `AuditEvent` with
-`Outcome = Denied` (so attempted privilege abuse is visible).
+`Outcome = Denied` (so attempted privilege abuse is visible). For route-permission denials this is
+done by `AuditingAuthorizationResultHandler` (an `IAuthorizationMiddlewareResultHandler`): the body is a
+generic RFC 7807 Problem Details (`status: 403`, no policy or internal details), and the event has
+`Action = authorization.denied`, `ResourceType = Endpoint`, and the actor (user or API key) when
+authenticated. The request body and query string are never recorded. If the audit write fails, the
+failure is logged and the response is still `403`. Unauthenticated requests still get the normal `401`
+challenge, which is not audited by this handler.
 
 ## 6. Team scoping
 
 - Every `Project` belongs to exactly one `Team`.
 - A user sees only projects of teams they belong to, unless `Admin` (or `Security`, who
-  sees all projects read-only for review purposes).
+  sees all projects read-only for review purposes: the project list and detail handlers skip team
+  scoping for both roles, and Security holds no project write permission).
 - Query filters implement scoping in Application read handlers (`IProjectAccess.
   VisibleProjectIds(user)`), not via EF global filters (explicit > magic).
 
@@ -114,7 +140,7 @@ Denied authorization returns `403` with Problem Details and writes an `AuditEven
 | Lifetime | `ExpiresAt` required (max 1 year); `LastUsedAt` updated at most once per minute |
 | Revocation | `RevokedAt` set; immediate effect (no caching of key validity beyond 60 s) |
 | Display | Plain key shown exactly once at creation |
-| Audit | `apikey.created`, `apikey.revoked`, `apikey.auth_failed` |
+| Audit | `apikey.created`, `apikey.revoked`, `apikey.auth_failed` (`Outcome = Denied`) only when the prefix matches an existing key (wrong secret or expired key). Actor is that key, and the display is its 8-character prefix, never the secret. Malformed or unknown keys get `401` without an audit row, so unauthenticated traffic cannot grow the immutable audit table. A failing audit write is logged and the response stays `401`. Actions performed with a key are recorded with `ActorType = ApiKey` and the key id. |
 | Deployment target restriction | API keys may request deployments to **Development/Staging** only by default; `Target.allowApiKeyProduction = true` on an environment opts in (production usually starts from a human or from an approved promotion) |
 
 ## 8. Front-end session model

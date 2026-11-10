@@ -43,11 +43,12 @@ public static class ListProjects {
         }
 
         var cancellationToken = http.RequestAborted;
-        var isAdmin = await users.IsInRoleAsync(user, "Admin");
+        // docs/09 section 6: Admin and Security see every project (Security read-only; this is a read handler).
+        var seesAllProjects = await users.IsInRoleAsync(user, "Admin") || await users.IsInRoleAsync(user, "Security");
 
         var query = db.Projects.AsNoTracking().AsQueryable();
 
-        if (!isAdmin) {
+        if (!seesAllProjects) {
             var teamIds = db.TeamMembers
                 .AsNoTracking()
                 .Where(member => member.UserId == userId)

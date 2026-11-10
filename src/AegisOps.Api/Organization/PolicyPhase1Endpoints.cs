@@ -54,6 +54,11 @@ public static class PolicyPhase1Endpoints {
             return Results.Problem(title: "Policy was not found.", statusCode: StatusCodes.Status404NotFound);
         }
 
+        var denied = await PolicyEditAccess.CheckAsync(user, policy.Scope, policy.ScopeId, users, db, cancellationToken);
+        if (denied is not null) {
+            return denied;
+        }
+
         try {
             var now = time.GetUtcNow();
             policy.Rename(request.Name, userId, now);

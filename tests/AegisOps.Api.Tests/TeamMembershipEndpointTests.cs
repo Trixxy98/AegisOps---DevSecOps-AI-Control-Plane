@@ -32,8 +32,8 @@ namespace AegisOps.Api.Tests;
 
 /// <summary>
 /// Audit check P1-07: team/member APIs and membership scoping. Drives the real team handlers over HTTP
-/// with real JWT + permission authorization, and calls them directly where the route permission
-/// (teams:write is Admin-only) would hide the handler's own Owner/Member/non-member rules.
+/// with real JWT + permission authorization, and calls them directly to isolate the handler's own
+/// Owner/Member/non-member rules (teams:write = Admin + Developer; the handler requires Admin or team Owner).
 /// </summary>
 public sealed class TeamMembershipEndpointTests {
     private static CancellationToken Token => TestContext.Current.CancellationToken;
@@ -137,7 +137,9 @@ public sealed class TeamMembershipEndpointTests {
         await host.WithDbAsync(async db => {
             Assert.Equal(["platform"], await db.Teams.Select(t => t.Slug).ToListAsync(Token));
             Assert.Equal(1, await db.TeamMembers.CountAsync(Token));
-            Assert.Equal(["team.created"], await db.AuditEvents.Select(e => e.Action).ToListAsync(Token));
+            Assert.Equal(["team.created"], await db.AuditEvents.Where(e => e.Outcome == "Succeeded").Select(e => e.Action).ToListAsync(Token));
+            // docs/09 section 5: the two policy-level 403s are audited as Denied.
+            Assert.Equal(2, await db.AuditEvents.CountAsync(e => e.Action == "authorization.denied" && e.Outcome == "Denied", Token));
         });
     }
 
@@ -215,10 +217,10 @@ public sealed class TeamMembershipEndpointTests {
     }
 
     [Theory]
-    [InlineData("Developer")]
-    [InlineData("Security")]
-    [InlineData("Approver")]
-    public async Task NonAdminTeamOwnersCanManageTheirTeamThroughTheRoutesButOutsidersCannot(string role) {
+    [InlineData("Developer", true)]
+    [InlineData("Security", false)]
+    [InlineData("Approver", false)]
+    public async Task NonAdminTeamOwnersCanManageTheirTeamThroughTheRoutesButOutsidersCannot(string role, bool canWrite) {
         await using var host = await TeamHost.StartAsync();
         var (_, admin) = await host.CreateUserAsync("admin@example.test", "Admin");
         var (userId, bearer) = await host.CreateUserAsync("user@example.test", role);
@@ -233,24 +235,27 @@ public sealed class TeamMembershipEndpointTests {
             Assert.Equal(HttpStatusCode.OK, list.StatusCode);
         Assert.Equal("Owner", (await host.GetTeamAsync(bearer, "platform")).MyRole);
 
-        // docs/09: teams:write is granted to Admin and to the team's Owner; the handler decides.
+        // docs/09: teams:write is Admin, or a Developer who is Owner of the team (route permission + handler Owner check).
+        // Security/Approver do not hold teams:write, so even as team Owner they are rejected by the route policy (403).
         var (_, outsider) = await host.CreateUserAsync("outsider@example.test", "Developer");
         using (var hijack = await host.SendAsync(HttpMethod.Patch, "/api/v1/teams/platform", outsider, new UpdateTeamRequest("Hijack", null)))
             Assert.Equal(HttpStatusCode.NotFound, hijack.StatusCode);
         using (var sneak = await host.SendAsync(HttpMethod.Put, $"/api/v1/teams/platform/members/{otherId}", outsider, new UpsertTeamMemberRequest("Owner")))
             Assert.Equal(HttpStatusCode.NotFound, sneak.StatusCode);
         using (var patch = await host.SendAsync(HttpMethod.Patch, "/api/v1/teams/platform", bearer, new UpdateTeamRequest("Renamed by owner", null)))
-            Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+            Assert.Equal(canWrite ? HttpStatusCode.OK : HttpStatusCode.Forbidden, patch.StatusCode);
         using (var put = await host.SendAsync(HttpMethod.Put, $"/api/v1/teams/platform/members/{otherId}", bearer, new UpsertTeamMemberRequest("Member")))
-            Assert.Equal(HttpStatusCode.OK, put.StatusCode);
-        using (var delete = await host.SendAsync(HttpMethod.Delete, $"/api/v1/teams/platform/members/{otherId}", bearer))
-            Assert.True(delete.IsSuccessStatusCode);
+            Assert.Equal(canWrite ? HttpStatusCode.OK : HttpStatusCode.Forbidden, put.StatusCode);
+        using (var delete = await host.SendAsync(HttpMethod.Delete, $"/api/v1/teams/platform/members/{otherId}", bearer)) {
+            if (canWrite) Assert.True(delete.IsSuccessStatusCode);
+            else Assert.Equal(HttpStatusCode.Forbidden, delete.StatusCode);
+        }
         using (var anonymous = await host.SendAsync(HttpMethod.Get, "/api/v1/teams", null))
             Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
 
         await host.WithDbAsync(async db => {
-            Assert.Equal("Renamed by owner", (await db.Teams.AsNoTracking().SingleAsync(Token)).Name);
-            Assert.Equal(2, await db.TeamMembers.CountAsync(Token));
+            Assert.Equal(canWrite ? "Renamed by owner" : "platform", (await db.Teams.AsNoTracking().SingleAsync(Token)).Name);
+            Assert.Equal(2, await db.TeamMembers.CountAsync(Token)); // creator Admin + promoted Owner; the added member was removed again
         });
     }
 
@@ -491,15 +496,15 @@ public sealed class TeamMembershipEndpointTests {
                 .RequireAuthorization(Permissions.TeamsRead);
             app.MapPatch("/api/v1/teams/{slug}", (string slug, UpdateTeamRequest body, ClaimsPrincipal user, UserManager<User> users,
                 AegisOpsDbContext db, IAuditWriter audit, HttpContext http) => UpdateTeam.Handle(slug, body, user, users, db, audit, http))
-                .RequireAuthorization(Permissions.TeamsRead);
+                .RequireAuthorization(Permissions.TeamsWrite);
             app.MapPut("/api/v1/teams/{slug}/members/{userId:guid}", (string slug, Guid userId, UpsertTeamMemberRequest body,
                 ClaimsPrincipal user, UserManager<User> users, AegisOpsDbContext db, IAuditWriter audit, TimeProvider time, HttpContext http) =>
                 UpsertTeamMember.Handle(slug, userId, body, user, users, db, audit, time, http))
-                .RequireAuthorization(Permissions.TeamsRead);
+                .RequireAuthorization(Permissions.TeamsWrite);
             app.MapDelete("/api/v1/teams/{slug}/members/{userId:guid}", (string slug, Guid userId, ClaimsPrincipal user,
                 UserManager<User> users, AegisOpsDbContext db, IAuditWriter audit, HttpContext http) =>
                 RemoveTeamMember.Handle(slug, userId, user, users, db, audit, http))
-                .RequireAuthorization(Permissions.TeamsRead);
+                .RequireAuthorization(Permissions.TeamsWrite);
             app.MapGet("/api/v1/projects", (ClaimsPrincipal user, UserManager<User> users, AegisOpsDbContext db, HttpContext http) =>
                 ListProjects.Handle(user, users, db, http))
                 .RequireAuthorization(Permissions.ProjectsRead);

@@ -49,6 +49,11 @@ public static class SetPolicyEnabled {
             );
         }
 
+        var denied = await PolicyEditAccess.CheckAsync(user, policy.Scope, policy.ScopeId, users, db, cancellationToken);
+        if (denied is not null) {
+            return denied;
+        }
+
         try {
             if (request.IsEnabled) {
                 policy.Enable(userId, time.GetUtcNow());
