@@ -528,6 +528,31 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                     b.ToTable("deployment_events", "deploy");
                 });
 
+            modelBuilder.Entity("AegisOps.Domain.Deploy.EnvironmentRuntimeSnapshot", b =>
+                {
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("environment_id");
+
+                    b.Property<bool>("InspectionAvailable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("inspection_available");
+
+                    b.Property<DateTimeOffset>("ObservedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("observed_at");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("reason");
+
+                    b.HasKey("EnvironmentId")
+                        .HasName("pk_environment_runtime_snapshots");
+
+                    b.ToTable("environment_runtime_snapshots", "deploy");
+                });
+
             modelBuilder.Entity("AegisOps.Domain.Identity.ApiKey", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1885,6 +1910,60 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_deployment_events_deployments_deployment_id");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Deploy.EnvironmentRuntimeSnapshot", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Organization.Environment", null)
+                        .WithOne()
+                        .HasForeignKey("AegisOps.Domain.Deploy.EnvironmentRuntimeSnapshot", "EnvironmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_environment_runtime_snapshots_environments_environment_id");
+
+                    b.OwnsMany("AegisOps.Domain.Deploy.RuntimeContainer", "Containers", b1 =>
+                        {
+                            b1.Property<Guid>("EnvironmentRuntimeSnapshotEnvironmentId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAdd();
+
+                            b1.Property<string>("Health");
+
+                            b1.Property<string>("Image")
+                                .IsRequired();
+
+                            b1.Property<string>("ImageId");
+
+                            b1.Property<string>("Name")
+                                .IsRequired();
+
+                            b1.PrimitiveCollection<string>("Ports")
+                                .IsRequired();
+
+                            b1.Property<DateTimeOffset?>("StartedAt");
+
+                            b1.Property<string>("State")
+                                .IsRequired();
+
+                            b1.Property<string>("Status")
+                                .IsRequired();
+
+                            b1.HasKey("EnvironmentRuntimeSnapshotEnvironmentId", "__synthesizedOrdinal")
+                                .HasName("pk_environment_runtime_snapshots");
+
+                            b1.ToTable("environment_runtime_snapshots", "deploy");
+
+                            b1
+                                .ToJson("containers")
+                                .HasColumnType("jsonb");
+
+                            b1.WithOwner()
+                                .HasForeignKey("EnvironmentRuntimeSnapshotEnvironmentId")
+                                .HasConstraintName("fk_environment_runtime_snapshots_environment_runtime_snapshots");
+                        });
+
+                    b.Navigation("Containers");
                 });
 
             modelBuilder.Entity("AegisOps.Domain.Identity.ApiKey", b =>

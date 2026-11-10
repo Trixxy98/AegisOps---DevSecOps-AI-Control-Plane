@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Identity;
 using AegisOps.Infrastructure.Docker;
 using AegisOps.Infrastructure.Persistence;
@@ -15,7 +16,8 @@ public static class GetEnvironmentRuntime {
         ClaimsPrincipal principal,
         UserManager<User> users,
         AegisOpsDbContext db,
-        HttpContext http
+        HttpContext http,
+        TimeProvider time
     ) {
         var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
         if (!Guid.TryParse(subject, out var userId)) {
@@ -53,43 +55,61 @@ public static class GetEnvironmentRuntime {
         if (!string.Equals(environment.Target.Type, "docker", StringComparison.OrdinalIgnoreCase)) {
             return Results.Ok(new {
                 type = environment.Target.Type,
-                containers = Array.Empty<ContainerRuntime>(),
+                inspectionAvailable = false,
+                reason = "noop target",
+                observedAt = (DateTimeOffset?)null,
+                stale = false,
+                containers = Array.Empty<RuntimeContainerResponse>(),
             });
         }
 
-        // The API is deliberately not granted the Worker's Docker socket. Do not
-        // report an empty list as if we had inspected the host.
-        if (!DockerClientFactory.CanInspect(DockerClientFactory.Socket())) {
+        // The API deliberately has no Docker socket; the Worker records what it observed.
+        var snapshot = await db.EnvironmentRuntimeSnapshots.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.EnvironmentId == environment.Id, cancellationToken);
+        if (snapshot is null) {
             return Results.Ok(new {
                 type = "docker",
                 environment.Target.ContainerName,
                 environment.Target.HostPort,
                 environment.Target.HealthPath,
                 inspectionAvailable = false,
-                reason = "Docker runtime inspection is unavailable to the API; check the deployment timeline and target health endpoint.",
-                containers = (IReadOnlyList<ContainerRuntime>?)null,
+                reason = "The Worker has not recorded a runtime snapshot for this environment yet.",
+                observedAt = (DateTimeOffset?)null,
+                stale = true,
+                containers = (IReadOnlyList<RuntimeContainerResponse>?)null,
             });
         }
 
-        try {
-            var containers = await DockerRuntimeInspector.ListAsync(
-                project.Slug,
-                environment.Name,
-                environment.Target.ContainerName,
-                cancellationToken);
-            return Results.Ok(new {
-                type = "docker",
-                environment.Target.ContainerName,
-                environment.Target.HostPort,
-                environment.Target.HealthPath,
-                inspectionAvailable = true,
-                containers,
-            });
-        } catch (Exception exception) {
-            return Results.Problem(
-                title: "Docker runtime could not be read.",
-                detail: exception.Message,
-                statusCode: StatusCodes.Status503ServiceUnavailable);
-        }
+        var stale = time.GetUtcNow() - snapshot.ObservedAt > EnvironmentRuntimeMonitor.StaleAfter;
+        return Results.Ok(new {
+            type = "docker",
+            environment.Target.ContainerName,
+            environment.Target.HostPort,
+            environment.Target.HealthPath,
+            inspectionAvailable = snapshot.InspectionAvailable,
+            reason = snapshot.InspectionAvailable
+                ? (stale ? "The Worker has not refreshed this snapshot recently." : null)
+                : snapshot.Reason,
+            observedAt = (DateTimeOffset?)snapshot.ObservedAt,
+            stale,
+            containers = snapshot.InspectionAvailable
+                ? snapshot.Containers.Select(RuntimeContainerResponse.From).ToArray()
+                : (IReadOnlyList<RuntimeContainerResponse>?)null,
+        });
     }
+}
+
+public sealed record RuntimeContainerResponse(
+    string Name,
+    string State,
+    string Status,
+    string? Health,
+    string Image,
+    string? ImageId,
+    DateTimeOffset? StartedAt,
+    IReadOnlyList<string> Ports
+) {
+    public static RuntimeContainerResponse From(RuntimeContainer container) => new(
+        container.Name, container.State, container.Status, container.Health,
+        container.Image, container.ImageId, container.StartedAt, container.Ports.ToArray());
 }

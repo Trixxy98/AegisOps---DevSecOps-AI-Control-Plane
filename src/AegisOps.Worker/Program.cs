@@ -14,6 +14,8 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddAegisOpsSerilog(builder.Configuration, builder.Environment,
+    new AegisOpsLoggingOptions(AegisOpsLogging.WorkerServiceName));
 builder.Services.AddDependencyReadiness()
     .AddCheck<DockerReadinessCheck>("docker", failureStatus: HealthStatus.Degraded,
         tags: ["ready"], timeout: TimeSpan.FromSeconds(3))
@@ -33,6 +35,7 @@ builder.Services.AddHostedService<JobQueueDepthService>();
 builder.Services.AddHostedService<JobCleanupService>();
 builder.Services.AddHostedService<AegisOps.Infrastructure.Scanning.ScanReportCleanupService>();
 builder.Services.AddHostedService<AegisOps.Infrastructure.Ai.AiContentRetentionService>();
+builder.Services.AddHostedService<AegisOps.Infrastructure.Docker.EnvironmentRuntimeMonitor>();
 builder.Services.AddOpenTelemetry().WithMetrics(metrics => metrics
     .AddMeter(JobMetrics.MeterName)
     .AddView("aegisops_jobs_duration_seconds", new ExplicitBucketHistogramConfiguration {

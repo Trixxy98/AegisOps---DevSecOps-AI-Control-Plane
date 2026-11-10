@@ -45,6 +45,7 @@ public sealed class AegisOpsDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<PolicyEvaluation> PolicyEvaluations => Set<PolicyEvaluation>();
     public DbSet<Deployment> Deployments => Set<Deployment>();
     public DbSet<DeploymentEvent> DeploymentEvents => Set<DeploymentEvent>();
+    public DbSet<EnvironmentRuntimeSnapshot> EnvironmentRuntimeSnapshots => Set<EnvironmentRuntimeSnapshot>();
     public DbSet<Approval> Approvals => Set<Approval>();
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<WebhookDeliveryAttempt> WebhookDeliveryAttempts => Set<WebhookDeliveryAttempt>();

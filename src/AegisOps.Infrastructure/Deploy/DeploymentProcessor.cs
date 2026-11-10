@@ -36,6 +36,7 @@ public static class DeploymentProcessor {
         var token = job.LeaseToken!.Value;
         using var lost = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var heartbeat = RenewAsync(scopes, job.Id, token, time, lost);
+        Guid? executedDeploymentId = null;
         try {
             if (job.Type == JobType.SendNotification) {
                 var eventId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("eventId").GetGuid();
@@ -50,6 +51,7 @@ public static class DeploymentProcessor {
                     await EvaluateAsync(db, audit, deploymentId, time, lost.Token);
                 } else if (job.Type == JobType.ExecuteDeployment) {
                     await ExecuteAsync(db, audit, deploymentId, time, lost.Token, redis);
+                    executedDeploymentId = deploymentId;
                 }
             }
 
@@ -61,6 +63,9 @@ public static class DeploymentProcessor {
             foreach (var id in pending.Where(entry => entry.State == EntityState.Unchanged)
                          .Select(entry => entry.Entity.DeploymentId).Distinct())
                 await DeploymentUpdates.PublishAsync(redis, id);
+            // Refresh the Worker's runtime snapshot right away so the API reflects the new container.
+            if (executedDeploymentId is { } executed)
+                await EnvironmentRuntimeMonitor.RefreshAfterDeploymentAsync(scopes, executed, time, cancellationToken);
             return true;
         } catch (OperationCanceledException) when (lost.IsCancellationRequested) {
             activity?.SetTag("job.status", "LeaseLostOrCancelled");
