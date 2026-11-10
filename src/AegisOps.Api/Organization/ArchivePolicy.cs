@@ -46,6 +46,11 @@ public static class ArchivePolicy {
             );
         }
 
+        var denied = await PolicyEditAccess.CheckAsync(user, policy.Scope, policy.ScopeId, users, db, cancellationToken);
+        if (denied is not null) {
+            return denied;
+        }
+
         try {
             policy.Archive(userId, time.GetUtcNow());
             audit.Write(time.GetUtcNow(), user.Id, user.Email ?? user.DisplayName, "policy.archived", "Policy", policy.Id);

@@ -173,7 +173,7 @@ public static class CreateArtifact {
             );
 
             db.Artifacts.Add(artifact);
-            audit.Write(time.GetUtcNow(), createdById ?? createdByApiKeyId, actorDisplay, "artifact.created", "Artifact", artifact.Id);
+            audit.Write(time.GetUtcNow(), createdByApiKeyId is null ? "User" : "ApiKey", createdById ?? createdByApiKeyId, actorDisplay, "artifact.created", "Artifact", artifact.Id);
             await db.SaveChangesAsync(cancellationToken);
 
             return await IdempotencyRequests.FinishAsync(http, idempotency, StatusCodes.Status201Created, ToResponse(artifact));

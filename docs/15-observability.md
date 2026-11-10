@@ -101,24 +101,25 @@ design targets; a row alone does not assert that a metric is exported.
 
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
-| `aegisops_deployments_total` | counter | `project`, `environment_tier`, `status` (terminal) | Deployment outcomes |
-| `aegisops_deployment_duration_seconds` | histogram | `environment_tier`, `executor` | `Deploying → Succeeded/Failed` |
-| `aegisops_deployment_lead_time_seconds` | histogram | `environment_tier` | `Requested → Succeeded` (includes approval wait) |
+| `aegisops_deployments_total` | counter | `environment_tier`, `status` (terminal) | **Implemented** (API + Worker, at commit). `project` omitted to keep cardinality bounded |
+| `aegisops_deployment_duration_seconds` | histogram | `environment_tier`, `status` | **Implemented**: `Deploying → Succeeded/Failed` |
+| `aegisops_deployment_lead_time_seconds` | histogram | `environment_tier` | **Implemented**: `Requested → Succeeded` (includes approval wait) |
 | `aegisops_approval_wait_seconds` | histogram | `environment_tier` | `AwaitingApproval → Approved/Rejected` |
-| `aegisops_policy_evaluations_total` | counter | `decision` | Allow / RequireApproval / Deny |
+| `aegisops_policy_evaluations_total` | counter | `decision` | **Implemented** for Worker evaluations: Allow / RequireApproval / Deny |
 | `aegisops_policy_rule_failures_total` | counter | `rule_type`, `effect` | Which rules block most |
 | `aegisops_scan_findings` | gauge | `project`, `scanner`, `severity` | Open findings on the latest artifact |
-| `aegisops_scan_ingest_duration_seconds` | histogram | `scanner`, `format` | Parsing time |
+| `aegisops_scan_ingest_duration_seconds` | histogram | `scanner`, `mode` (`Inline`/`Queued`) | **Implemented**: SARIF parse + normalisation time |
+| `aegisops_scans_total` | counter | `scanner`, `status` (`Completed`/`Failed`) | **Implemented**: committed scan outcomes |
 | `aegisops_ai_requests_total` | counter | `status`, `reason` (bounded) | Committed gateway request outcomes |
-| `aegisops_ai_request_latency_seconds` | histogram | `model` | Ollama round-trip |
-| `aegisops_ai_tokens_total` | counter | `model`, `kind` (`prompt`/`completion`) | Usage |
+| `aegisops_ai_request_latency_seconds` | histogram | `status` | **Implemented**: gateway time per committed request; no `model` label (model names can be user-defined) |
+| `aegisops_ai_tokens_total` | counter | `kind` (`prompt`/`completion`) | **Implemented**: provider-reported tokens; no `model` label |
 | `aegisops_ai_sensitive_detections_total` | counter | `type`, `policy_action` | Distinct known inbound types per committed request; policy setting, not actual block outcome |
 | `aegisops_jobs_processed_total` | counter | `type`, `status` | Worker throughput; committed job attempts |
 | `aegisops_jobs_lease_expired_total` | counter | `type`, `status` | Stale lease recoveries, including dead letters |
 | `aegisops_jobs_duration_seconds` | histogram | `type` | Job attempt time, including completion commit |
 | `aegisops_jobs_queue_depth` | gauge | `status` (`Pending` due, `Delayed`, `Running`, `DeadLettered`) | Worker queue snapshot (poll every 15 s); use max across replicas |
 | `aegisops_realtime_connections` | gauge | — | SignalR connected clients |
-| `aegisops_audit_events_total` | counter | `outcome` | Incl. `Denied` attempts |
+| `aegisops_audit_events_total` | counter | `outcome` (known set, else `Other`) | **Implemented** (at commit). Incl. `Denied` attempts |
 | standard | — | — | `http_server_request_duration_seconds`, `process_*`, `dotnet_*` |
 
 Cardinality guard: `project` label limited to project **slug** (tens of values); never

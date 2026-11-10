@@ -1,5 +1,6 @@
 using AegisOps.Domain.Identity;
 using AegisOps.Application.Audit;
+using AegisOps.Domain.Audit;
 using AegisOps.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
@@ -31,6 +32,11 @@ public static class Login {
         var passwordValid = user is not null && await users.CheckPasswordAsync(user, request.Password);
 
         if (user is null || !user.IsActive || !passwordValid) {
+            // docs/17 §6: failed logins are audited. The submitted email and password are never recorded;
+            // the target user id is kept only when the account exists, to make guessing visible.
+            audit.Write(AuditEvent.Record(time.GetUtcNow(), "Anonymous", null, "anonymous",
+                "auth.login_failed", "User", user?.Id, "Denied", null));
+            await db.SaveChangesAsync(http.RequestAborted);
             return Results.Problem(
                 title: "Invalid credentials.",
                 statusCode: StatusCodes.Status401Unauthorized

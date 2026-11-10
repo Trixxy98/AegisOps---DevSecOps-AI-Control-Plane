@@ -80,14 +80,20 @@ Residual risk is documented in the README: the demo is intended for a single tru
 
 Every item below must emit an `AuditEvent` (verified by integration tests):
 
-- auth: `login.succeeded`, `login.failed`, `refresh.rotated`, `refresh_reuse_detected`, `logout`, `password.changed`
+- auth: `auth.login`, `auth.login_failed`, `auth.refreshed`, `auth.refresh_reuse_detected`, `auth.logout`, `auth.password_changed`
 - users/roles/teams: `user.created`, `user.roles_changed`, `user.deactivated`, `team.member_added/removed`
 - projects/environments/api keys: `project.created/archived`, `environment.target_changed`, `apikey.created/revoked/auth_failed`
 - artifacts/scans/findings: `artifact.registered`, `scan.uploaded`, `finding.suppressed/unsuppressed`
 - deployments: `deployment.requested/evaluated/approved/rejected/denied/cancelled/started/succeeded/failed/rolled_back`
 - policies: `policy.created/updated/enabled/disabled/archived` (with before/after diff in metadata)
-- AI: `ai.request_completed`, `ai.request_blocked` (reason), `ai.policy_updated`, `ai.model_synced`
-- authorization: `authz.denied` (any 403)
+- AI: `ai.request` (`Outcome = Succeeded` or `Denied`; reason on the `AiRequest` row), `ai.policy_updated`, `ai.model_synced`
+- jobs: `job.retried` (signed-in admin as actor)
+- authorization: `authorization.denied` (any route-permission 403; `ResourceType = Endpoint`)
+
+Audit rows never contain passwords, tokens, API-key secrets, request bodies or query strings. Actors are
+`User`, `ApiKey` (key id), `System` (Worker) or `Anonymous` (failed login / unidentified key). Coverage is
+enforced by `tests/AegisOps.Api.Tests/AuditCoverageTests.cs`: every mutating route in `Program.cs` must have
+an expected audit action there, and each action is asserted against the real handler.
 
 ## 7. Security testing
 

@@ -116,19 +116,19 @@ app.MapPost("/api/v1/teams", CreateTeam.Handle)
 app.MapGet("/api/v1/teams/{slug}", GetTeam.Handle)
     .RequireAuthorization(Permissions.TeamsRead);
 app.MapPatch("/api/v1/teams/{slug}", UpdateTeam.Handle)
-    .RequireAuthorization(Permissions.TeamsRead); // handler: Admin or Owner of this team (docs/09)
+    .RequireAuthorization(Permissions.TeamsWrite); // handler: Admin or Owner of this team (docs/09)
 app.MapGet("/api/v1/teams/{slug}/webhook", TeamWebhookSettingsEndpoints.Get)
-    .RequireAuthorization();
+    .RequireAuthorization(Permissions.TeamsWrite); // handler: Admin or Owner of this team (docs/09)
 app.MapGet("/api/v1/teams/{slug}/webhook/deliveries", TeamWebhookSettingsEndpoints.Deliveries)
-    .RequireAuthorization();
+    .RequireAuthorization(Permissions.TeamsWrite); // handler: Admin or Owner of this team (docs/09)
 app.MapPut("/api/v1/teams/{slug}/webhook", TeamWebhookSettingsEndpoints.Set)
-    .RequireAuthorization();
+    .RequireAuthorization(Permissions.TeamsWrite); // handler: Admin or Owner of this team (docs/09)
 app.MapPost("/api/v1/admin/webhooks/rewrap", TeamWebhookSettingsEndpoints.Rewrap)
     .RequireAuthorization(Permissions.UsersManage);
 app.MapPut("/api/v1/teams/{slug}/members/{userId:guid}", UpsertTeamMember.Handle)
-    .RequireAuthorization(Permissions.TeamsRead); // handler: Admin or Owner of this team (docs/09)
+    .RequireAuthorization(Permissions.TeamsWrite); // handler: Admin or Owner of this team (docs/09)
 app.MapDelete("/api/v1/teams/{slug}/members/{userId:guid}", RemoveTeamMember.Handle)
-    .RequireAuthorization(Permissions.TeamsRead); // handler: Admin or Owner of this team (docs/09)
+    .RequireAuthorization(Permissions.TeamsWrite); // handler: Admin or Owner of this team (docs/09)
 app.MapPost("/api/v1/projects", CreateProject.Handle)
     .RequireAuthorization(Permissions.ProjectsWrite);
 app.MapGet("/api/v1/projects", ListProjects.Handle)

@@ -1,3 +1,5 @@
+using AegisOps.Application.Audit;
+using AegisOps.Domain.Audit;
 using AegisOps.Domain.Identity;
 using AegisOps.Infrastructure.Identity;
 using AegisOps.Infrastructure.Persistence;
@@ -13,7 +15,8 @@ public static class Refresh {
         AegisOpsDbContext db,
         UserManager<User> users,
         IOptions<JwtOptions> jwtOptions,
-        TimeProvider time
+        TimeProvider time,
+        IAuditWriter audit
     ) {
         if (!http.Request.Cookies.TryGetValue(RefreshCookie.Name, out var raw) || string.IsNullOrWhiteSpace(raw)) {
             return Unauthorized();
@@ -32,6 +35,10 @@ public static class Refresh {
         }
 
         if (current.RevokedAt is not null) {
+            // docs/09 §3: reuse of a rotated token revokes the family and is audited in the same save.
+            var owner = await users.FindByIdAsync(current.UserId.ToString());
+            audit.Write(AuditEvent.Record(now, "User", current.UserId, owner?.Email ?? owner?.DisplayName ?? current.UserId.ToString(),
+                "auth.refresh_reuse_detected", "User", current.UserId, "Denied", null));
             await RevokeFamilyAsync(db, current.FamilyId, now, cancellationToken);
             RefreshCookie.Clear(http);
             return Unauthorized();
@@ -67,6 +74,7 @@ public static class Refresh {
 
         current.Revoke(now, next.Id);
         db.RefreshTokens.Add(next);
+        audit.Write(now, user.Id, user.Email ?? user.DisplayName, "auth.refreshed", "User", user.Id);
         await db.SaveChangesAsync(cancellationToken);
         RefreshCookie.Append(http, nextRaw, next.ExpiresAt);
 

@@ -107,6 +107,11 @@ public static class CreatePolicy {
             }
         }
 
+        var denied = await PolicyEditAccess.CheckAsync(user, scope, request.ScopeId, users, db, cancellationToken);
+        if (denied is not null) {
+            return denied;
+        }
+
         try {
             var tiers = (request.AppliesToTiers ?? [])
                 .Select(tier => {

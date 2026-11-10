@@ -244,6 +244,7 @@ public static class DeploymentProcessor {
 
         var outcome = await DecideAsync(db, deployment, time, cancellationToken);
         activity?.SetTag("decision", outcome.Decision.ToString());
+        DomainMetrics.RecordPolicyEvaluation(outcome.Decision);
         deployment.ApplyDecision(outcome, time.GetUtcNow());
         var message = outcome.Decision switch {
             PolicyDecision.Deny => outcome.Message ?? "Denied.",

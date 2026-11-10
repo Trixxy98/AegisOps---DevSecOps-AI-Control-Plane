@@ -101,7 +101,7 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
                 status == 200 ? "Succeeded" : "Denied", correlationId[..Math.Min(64, correlationId.Length)]));
             await db.SaveChangesAsync(ct);
             AiMetrics.Record(request.Status, reason, inspectionOrEmpty().Types,
-                policy?.SensitiveDataAction);
+                policy?.SensitiveDataAction, request.LatencyMs, request.PromptTokens, request.CompletionTokens);
             return new AiGatewayResult(status, request, reply?.Content, rate);
         }
         string safePreviewOrEmpty() => inspection?.Redacted ?? "";

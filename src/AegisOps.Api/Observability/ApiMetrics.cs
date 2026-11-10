@@ -13,6 +13,10 @@ public static class ApiMetrics
         services.AddOpenTelemetry().WithMetrics(metrics => metrics
             .AddMeter("Microsoft.AspNetCore.Hosting")
             .AddMeter(AiMetrics.MeterName)
+            .AddMeter(JobMetrics.MeterName) // DomainMetrics: deployments, scans, audit recorded at API commits
+            .AddView("aegisops_ai_request_latency_seconds", new ExplicitBucketHistogramConfiguration { Boundaries = AiMetrics.LatencyBuckets.ToArray() })
+            .AddView("aegisops_deployment_duration_seconds", new ExplicitBucketHistogramConfiguration { Boundaries = DomainMetrics.DurationBuckets.ToArray() })
+            .AddView("aegisops_deployment_lead_time_seconds", new ExplicitBucketHistogramConfiguration { Boundaries = DomainMetrics.DurationBuckets.ToArray() })
             .AddPrometheusExporter());
         return services;
     }
@@ -23,6 +27,7 @@ public static class ApiMetrics
         app.Lifetime.ApplicationStarted.Register(() => {
             _ = app.Services.GetRequiredService<MeterProvider>();
             AiMetrics.InitializeZeroSeries();
+            DomainMetrics.InitializeZeroSeries();
         });
         app.Use((context, next) => {
             var isScrapePath = context.Request.Path == "/metrics";

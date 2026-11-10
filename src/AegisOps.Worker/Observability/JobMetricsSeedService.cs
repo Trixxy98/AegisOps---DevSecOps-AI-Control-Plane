@@ -9,6 +9,7 @@ public sealed class JobMetricsSeedService : IHostedService {
 
     public Task StartAsync(CancellationToken cancellationToken) {
         JobMetrics.InitializeZeroSeries();
+        DomainMetrics.InitializeZeroSeries();
         return Task.CompletedTask;
     }
 

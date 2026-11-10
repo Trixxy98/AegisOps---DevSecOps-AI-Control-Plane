@@ -132,9 +132,9 @@ public sealed class AiGatewayTests {
         app.UseAuthorization();
         app.MapGet("/policies", (AegisOpsDbContext db, HttpContext http) => AiEndpoints.Policies(db, http)).RequireAuthorization("ai:policies:read");
         app.MapPut("/policies", (AiPolicyRequest body, ClaimsPrincipal user, UserManager<User> users, AegisOpsDbContext db, HttpContext http) =>
-            AiEndpoints.SavePolicy(body, user, users, db, http)).RequireAuthorization(Permissions.AiPoliciesWrite);
-        app.MapPost("/models/sync", (ILlmClient llm, AegisOpsDbContext db, HttpContext http) =>
-            AiEndpoints.SyncModels(llm, db, http)).RequireAuthorization(Permissions.ModelsManage);
+            AiEndpoints.SavePolicy(body, user, users, db, new EfAuditWriter(db), http)).RequireAuthorization(Permissions.AiPoliciesWrite);
+        app.MapPost("/models/sync", (ILlmClient llm, ClaimsPrincipal user, UserManager<User> users, AegisOpsDbContext db, HttpContext http) =>
+            AiEndpoints.SyncModels(llm, user, users, db, new EfAuditWriter(db), http)).RequireAuthorization(Permissions.ModelsManage);
         await app.StartAsync(TestContext.Current.CancellationToken);
 
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
@@ -156,10 +156,16 @@ public sealed class AiGatewayTests {
                 request.Headers.Add("X-Test-User", fixture.UserId.ToString());
             }
         }
+        // Model sync is audited with the signed-in actor, so the caller must resolve to a real user.
+        if (path == "/models/sync") request.Headers.Add("X-Test-User", fixture.UserId.ToString());
         var response = await app.GetTestClient().SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, (int)response.StatusCode);
-        if (expected == 200 && path == "/models/sync") Assert.Contains("added", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        if (expected == 200 && path == "/models/sync") {
+            Assert.Contains("added", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            var audit = Assert.Single(await fixture.Db.AuditEvents.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(("ai.model_synced", (Guid?)fixture.UserId), (audit.Action, audit.ActorId));
+        }
         await app.StopAsync(TestContext.Current.CancellationToken);
     }
 
@@ -180,13 +186,13 @@ public sealed class AiGatewayTests {
 
         var changedScope = await AiEndpoints.SavePolicy(new AiPolicyRequest(policy.Id, "renamed", PolicyScope.Team,
             team.Id, [], 20, 100, 4000, SensitiveDataAction.Redact, [], true, false, true),
-            principal, fixture.Users, fixture.Db, http);
+            principal, fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), http);
         Assert.Equal(StatusCodes.Status400BadRequest, Assert.IsAssignableFrom<IStatusCodeHttpResult>(changedScope).StatusCode);
         Assert.Equal("original", policy.Name);
 
         var unknownModel = await AiEndpoints.SavePolicy(new AiPolicyRequest(null, "new", PolicyScope.Team, team.Id,
             [Guid.NewGuid()], 20, 100, 4000, SensitiveDataAction.Redact, [], true, false, true),
-            principal, fixture.Users, fixture.Db, http);
+            principal, fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), http);
         Assert.Equal(StatusCodes.Status400BadRequest, Assert.IsAssignableFrom<IStatusCodeHttpResult>(unknownModel).StatusCode);
         Assert.Equal(1, await fixture.Db.AiPolicies.CountAsync(TestContext.Current.CancellationToken));
     }
@@ -202,7 +208,7 @@ public sealed class AiGatewayTests {
 
         var result = await AiEndpoints.SavePolicy(new AiPolicyRequest(null, "global", PolicyScope.Global, null, [],
             20, 100, 4000, SensitiveDataAction.Redact, [], true, false, true),
-            principal, fixture.Users, fixture.Db, new DefaultHttpContext());
+            principal, fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), new DefaultHttpContext());
 
         Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.ForbidHttpResult>(result);
         Assert.Empty(await fixture.Db.AiPolicies.ToListAsync(TestContext.Current.CancellationToken));
@@ -221,7 +227,7 @@ public sealed class AiGatewayTests {
 
         var result = await AiEndpoints.SavePolicy(new AiPolicyRequest(null, "second", PolicyScope.Global, null, [],
             20, 100, 4000, SensitiveDataAction.Redact, [], true, false, true),
-            principal, fixture.Users, fixture.Db, new DefaultHttpContext());
+            principal, fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), new DefaultHttpContext());
 
         Assert.Equal(StatusCodes.Status409Conflict, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
         Assert.Equal([existing.Id], (await fixture.Db.AiPolicies.ToListAsync(TestContext.Current.CancellationToken)).Select(policy => policy.Id));
@@ -255,7 +261,7 @@ public sealed class AiGatewayTests {
 
         var result = await AiEndpoints.SavePolicy(new AiPolicyRequest(null, scenario == "" ? "" : "valid", scope, scopeId,
             [], perMinute, perDay, maxChars, SensitiveDataAction.Redact, patterns, true, false, true),
-            principal, fixture.Users, fixture.Db, new DefaultHttpContext());
+            principal, fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), new DefaultHttpContext());
 
         if (scenario == "bad-team") Assert.Equal(StatusCodes.Status404NotFound, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
         else Assert.Equal(StatusCodes.Status400BadRequest, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
@@ -268,7 +274,7 @@ public sealed class AiGatewayTests {
 
         var result = await AiEndpoints.SavePolicy(new AiPolicyRequest(null, "valid", PolicyScope.Global, null,
             null!, 20, 100, 4000, SensitiveDataAction.Redact, null!, true, false, true),
-            new ClaimsPrincipal(), null!, fixture.Db, new DefaultHttpContext());
+            new ClaimsPrincipal(), null!, fixture.Db, new EfAuditWriter(fixture.Db), new DefaultHttpContext());
 
         Assert.Equal(StatusCodes.Status400BadRequest, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
         Assert.Empty(await fixture.Db.AiPolicies.ToListAsync(TestContext.Current.CancellationToken));

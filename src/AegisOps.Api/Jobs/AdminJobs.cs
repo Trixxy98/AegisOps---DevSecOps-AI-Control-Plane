@@ -1,8 +1,12 @@
+using System.Security.Claims;
 using AegisOps.Application.Audit;
 using AegisOps.Domain.Audit;
+using AegisOps.Domain.Identity;
 using AegisOps.Domain.Jobs;
 using AegisOps.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.JsonWebTokens;
 
 namespace AegisOps.Api.Jobs;
 
@@ -44,7 +48,14 @@ public static class AdminJobs {
         return Results.Ok(items);
     }
 
-    public static async Task<IResult> Retry(Guid id, AegisOpsDbContext db, TimeProvider time, IAuditWriter audit, HttpContext http) {
+    public static async Task<IResult> Retry(
+        Guid id, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, TimeProvider time, IAuditWriter audit, HttpContext http
+    ) {
+        var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+        if (!Guid.TryParse(subject, out _)) return Results.Problem(title: "Invalid credentials.", statusCode: StatusCodes.Status401Unauthorized);
+        var actor = await users.FindByIdAsync(subject!);
+        if (actor is null || !actor.IsActive) return Results.Problem(title: "Invalid credentials.", statusCode: StatusCodes.Status401Unauthorized);
+
         var job = await db.Jobs.SingleOrDefaultAsync(item => item.Id == id, http.RequestAborted);
         if (job is null) {
             return Results.Problem(title: "Job was not found.", statusCode: StatusCodes.Status404NotFound);
@@ -65,8 +76,8 @@ public static class AdminJobs {
         audit.Write(AuditEvent.Record(
             time.GetUtcNow(),
             "User",
-            null,
-            "admin",
+            actor.Id,
+            actor.Email ?? actor.DisplayName,
             "job.retried",
             "Job",
             job.Id,

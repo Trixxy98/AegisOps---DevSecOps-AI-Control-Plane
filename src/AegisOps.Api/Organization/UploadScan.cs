@@ -93,7 +93,7 @@ public static class UploadScan {
                 time.GetUtcNow(),
                 cancellationToken
             );
-            audit.Write(time.GetUtcNow(), actor.UserId ?? actor.ApiKeyId, actor.Display, "scan.uploaded", "SecurityScan", scan.Id);
+            audit.Write(time.GetUtcNow(), actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display, "scan.uploaded", "SecurityScan", scan.Id);
             await db.SaveChangesAsync(cancellationToken);
             return Results.Json(new {
                 scan.Id,

@@ -35,6 +35,11 @@ public static class RolePermissions {
         ],
         ["Developer"] = [
             ..Shared,
+            // docs/09: "Owner of team". Handlers narrow these to Admin or the Owner of the target team.
+            Permissions.TeamsWrite,
+            Permissions.ProjectsWrite,
+            Permissions.EnvironmentsWrite,
+            Permissions.ApiKeysManage,
             Permissions.DeploymentsRequest,
             Permissions.DeploymentsCancel,
         ],

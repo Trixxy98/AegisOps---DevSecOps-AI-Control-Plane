@@ -56,13 +56,19 @@ public sealed class AegisOpsDbContext : IdentityDbContext<User, IdentityRole<Gui
     // The notification outbox is written in the same transaction as each timeline event.
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => SaveChangesAsync(true, cancellationToken);
 
-    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default) {
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default) {
         foreach (var entry in ChangeTracker.Entries<DeploymentEvent>().Where(e => e.State == EntityState.Added).ToArray()) {
             var id = entry.Entity.Id;
             if (!ChangeTracker.Entries<Job>().Any(e => e.State == EntityState.Added && e.Entity.Type == JobType.SendNotification && e.Entity.Payload.Contains(id.ToString("D"), StringComparison.OrdinalIgnoreCase))) {
                 Jobs.Add(Job.Enqueue(JobType.SendNotification, JsonSerializer.Serialize(new { eventId = id }), entry.Entity.Timestamp, Guid.CreateVersion7().ToString("N")));
             }
         }
-        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        var pending = AegisOps.Infrastructure.Observability.DomainMetrics.Capture(ChangeTracker);
+        var saved = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        // Inside an explicit transaction (job completion, scan replace) this runs before the final
+        // commit; a rollback after a successful SaveChanges is rare and would only over-count.
+        if (!pending.IsEmpty)
+            await AegisOps.Infrastructure.Observability.DomainMetrics.RecordCommittedAsync(this, pending, cancellationToken);
+        return saved;
     }
 }

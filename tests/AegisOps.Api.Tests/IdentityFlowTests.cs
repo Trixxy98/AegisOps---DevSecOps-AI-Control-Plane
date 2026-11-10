@@ -83,7 +83,11 @@ public sealed class IdentityFlowTests {
         Assert.False(response.Headers.Contains("Set-Cookie"));
         await host.WithDbAsync(async db => {
             Assert.Empty(await db.RefreshTokens.ToListAsync(IdentityHost.Token));
-            Assert.Empty(await db.AuditEvents.ToListAsync(IdentityHost.Token));
+            // Only a Denied auth.login_failed event; the submitted email and password are never recorded.
+            var audit = Assert.Single(await db.AuditEvents.ToListAsync(IdentityHost.Token));
+            Assert.Equal(("auth.login_failed", "Anonymous", (Guid?)null, "anonymous", "Denied"),
+                (audit.Action, audit.ActorType, audit.ActorId, audit.ActorDisplay, audit.Outcome));
+            Assert.DoesNotContain(email, audit.ActorDisplay, StringComparison.OrdinalIgnoreCase);
         });
     }
 
@@ -322,7 +326,7 @@ public sealed class IdentityFlowTests {
                 TimeProvider clock, AegisOpsDbContext db, IAuditWriter audit, HttpContext http) =>
                 Login.Handle(body, users, jwt, clock, db, audit, http));
             app.MapPost("/api/v1/auth/refresh", (HttpContext http, AegisOpsDbContext db, UserManager<User> users,
-                IOptions<JwtOptions> jwt, TimeProvider clock) => Refresh.Handle(http, db, users, jwt, clock));
+                IOptions<JwtOptions> jwt, TimeProvider clock, IAuditWriter audit) => Refresh.Handle(http, db, users, jwt, clock, audit));
             app.MapPost("/api/v1/auth/logout", (HttpContext http, ClaimsPrincipal principal, AegisOpsDbContext db,
                 IAuditWriter audit, TimeProvider clock) => Logout.Handle(http, principal, db, audit, clock))
                 .RequireAuthorization();

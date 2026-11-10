@@ -64,7 +64,7 @@ public static class CreateProject {
             }
 
         var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
-        if (!Guid.TryParse(subject, out _)) {
+        if (!Guid.TryParse(subject, out var userId)) {
             return Results.Problem(
                 title: "Invalid credentials.",
                 statusCode: StatusCodes.Status401Unauthorized
@@ -85,6 +85,22 @@ public static class CreateProject {
             cancellationToken
         );
         if (!teamExists) {
+            return Results.Problem(
+                title: "Team not found.",
+                statusCode: StatusCodes.Status404NotFound
+            );
+        }
+
+        // docs/09: projects:write is Admin, or a Developer who is Owner of the target team.
+        var isAdmin = await users.IsInRoleAsync(user, "Admin");
+        var isOwner = await db.TeamMembers.AnyAsync(
+            member =>
+                member.TeamId == request.TeamId
+                && member.UserId == userId
+                && member.Role == TeamRole.Owner,
+            cancellationToken
+        );
+        if (!isAdmin && !isOwner) {
             return Results.Problem(
                 title: "Team not found.",
                 statusCode: StatusCodes.Status404NotFound

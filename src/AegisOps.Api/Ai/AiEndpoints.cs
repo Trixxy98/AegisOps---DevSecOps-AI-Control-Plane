@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using AegisOps.Api.Deploy;
+using AegisOps.Application.Audit;
 using AegisOps.Domain.Ai;
 using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Identity;
@@ -239,7 +240,13 @@ public static class AiEndpoints {
         return Results.Ok(new { page, pageSize, total, items });
     }
 
-    public static async Task<IResult> SyncModels(ILlmClient llm, AegisOpsDbContext db, HttpContext http) {
+    public static async Task<IResult> SyncModels(
+        ILlmClient llm, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, IAuditWriter audit, HttpContext http
+    ) {
+        var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+        if (!Guid.TryParse(subject, out _)) return Results.Problem(title: "Invalid credentials.", statusCode: StatusCodes.Status401Unauthorized);
+        var actor = await users.FindByIdAsync(subject!);
+        if (actor is null || !actor.IsActive) return Results.Problem(title: "Invalid credentials.", statusCode: StatusCodes.Status401Unauthorized);
         IReadOnlyList<string> names;
         try { names = await llm.ListModels(http.RequestAborted); }
         catch (Exception exception) when (exception is not OperationCanceledException) {
@@ -254,6 +261,7 @@ public static class AiEndpoints {
             db.AiModels.Add(model);
             added++;
         }
+        audit.Write(TimeProvider.System.GetUtcNow(), actor.Id, actor.Email ?? actor.DisplayName, "ai.model_synced", "AiModel", null);
         await db.SaveChangesAsync(http.RequestAborted);
         return Results.Ok(new { discovered = names.Count, added });
     }
@@ -270,7 +278,7 @@ public static class AiEndpoints {
     }
 
     public static async Task<IResult> SavePolicy(
-        AiPolicyRequest request, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, HttpContext http
+        AiPolicyRequest request, ClaimsPrincipal principal, UserManager<User> users, AegisOpsDbContext db, IAuditWriter audit, HttpContext http
     ) {
         if (request is null || request.AllowedModelIds is null || request.BlockedPatterns is null)
             return Results.Problem(title: "AI policy settings are invalid.", statusCode: StatusCodes.Status400BadRequest);
@@ -279,8 +287,10 @@ public static class AiEndpoints {
         var actor = await users.FindByIdAsync(subject!);
         if (actor is null || !actor.IsActive) return Results.Problem(title: "Invalid credentials.", statusCode: StatusCodes.Status401Unauthorized);
         var roles = await users.GetRolesAsync(actor);
-        if ((request.Scope == PolicyScope.Global && !roles.Contains("Admin", StringComparer.Ordinal)) ||
-            (request.Scope == PolicyScope.Team && !roles.Contains("Security", StringComparer.Ordinal)) ||
+        // docs/09: ai:policies:write is Admin for Global + Team, Security for Team only.
+        var isAdmin = roles.Contains("Admin", StringComparer.Ordinal);
+        if ((request.Scope == PolicyScope.Global && !isAdmin) ||
+            (request.Scope == PolicyScope.Team && !isAdmin && !roles.Contains("Security", StringComparer.Ordinal)) ||
             request.Scope is not (PolicyScope.Global or PolicyScope.Team))
             return Results.Forbid();
         if (request.Scope == PolicyScope.Team && (request.ScopeId is null || !await db.Teams.AnyAsync(team => team.Id == request.ScopeId, http.RequestAborted)))
@@ -307,6 +317,7 @@ public static class AiEndpoints {
         } catch (ArgumentException) {
             return Results.Problem(title: "AI policy settings are invalid.", statusCode: StatusCodes.Status400BadRequest);
         }
+        audit.Write(now, actor.Id, actor.Email ?? actor.DisplayName, "ai.policy_updated", "AiPolicy", policy.Id);
         await db.SaveChangesAsync(http.RequestAborted);
         return Results.Ok(new { policy.Id, policy.Name, scope = policy.Scope.ToString(), policy.ScopeId, policy.Version, policy.UpdatedAt });
     }

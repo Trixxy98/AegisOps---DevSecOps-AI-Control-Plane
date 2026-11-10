@@ -92,7 +92,11 @@ public sealed class ProjectAndPolicyEndpointTests {
         Assert.Equal(HttpStatusCode.NotFound, await Create(admin, new(Guid.NewGuid(), "Ghost", "ghost", null)));
         Assert.Equal(HttpStatusCode.BadRequest, await Create(admin, new(Guid.Empty, "Bad", "bad", null)));
         Assert.Equal(HttpStatusCode.BadRequest, await Create(admin, new(teamId, " ", "blank", null)));
-        Assert.Equal(HttpStatusCode.Forbidden, await Create(developer, new(teamId, "Sneaky", "sneaky", null)));
+        // docs/09: projects:write = Admin or Owner of the team. A Developer who is not Owner reaches the handler and is
+        // refused without revealing the team (404); Security lacks projects:write entirely (403).
+        Assert.Equal(HttpStatusCode.NotFound, await Create(developer, new(teamId, "Sneaky", "sneaky", null)));
+        var (_, security) = await host.CreateUserAsync("security@example.test", "Security");
+        Assert.Equal(HttpStatusCode.Forbidden, await Create(security, new(teamId, "Sneaky", "sneaky-sec", null)));
         using (var anonymous = await host.SendAsync(HttpMethod.Post, "/api/v1/projects", null, new CreateProjectRequest(teamId, "Anon", "anon", null)))
             Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
 
@@ -166,8 +170,9 @@ public sealed class ProjectAndPolicyEndpointTests {
         using var crossProject = await host.SendAsync(HttpMethod.Patch, $"/api/v1/projects/circuit-service/environments/{foreignEnv}",
             admin, new UpdateEnvironmentRequest("Hijack", null, null));
         Assert.Equal(HttpStatusCode.NotFound, crossProject.StatusCode);
+        // docs/09: environments:write = Admin or Owner of the team; a non-Owner Developer is refused by the handler (404).
         using var forbidden = await host.SendAsync(HttpMethod.Patch, path, developer, new UpdateEnvironmentRequest("Dev rename", null, null));
-        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, forbidden.StatusCode);
 
         await host.WithDbAsync(async db => {
             var stored = await db.Environments.AsNoTracking().SingleAsync(env => env.Id == production.Id, Token);
