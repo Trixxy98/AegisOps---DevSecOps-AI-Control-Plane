@@ -119,6 +119,21 @@ Defaults: `staleTime: 30s`, `refetchOnWindowFocus: true`, `retry: 1`. Lists that
 live (deployments, approvals) also poll every 60 s as a fallback when SignalR is
 disconnected (`refetchInterval` conditional on connection state).
 
+**Current implementation (v1).** The hub sends a single `DeploymentChanged(deploymentId)`
+hint (plus `ApprovalQueueChanged` for eligible approvers); `deploymentUpdates.ts` turns it
+into a `revision` bump that reloads the dashboard counts, the deployments list, the open
+deployment's timeline/evaluation and the approval queue from REST. Its state machine is
+`connecting → live` (start succeeded), `live → polling` (transport lost, automatic reconnect
+running, or closed and restarting every 5 s) and `polling → live` (reconnected). The
+dashboard, approvals and deployment list/detail views run their 10-second fallback timers
+(`pollingFallbackMs`) **only** while `shouldPoll(status)` — i.e. while disconnected or
+reconnecting; while live there is no polling. Becoming live triggers exactly one catch-up
+reload. Approval toasts are unchanged. Each committed Docker step produces its own hint, so
+the timeline grows one step at a time. Evidence: `e2e/live-updates.spec.ts` with a mocked
+hub/REST API and `page.clock` (no request over 25 s of app time while live; polling resumes
+on disconnect; one catch-up and no further polling after reconnect; steps appear one by one).
+This has not been run against a real API, Redis or Worker.
+
 ### Mutations
 
 Optimistic updates are avoided for governance actions (approve/reject/suppress) — the

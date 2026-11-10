@@ -132,12 +132,14 @@ request/rollback/approval/cancel and Worker evaluation/execution publish committ
 hints through Redis to API instances. The API rechecks current active user, role and project-team
 access against the database before sending `DeploymentChanged(deploymentId)` to each connected
 browser (no persistent project groups or API-key connections). The UI reloads deployment lists,
-selected timeline/evaluation and approval/dashboard views from REST on receipt/reconnect; the
-existing 10-second polling remains a fallback (including selected deployment detail). Redis
-messages are ephemeral hints, not a durable event log. Approval toasts and a connection-status
-indicator are implemented. Remaining real-time work includes removing the polling fallback,
-streaming intermediate Docker timeline steps (currently persisted at job completion), and
-Compose-backed browser validation with a real deployment. Scoped groups are optional future
+selected timeline/evaluation and approval/dashboard views from REST on receipt and once on
+reconnect. The 10-second polling timers now run only while the hub is disconnected or
+reconnecting; while live the UI relies on hub messages. The Worker commits and hints each
+intermediate Docker timeline step as it happens (lease-fenced per step; terminal status still
+committed at job completion). Redis messages are ephemeral hints, not a durable event log.
+Approval toasts and a connection-status indicator are implemented. Remaining real-time work
+is Compose-backed browser validation with a real deployment (the polling and step-streaming
+evidence uses a mocked hub/API and SQLite with a fake executor/Redis). Scoped groups are optional future
 scaling work. A deterministic Playwright UI test covers two isolated sessions, mocked SignalR
 delivery and REST invalidation without touching deployment data. Outbound team webhooks are
 implemented; see [Phase 5 webhook notes](phase5-webhooks.md) for their shipped capabilities and
@@ -146,9 +148,9 @@ remaining work. This slice does **not** meet the full Phase 5 done criterion.
 | Deliverable | Detail |
 | --- | --- |
 | Hub | Authenticated `OpsHub`; recheck membership/role per update; Redis pub/sub bridge Worker → Api; no persistent project groups |
-| Frontend | Connection lifecycle, invalidation map, live timeline, approval toasts, connection status indicator; 10-second polling fallback remains |
+| Frontend | Connection lifecycle, invalidation map, live timeline (intermediate Docker steps streamed per hint), approval toasts, connection status indicator; 10-second polling only while disconnected/reconnecting, one catch-up on reconnect |
 | Notifications | `SendNotification` job; opt-in team HMAC webhooks with encrypted settings/key rotation, owner management UI, selective event subscriptions, durable per-attempt delivery history, and recent-window UI summaries. All-time/telemetry metrics, external-receiver integration and historical replay remain |
-| Tests | Hub authorization, invalidation hook, TestServer integration with two authenticated SignalR clients through the deployment listener, deterministic two-context Playwright UI test, webhook signature/TLS and attempt-history tests; Compose-backed browser test with a real deployment remains |
+| Tests | Hub authorization, invalidation hook, TestServer integration with two authenticated SignalR clients through the deployment listener, deterministic two-context Playwright UI test, `page.clock` Playwright tests for no-polling-while-live, reconnect catch-up and one-by-one timeline steps, SQLite `DeploymentStepStreamingTests` for per-step commit/hint/lease fencing, webhook signature/TLS and attempt-history tests; Compose-backed browser test with a real deployment remains |
 
 **Done when:** two browser sessions see the same deployment timeline update live; an approver gets a toast within a second of `AwaitingApproval`.
 
