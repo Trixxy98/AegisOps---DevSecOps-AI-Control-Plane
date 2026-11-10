@@ -197,8 +197,10 @@ OLLAMA_MODEL=qwen2.5-coder:7b docker compose --profile ai up -d ollama-init   # 
 - Leave at least 4 GB free for PostgreSQL, Redis, the API/Worker and the browser on top
   of the model's memory. Models are kept in the `ollama` volume, so pulls happen once.
 - Docker Desktop on macOS runs Ollama in a Linux VM **without** Metal GPU access, so it
-  is CPU-only. For faster replies, run native Ollama on the host and set
-  `Ai__Ollama__BaseUrl=http://host.docker.internal:11434/` for the API.
+  is CPU-only. For faster replies, run native Ollama on the host (optionally with
+  `OLLAMA_MODELS` on an external disk) and add `-f deploy/docker-compose.host-ollama.yml`,
+  which points the API at `http://host.docker.internal:11434/`. On an Apple M4, a
+  `llama3.2:3b` reply took about 2 s this way.
 - NVIDIA GPUs on Linux need the NVIDIA Container Toolkit and a `gpus: all` override for
   the `ollama` service.
 - Without Ollama the platform still runs: readiness reports Ollama as Degraded, and AI
