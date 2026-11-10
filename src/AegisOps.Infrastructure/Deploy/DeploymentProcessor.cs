@@ -6,7 +6,9 @@ using AegisOps.Application.PolicyEngine;
 using AegisOps.Domain.Audit;
 using AegisOps.Domain.Deploy;
 using AegisOps.Domain.Jobs;
+using AegisOps.Domain.Organization;
 using AegisOps.Domain.Policy;
+using AegisOps.Domain.Security;
 using AegisOps.Infrastructure.Docker;
 using AegisOps.Infrastructure.Persistence;
 using AegisOps.Infrastructure.Observability;
@@ -17,6 +19,16 @@ using Microsoft.Extensions.Configuration;
 using StackExchange.Redis;
 
 namespace AegisOps.Infrastructure.Deploy;
+
+/// <summary>Runs a Docker deployment, reporting each timeline step through <paramref name="record"/> as it happens.</summary>
+public delegate Task<DockerExecution> DeploymentStepExecutor(
+    DeploymentTarget target,
+    Artifact artifact,
+    string projectSlug,
+    string environmentName,
+    Guid deploymentId,
+    Func<DeploymentEventType, string, CancellationToken, Task> record,
+    CancellationToken cancellationToken);
 
 public static class DeploymentProcessor {
     public static async Task<bool> TryProcessOneAsync(
@@ -53,7 +65,7 @@ public static class DeploymentProcessor {
                 if (job.Type == JobType.EvaluateDeployment) {
                     await EvaluateAsync(db, audit, deploymentId, time, lost.Token);
                 } else if (job.Type == JobType.ExecuteDeployment) {
-                    await ExecuteAsync(db, audit, deploymentId, time, lost.Token, redis);
+                    await ExecuteAsync(db, audit, deploymentId, time, lost.Token, redis, LeaseGuard(db, job.Id, token, time, lost));
                     executedDeploymentId = deploymentId;
                 }
             }
@@ -204,6 +216,19 @@ public static class DeploymentProcessor {
         }
     }
 
+    /// <summary>
+    /// Fences an intermediate commit to the worker that still owns the job lease. The guarded UPDATE renews
+    /// <c>locked_at</c> inside the caller's transaction, so on PostgreSQL the row stays locked until the step
+    /// commits and a concurrent stale-lease recovery cannot interleave. A lost lease cancels <paramref name="lost"/>,
+    /// which is the same signal the heartbeat uses.
+    /// </summary>
+    internal static Func<CancellationToken, Task<bool>> LeaseGuard(AegisOpsDbContext db, Guid id, Guid token, TimeProvider time,
+        CancellationTokenSource lost) => async ct => {
+            if (!lost.IsCancellationRequested && await RenewLeaseAsync(db, id, token, time.GetUtcNow(), ct)) return true;
+            lost.Cancel();
+            return false;
+        };
+
     public static async Task<bool> RenewLeaseAsync(AegisOpsDbContext db, Guid id, Guid token, DateTimeOffset now, CancellationToken ct) =>
         await db.Jobs.Where(j => j.Id == id && j.Status == JobStatus.Running && j.LeaseToken == token &&
                                  j.LockedAt >= now.AddMinutes(-2))
@@ -330,7 +355,9 @@ public static class DeploymentProcessor {
         Guid deploymentId,
         TimeProvider time,
         CancellationToken cancellationToken,
-        IConnectionMultiplexer? redis = null
+        IConnectionMultiplexer? redis = null,
+        Func<CancellationToken, Task<bool>>? leaseGuard = null,
+        DeploymentStepExecutor? executor = null
     ) {
         using var activity = AegisOpsTracing.Source.StartActivity("ExecuteDeployment");
         var deployment = await db.Deployments.SingleAsync(item => item.Id == deploymentId, cancellationToken);
@@ -354,16 +381,19 @@ public static class DeploymentProcessor {
         if (string.Equals(environment.Target.Type, "docker", StringComparison.OrdinalIgnoreCase)) {
             var artifact = await db.Artifacts.SingleAsync(item => item.Id == deployment.ArtifactId, cancellationToken);
             var project = await db.Projects.AsNoTracking().SingleAsync(item => item.Id == deployment.ProjectId, cancellationToken);
-            await AddEventAsync(db, deployment.Id, DeploymentEventType.DeployStarted, $"Docker executor started for {environment.Target.ContainerName}.", time, cancellationToken);
-            await db.SaveChangesAsync(cancellationToken);
-            await DeploymentUpdates.PublishAsync(redis, deployment.Id);
-            var execution = await DockerDeploymentExecutor.ExecuteAsync(
+            // DeployStarted also commits the Deploying status and the execution evaluation (non-terminal: no
+            // deployment metrics). From here on a retried job cannot Start() again, so these steps belong to
+            // exactly one execution attempt.
+            await CommitStepAsync(db, deployment.Id, DeploymentEventType.DeployStarted,
+                $"Docker executor started for {environment.Target.ContainerName}.", time, leaseGuard, redis, cancellationToken);
+            var execution = await (executor ?? DockerDeploymentExecutor.ExecuteAsync)(
                 environment.Target,
                 artifact,
                 project.Slug,
                 environment.Name,
                 deployment.Id,
-                (type, message, token) => AddEventAsync(db, deployment.Id, type, message, time, token),
+                // Each Docker step is committed and hinted as it happens so viewers see it live.
+                (type, message, token) => CommitStepAsync(db, deployment.Id, type, message, time, leaseGuard, redis, token),
                 cancellationToken);
             if (!execution.Succeeded) {
                 deployment.Fail(execution.Message, time.GetUtcNow());
@@ -492,6 +522,40 @@ public static class DeploymentProcessor {
         return new PolicyOutcome(result.Decision, evaluation.Id, result.ApprovalsRequired, result.Message);
     }
 
+    /// <summary>
+    /// Commits one intermediate timeline step in its own short transaction and then publishes the Redis hint.
+    /// The lease is checked first inside the same transaction; a lost lease throws before anything is written.
+    /// Only the event (and the notification job SaveChanges enqueues for it) is pending at Docker step time:
+    /// terminal deployment transitions stay tracked for FinishAsync, so DomainMetrics never sees them here.
+    /// </summary>
+    internal static async Task CommitStepAsync(
+        AegisOpsDbContext db,
+        Guid deploymentId,
+        DeploymentEventType type,
+        string message,
+        TimeProvider time,
+        Func<CancellationToken, Task<bool>>? leaseGuard,
+        IConnectionMultiplexer? redis,
+        CancellationToken cancellationToken
+    ) {
+        await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken)) {
+            if (leaseGuard is not null && !await leaseGuard(cancellationToken))
+                throw new OperationCanceledException("Job lease was lost.");
+            await AddEventAsync(db, deploymentId, type, message, time, cancellationToken);
+            try {
+                await db.SaveChangesAsync(cancellationToken);
+            } catch {
+                // Never leave a failed step pending: FinishAsync would retry the same insert.
+                foreach (var entry in db.ChangeTracker.Entries().Where(e => e.State == EntityState.Added &&
+                             e.Entity is DeploymentEvent or Job).ToList())
+                    entry.State = EntityState.Detached;
+                throw;
+            }
+            await transaction.CommitAsync(cancellationToken);
+        }
+        await DeploymentUpdates.PublishAsync(redis, deploymentId);
+    }
+
     private static async Task AddEventAsync(
         AegisOpsDbContext db,
         Guid deploymentId,
@@ -500,9 +564,14 @@ public static class DeploymentProcessor {
         TimeProvider time,
         CancellationToken cancellationToken
     ) {
-        var stored = await db.DeploymentEvents.CountAsync(item => item.DeploymentId == deploymentId, cancellationToken);
-        var pending = db.DeploymentEvents.Local.Count(item => item.DeploymentId == deploymentId);
-        var sequence = stored + pending + 1;
+        // Committed events are already counted by the store query; only still-Added local rows are pending.
+        // (Counting every Local row double-counted events committed earlier in the same job.)
+        var stored = await db.DeploymentEvents.Where(item => item.DeploymentId == deploymentId)
+            .MaxAsync(item => (int?)item.Sequence, cancellationToken) ?? 0;
+        var pending = db.ChangeTracker.Entries<DeploymentEvent>()
+            .Where(entry => entry.State == EntityState.Added && entry.Entity.DeploymentId == deploymentId)
+            .Select(entry => entry.Entity.Sequence).DefaultIfEmpty(0).Max();
+        var sequence = Math.Max(stored, pending) + 1;
         db.DeploymentEvents.Add(DeploymentEvent.Create(deploymentId, sequence, time.GetUtcNow(), type, message));
     }
 }

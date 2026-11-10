@@ -1,7 +1,22 @@
 import { HubConnectionBuilder, HubConnectionState } from "@microsoft/signalr";
 
 // An update is only a hint; all visible data is reloaded through authorized REST reads.
+//
+// State machine:
+//   connecting --start ok--> live            (one catch-up `invalidate`)
+//   connecting --start failed--> polling     (retry start every 5 s)
+//   live --transport lost--> polling         (SignalR automatic reconnect running)
+//   polling --reconnected / restarted--> live (one catch-up `invalidate`)
+//   live/polling --closed--> polling         (retry start every 5 s)
+// Views poll REST every `pollingFallbackMs` only while `shouldPoll(status)`; while live they rely on hub messages.
 export type UpdateConnectionStatus = "connecting" | "live" | "polling";
+
+export const pollingFallbackMs = 10_000;
+
+/** Fallback polling runs only while the hub is disconnected or reconnecting, never while it is live. */
+export function shouldPoll(status: UpdateConnectionStatus) {
+  return status === "polling";
+}
 
 export function connectDeploymentUpdates(
   token: string,

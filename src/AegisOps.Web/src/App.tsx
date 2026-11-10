@@ -1,7 +1,12 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { AiPlayground } from "./AiPlayground";
 import { api } from "./api";
-import { connectDeploymentUpdates, type UpdateConnectionStatus } from "./deploymentUpdates";
+import {
+  connectDeploymentUpdates,
+  pollingFallbackMs,
+  shouldPoll,
+  type UpdateConnectionStatus,
+} from "./deploymentUpdates";
 import { Findings } from "./Findings";
 
 type View =
@@ -123,10 +128,8 @@ export function App() {
         setRevision((value) => value + 1);
         approvalHint.current();
       },
-      (status) => {
-        setUpdateStatus(status);
-        if (status === "live") approvalHint.current();
-      },
+      // Becoming live is always followed by one `invalidate` (the catch-up), which also refreshes approvals.
+      (status) => setUpdateStatus(status),
       (id) => approvalHint.current(id),
     );
   }, [token]);
@@ -165,7 +168,6 @@ export function App() {
     };
     approvalHint.current = (id) => void refresh(id);
     void refresh();
-    const timer = setInterval(() => void refresh(), 10000);
     const onFocus = () => void refresh();
     const onVisibility = () => {
       if (document.visibilityState === "visible") void refresh();
@@ -175,11 +177,18 @@ export function App() {
     return () => {
       active = false;
       approvalHint.current = () => {};
-      clearInterval(timer);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [token]);
+
+  const polling = shouldPoll(updateStatus);
+  // Fallback only: while the hub is live, approval changes arrive as ApprovalQueueChanged/DeploymentChanged.
+  useEffect(() => {
+    if (!token || !polling) return;
+    const timer = setInterval(() => approvalHint.current(), pollingFallbackMs);
+    return () => clearInterval(timer);
+  }, [token, polling]);
 
   useEffect(() => {
     if (!token) return;
@@ -276,7 +285,11 @@ export function App() {
           <div className="topbar-actions">
             <span className="update-status" role="status">
               <span className={`status-dot ${updateStatus !== "live" ? "status-dot-muted" : ""}`} />{" "}
-              {updateStatus === "live" ? "Live updates" : updateStatus === "polling" ? "Polling (10s)" : "Connecting"}
+              {updateStatus === "live"
+                ? "Live updates"
+                : updateStatus === "polling"
+                  ? `Polling (${pollingFallbackMs / 1000}s)`
+                  : "Connecting"}
             </span>
             <button className="logout-button" type="button" onClick={signOut}>
               Sign out
@@ -327,7 +340,7 @@ export function App() {
               {error}
             </p>
           )}
-          {view === "dashboard" && <Dashboard token={token} onError={setError} revision={revision} />}
+          {view === "dashboard" && <Dashboard token={token} onError={setError} revision={revision} polling={polling} />}
           {view === "projects" && (
             <Projects
               token={token}
@@ -336,7 +349,9 @@ export function App() {
               onDeploy={requestDeployment}
             />
           )}
-          {view === "deployments" && <Deployments token={token} onError={setError} revision={revision} />}
+          {view === "deployments" && (
+            <Deployments token={token} onError={setError} revision={revision} polling={polling} />
+          )}
           {view === "approvals" && (
             <Approvals token={token} onError={setError} items={approvalItems} refresh={() => approvalHint.current()} />
           )}
@@ -447,27 +462,35 @@ function Dashboard({
   token,
   onError,
   revision,
+  polling,
 }: {
   token: string;
   onError: (value: string | null) => void;
   revision: number;
+  polling: boolean;
 }) {
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const load = useEffectEvent(() =>
+    api<Array<{ status: string }>>("/api/v1/deployments", token)
+      .then((items) => {
+        const next: Record<string, number> = {};
+        for (const item of items) {
+          next[item.status] = (next[item.status] ?? 0) + 1;
+        }
+        setCounts(next);
+      })
+      .catch((error: Error) => onError(error.message)),
+  );
+  // Initial load and every hub invalidation (revision) reload once.
   useEffect(() => {
-    const load = () =>
-      api<Array<{ status: string }>>("/api/v1/deployments", token)
-        .then((items) => {
-          const next: Record<string, number> = {};
-          for (const item of items) {
-            next[item.status] = (next[item.status] ?? 0) + 1;
-          }
-          setCounts(next);
-        })
-        .catch((error: Error) => onError(error.message));
     void load();
-    const timer = setInterval(() => void load(), 10000);
+  }, [token, revision]);
+  // Timer only while the hub is disconnected or reconnecting.
+  useEffect(() => {
+    if (!polling) return;
+    const timer = setInterval(() => void load(), pollingFallbackMs);
     return () => clearInterval(timer);
-  }, [token, onError, revision]);
+  }, [token, polling]);
 
   return (
     <div className="stat-grid">
@@ -806,10 +829,12 @@ function Deployments({
   token,
   onError,
   revision,
+  polling,
 }: {
   token: string;
   onError: (value: string | null) => void;
   revision: number;
+  polling: boolean;
 }) {
   const [items, setItems] = useState<DeploymentListItem[]>([]);
   const [events, setEvents] = useState<Array<{ sequence: number; type: string; message: string }>>([]);
@@ -854,19 +879,25 @@ function Deployments({
 
   useEffect(() => {
     pollItems(true);
-    const timer = setInterval(() => pollItems(false), 10000);
-    return () => clearInterval(timer);
   }, [token]);
 
+  // While live, hub DeploymentChanged hints bump `revision`; each one reloads the list and the open timeline once.
   useEffect(() => {
     reloadForRevision();
   }, [revision]);
 
+  // Fallback timers run only while the hub is disconnected or reconnecting.
   useEffect(() => {
-    if (!selected) return;
-    const timer = setInterval(() => pollSelected(selected), 10000);
+    if (!polling) return;
+    const timer = setInterval(() => pollItems(false), pollingFallbackMs);
     return () => clearInterval(timer);
-  }, [selected, token]);
+  }, [token, polling]);
+
+  useEffect(() => {
+    if (!selected || !polling) return;
+    const timer = setInterval(() => pollSelected(selected), pollingFallbackMs);
+    return () => clearInterval(timer);
+  }, [selected, token, polling]);
 
   function open(id: string) {
     return api<{ artifactId: string; status: string; previousArtifactId?: string }>(

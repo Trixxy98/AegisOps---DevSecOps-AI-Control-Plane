@@ -12,6 +12,24 @@ holding the job row lock. Execute jobs sharing an environment, Docker container
 name, or host port cannot be claimed concurrently. A cancelled worker does not
 commit its final job result.
 
+Intermediate Docker timeline steps (`DeployStarted`, `ImagePulled`,
+`ContainerStarted`, `HealthCheckPassed`/`HealthCheckFailed`, `RolledBack`) are
+committed one at a time by `DeploymentProcessor.CommitStepAsync`, each in its own
+short transaction: it first runs the same guarded lease `UPDATE` as the heartbeat
+(`RenewLeaseAsync`: status `Running`, matching `lease_token`, `locked_at` within two
+minutes), which on PostgreSQL also holds the job row lock until the step commits, then
+inserts the event with the next `(DeploymentId, Sequence)` and only after the commit
+publishes the Redis hint. If the lease is no longer owned the step is not written, the
+worker's lost-lease token is cancelled and the job stops without `FinishAsync`
+(Docker's own rollback path also cannot write rows after that). The terminal
+`Succeeded`/`Failed` event and status transition are still committed only by
+`FinishAsync`, so the domain deployment metrics (recorded at commit time in
+`AegisOpsDbContext.SaveChangesAsync`) are counted once; step commits contain only the
+event and its notification job. Committed steps remain after a later failure or
+interruption because they describe Docker work that really happened; a retried
+execution cannot add a second set because `DeployStarted` already committed the
+deployment as `Deploying` and `Start()` only accepts `Approved`.
+
 After two minutes without renewal, evaluation/scan jobs can retry. An execution
 job is instead dead-lettered with an *ambiguous Docker state* error. It continues
 to reserve its target: Docker calls cannot be transactionally fenced or revoked
@@ -157,7 +175,14 @@ public interface IDeploymentExecutor
 ```
 
 The executor is chosen by `Environment.Target.type`. Progress reports become
-`DeploymentEvent`s (and SignalR messages) in real time.
+`DeploymentEvent`s (and SignalR messages) in real time. *Current implementation:*
+`DockerDeploymentExecutor.ExecuteAsync` receives a `record(type, message)` callback;
+`DeploymentProcessor.ExecuteAsync` binds it to `CommitStepAsync`, which commits each step
+under the lease check and then publishes a `DeploymentUpdates` hint, so the API's
+`DeploymentChanged` reaches viewers per step rather than at job completion. The executor
+is injectable (`DeploymentStepExecutor`) for tests. Evidence is SQLite-backed
+`DeploymentStepStreamingTests` with a fake executor and fake Redis multiplexer; it has
+not been re-run against live PostgreSQL, Redis, SignalR or Docker.
 
 ### `NoopDeploymentExecutor` (Phase 1)
 
