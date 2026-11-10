@@ -1,0 +1,12 @@
+# Opt-in: use a native Ollama on the Docker host instead of the `ai` profile container.
+# On Apple Silicon this uses the Metal GPU (Docker Desktop's VM is CPU-only), and the
+# models can live on any disk via OLLAMA_MODELS. Start Ollama on the host first:
+#   OLLAMA_MODELS=/path/to/models ollama serve     # listens on 127.0.0.1:11434
+#   ollama pull llama3.2:3b
+# Then: docker compose -f docker-compose.yml -f deploy/docker-compose.host-ollama.yml up -d api
+services:
+  api:
+    environment:
+      Ai__Ollama__BaseUrl: http://host.docker.internal:11434/
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
