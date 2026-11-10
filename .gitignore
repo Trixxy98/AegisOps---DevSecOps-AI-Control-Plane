@@ -32,3 +32,6 @@ reports/
 
 # Local assistant session notes (never commit)
 /memory.md
+# Local Claude Code guides (kept on this machine only)
+CLAUDE.md
+CLAUDE.local.md
