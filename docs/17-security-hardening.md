@@ -38,10 +38,10 @@ This document is the threat model and control list for the platform.
 | Headers | `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, CSP for the SPA (`default-src 'self'`; no inline scripts) via nginx |
 | CORS | Explicit allow-list; disabled when web and API share origin (Compose) |
 | Auth | Identity password hashing (PBKDF2, Identity defaults, 100k+ iterations), lockout, JWT `HS256` with ≥ 256-bit key (or `RS256` keys if multi-instance later), `nbf/exp/iss/aud` validated, clock skew 30 s |
-| Authorization | Deny by default: every endpoint requires authorization unless explicitly `AllowAnonymous` (enforced via fallback policy + architecture test) |
-| Input validation | FluentValidation on all commands; max lengths; slug regex `^[a-z0-9-]{3,40}$`; JSON depth limits; enums parsed strictly |
+| Authorization | Deny by default: every endpoint requires authorization unless explicitly `AllowAnonymous`. Enforced by `AuthorizationMatrixTests`, which compares the real `Program.cs` endpoint table with the docs/09 matrix and allows only login/refresh anonymously (no ASP.NET fallback policy) |
+| Input validation | Hand-written checks in handlers and domain factories (no FluentValidation); max lengths; strict enum parsing; SARIF JSON depth limit 64; Docker targets restricted to `aegisops-<name>` networks, names `^[a-z0-9][a-z0-9-]{2,62}$`, host ports ≥ 1024 |
 | Output encoding | JSON only; React escapes by default; no `dangerouslySetInnerHTML` |
-| Injection | EF Core parameterization; no raw SQL except the job-claim query with parameters; regex patterns from policies compiled with `RegexOptions.NonBacktracking` + timeout to prevent ReDoS |
+| Injection | EF Core parameterization; raw SQL only for job claiming/completion/leases and webhook counters, always via `FromSqlInterpolated`/`ExecuteSqlInterpolated`; detector and AI blocked-pattern regexes have timeouts (policy branch globs: see §8) |
 | File handling | Reports saved under server-generated paths only; original filenames never used; content-type sniffed |
 | Secrets | Env vars / user-secrets / Docker secrets; `.env` ignored; Gitleaks on every commit; secrets never logged (Serilog destructuring policy) |
 | Errors | Problem Details without stack traces outside Development; `traceId` for support |
@@ -58,7 +58,7 @@ root-equivalent power on the host. Mitigations for v1 and stated residual risk:
 | --- | --- |
 | Only the **Worker** mounts the socket (never Api/Web) | v1 |
 | Worker runs no user-facing HTTP except `/health` & `/metrics` on the internal network | v1 |
-| Executor only issues a fixed set of calls (pull, create, start, stop, remove, inspect, logs) with container names/labels derived from `Environment.Target` (validated: `^[a-z0-9-]{3,63}$`) — never user-provided raw commands | v1 |
+| Executor only issues a fixed set of calls (pull, create, start, stop, rename, remove, inspect, network create/connect) with container names validated `^[a-z0-9][a-z0-9-]{2,62}$` and networks limited to `aegisops-<name>` (re-checked at execution) — never user-provided raw commands | v1 |
 | Environment targets editable only by team Owner/Admin and audited | v1 |
 | Docker socket proxy (`tecnativa/docker-socket-proxy`) allowing only the needed API groups | Recommended for production-like |
 | Rootless Docker or remote host over TLS (`DOCKER_HOST=tcp://…` with client certs) | V2 |
@@ -72,8 +72,8 @@ Residual risk is documented in the README: the demo is intended for a single tru
 | Passwords | Identity hasher; never stored elsewhere |
 | API keys | SHA-256 hash + prefix; plain shown once |
 | Refresh tokens | SHA-256 hash |
-| Webhook secrets | Hash stored; HMAC computed with the plain value provided at creation (kept encrypted with ASP.NET Data Protection) |
-| AI content | Off by default; when on, encrypted at rest via Data Protection API column-level for `prompt_content`/`response_content`; retention job deletes after `Ai:ContentRetentionDays` (default 30) |
+| Webhook secrets | Encrypted with an AES-256-GCM key ring bound to the team (AAD); the plain value is needed to compute the HMAC and is never logged |
+| AI content | Off by default; when on, the post-redaction prompt and the redacted response are stored and deleted after `Ai:ContentRetentionDays` (default 30). Column encryption is a known gap (§8) |
 | Backups | `pg_dump` files contain hashes only for credentials; still treated as sensitive |
 
 ## 6. Audit coverage checklist
@@ -109,3 +109,9 @@ an expected audit action there, and each action is asserted against the real han
 - No image signature verification (V2: cosign + `RequireSignedImage` rule).
 - Audit log integrity is role-based, not cryptographic (V2: hash chain / WORM export).
 - Single JWT signing key; rotation requires restart (V2: key ring with `kid`).
+- Open v1 items from the [v1 security review](security-review-v1.md): no INSERT/SELECT-only database role for
+  `audit.*`; no per-principal or upload rate limiting and no forwarded-headers handling behind nginx; no
+  Problem Details for unhandled exceptions and Compose runs the API as `Development` (loopback-only); policy
+  branch globs without `NonBacktracking`; Semgrep without `p/owasp-top-ten` and not failing; no Trivy image scan
+  or `npm audit` in CI; no client IP on approvals, no policy diff in audit, no "policy changed" banner; stored AI
+  content not encrypted at rest.

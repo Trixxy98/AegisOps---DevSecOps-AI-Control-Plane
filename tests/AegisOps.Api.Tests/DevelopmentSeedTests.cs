@@ -92,8 +92,32 @@ public sealed class DevelopmentSeedTests : IAsyncLifetime {
         var owners = await db.TeamMembers.AsNoTracking().Where(member => member.TeamId == team.Id)
             .Join(db.Users, member => member.UserId, user => user.Id, (member, user) => new { user.Email, member.Role })
             .ToListAsync(Token);
-        Assert.Equal(["developer@aegisops.local", "rith@aegisops.local"], owners.Select(item => item.Email!).Order(StringComparer.Ordinal));
-        Assert.All(owners, owner => Assert.Equal(TeamRole.Owner, owner.Role));
+        Assert.Equal(["approver@aegisops.local:Member", "developer@aegisops.local:Owner", "rith@aegisops.local:Owner", "security@aegisops.local:Member"],
+            owners.Select(item => $"{item.Email}:{item.Role}").Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task SeedCreatesTheThreeDemoProjectsWithEnvironmentsAndStagingDockerTargets() {
+        await DevelopmentUserSeed.SeedAsync(_services);
+        await DevelopmentUserSeed.SeedAsync(_services);
+
+        await using var scope = _services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
+        var team = await db.Teams.AsNoTracking().SingleAsync(item => item.Slug == "network-platform", Token);
+        var projects = await db.Projects.AsNoTracking().OrderBy(item => item.Slug).ToListAsync(Token);
+        Assert.Equal(["circuit-service", "notification-service", "site-service"], projects.Select(item => item.Slug));
+        Assert.All(projects, project => Assert.Equal(team.Id, project.TeamId));
+        var environments = await db.Environments.AsNoTracking().ToListAsync(Token);
+        Assert.Equal(9, environments.Count);
+        foreach (var project in projects) {
+            Assert.Equal(["Development", "Staging", "Production"], environments.Where(item => item.ProjectId == project.Id)
+                .OrderBy(item => item.Order).Select(item => item.Name));
+        }
+        string TargetOf(string slug) => environments.Single(item =>
+            item.ProjectId == projects.Single(project => project.Slug == slug).Id && item.Tier == EnvironmentTier.Staging).Target.Type;
+        Assert.Equal("docker", TargetOf("circuit-service"));
+        Assert.Equal("docker", TargetOf("site-service"));
+        Assert.Equal("noop", TargetOf("notification-service"));
     }
 
     [Fact]
@@ -109,7 +133,7 @@ public sealed class DevelopmentSeedTests : IAsyncLifetime {
         Assert.Equal(DemoUsers.Length, second.Users);
         Assert.Equal(6, second.UserRoles); // security@ has two roles
         Assert.Equal(1, second.Teams);
-        Assert.Equal(2, second.Members);
+        Assert.Equal(4, second.Members); // two Owners, plus security@ and approver@ as approving Members
         Assert.Equal(3, second.Policies); // Production baseline, Global baseline, Staging gate
         Assert.Equal(6, second.Rules);
         Assert.Equal((1, 1), (second.AiModels, second.AiPolicies));
@@ -216,7 +240,7 @@ public sealed class DevelopmentSeedTests : IAsyncLifetime {
             var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
             var team = await db.Teams.SingleAsync(item => item.Slug == "network-platform", Token);
             var adminId = (await db.Users.SingleAsync(user => user.Email == DevelopmentUserSeed.Email, Token)).Id;
-            var project = Project.Create(team.Id, "Circuit", "circuit-service", now);
+            var project = Project.Create(team.Id, "Simulation", "simulation-service", now); // the seed owns circuit-service
             var staging = DomainEnvironment.Create(project.Id, "Staging", EnvironmentTier.Staging, 1);
             var production = DomainEnvironment.Create(project.Id, "Production", EnvironmentTier.Production, 2);
             var artifact = Artifact.Create(project.Id, "1.0.0", new string('a', 40), "main", "ghcr.io/x/circuit:1.0.0",

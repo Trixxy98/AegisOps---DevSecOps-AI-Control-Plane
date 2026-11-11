@@ -590,6 +590,27 @@ public sealed class AiGatewayTests {
     }
 
     [Fact]
+    public async Task Stored_prompt_content_is_the_redacted_prompt_never_the_raw_secret() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("content-redaction"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("content-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, [], false, true, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        const string secret = "AKIA1234567890ABCDEF";
+        var gateway = new AiGateway(fixture.Db, new FakeLlm(), new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
+
+        var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "deploy failed with key " + secret)],
+            "content-redaction", TestContext.Current.CancellationToken);
+
+        Assert.Equal(200, result.StatusCode);
+        var row = await fixture.Db.AiRequests.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.NotNull(row.PromptContent);
+        Assert.Contains("[REDACTED:AWS_ACCESS_KEY]", row.PromptContent);
+        Assert.DoesNotContain(secret, row.PromptContent);
+    }
+
+    [Fact]
     public async Task Gateway_records_generic_failure_when_provider_throws_without_exposing_exception() {
         await using var fixture = new GatewayFixture();
         var model = AiModel.Create("provider-failure"); model.SetEnabled(true);

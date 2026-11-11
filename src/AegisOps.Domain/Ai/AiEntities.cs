@@ -101,7 +101,8 @@ public sealed class AiRequest {
             PromptHash = promptHash ?? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawPrompt))),
             PromptPreview = safePrompt[..Math.Min(500, safePrompt.Length)],
             ResponsePreview = safeResponse?[..Math.Min(500, safeResponse.Length)],
-            PromptContent = policy?.StoreContent == true && storePromptContent ? rawPrompt : null,
+            // Stored content is post-inspection like the previews (docs/08, docs/17 §2): never the raw secret-bearing prompt.
+            PromptContent = policy?.StoreContent == true && storePromptContent ? safePrompt : null,
             ResponseContent = policy?.StoreContent == true ? response : null,
             ResponseChars = response?.Length ?? 0, DetectedSensitiveTypesJson = JsonSerializer.Serialize(detections),
             RedactionsApplied = redactions, PromptTokens = promptTokens, CompletionTokens = completionTokens,

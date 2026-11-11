@@ -92,6 +92,37 @@ public sealed class IdentityFlowTests {
     }
 
     [Fact]
+    public async Task FiveFailedLoginsLockTheAccountWithTheSameGenericResponseAndSuccessResetsTheCount() {
+        await using var host = await IdentityHost.StartAsync();
+        var userId = await host.CreateUserAsync("dev@example.test");
+        async Task<HttpStatusCode> Attempt(string password) {
+            using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login",
+                new LoginRequest("dev@example.test", password), IdentityHost.Token);
+            return response.StatusCode;
+        }
+
+        // A failure below the limit is forgotten after a successful sign-in.
+        Assert.Equal(HttpStatusCode.Unauthorized, await Attempt("wrong-password-value"));
+        Assert.Equal(HttpStatusCode.OK, await Attempt(Password));
+        Assert.Equal(0, await host.WithDbAsync(db => db.Users.Where(user => user.Id == userId)
+            .Select(user => user.AccessFailedCount).SingleAsync(IdentityHost.Token)));
+
+        for (var attempt = 0; attempt < 5; attempt++) {
+            Assert.Equal(HttpStatusCode.Unauthorized, await Attempt("wrong-password-value"));
+        }
+
+        // Locked: even the correct password is refused, with the same 401, and audited as a failed login.
+        Assert.Equal(HttpStatusCode.Unauthorized, await Attempt(Password));
+        await host.WithDbAsync(async db => {
+            var lockoutEnd = await db.Users.Where(user => user.Id == userId).Select(user => user.LockoutEnd).SingleAsync(IdentityHost.Token);
+            Assert.NotNull(lockoutEnd);
+            Assert.True(lockoutEnd > DateTimeOffset.UtcNow.AddMinutes(14));
+            Assert.Equal(7, await db.AuditEvents.CountAsync(item => item.Action == "auth.login_failed", IdentityHost.Token)); // 1 + 5 + locked attempt
+            Assert.Equal(1, await db.RefreshTokens.CountAsync(IdentityHost.Token));
+        });
+    }
+
+    [Fact]
     public async Task LoginRequiresEmailAndPassword() {
         await using var host = await IdentityHost.StartAsync();
         using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login",
@@ -306,14 +337,7 @@ public sealed class IdentityFlowTests {
             builder.Services.AddSingleton<TimeProvider>(time);
             builder.Services.AddDbContext<AegisOpsDbContext>(options => options.UseSqlite(connection)
                 .UseSnakeCaseNamingConvention().ReplaceService<IModelCustomizer, SqliteModelCustomizer>());
-            builder.Services.AddIdentityCore<User>(identity => {
-                    identity.User.RequireUniqueEmail = true;
-                    identity.Password.RequiredLength = 12;
-                    identity.Password.RequireDigit = false;
-                    identity.Password.RequireLowercase = false;
-                    identity.Password.RequireUppercase = false;
-                    identity.Password.RequireNonAlphanumeric = false;
-                })
+            builder.Services.AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity)
                 .AddRoles<IdentityRole<Guid>>()
                 .AddEntityFrameworkStores<AegisOpsDbContext>();
             builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();

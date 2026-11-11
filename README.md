@@ -1,10 +1,10 @@
 # AegisOps — DevSecOps & AI Control Plane
 
-> **Status:** Early implementation. The Development Compose stack supports an end-to-end
-> no-op deployment (request → policy evaluation → worker execution → timeline). The
-> local `site-service` Staging Docker target is opt-in through an existing project and
-> published artifact; production operation is not supported by this quick start.
-> See [`docs/README.md`](docs/README.md) for the design.
+> **Status:** v1 release candidate. All four v1 journeys run end to end on the local Compose stack:
+> CI-registered artifacts with Gitleaks/Semgrep/Trivy evidence, policy-gated Docker deployments with
+> two-person Production approvals, live updates over SignalR, and a governed local LLM gateway. Progress
+> against the roadmap is tracked in [`docs/v1-progress-audit.md`](docs/v1-progress-audit.md); the design is in
+> [`docs/README.md`](docs/README.md).
 
 AegisOps is a self-hosted **control plane** that sits between CI and your environments.
 It does not build code (GitHub Actions does that). It decides **whether a change may
@@ -27,6 +27,22 @@ complete audit trail for both.
                         ▼                                     ▼
           Target services (staging / production)        Ollama (local LLM)
 ```
+
+## Demo
+
+![A developer requests a Production deployment (left); the security approver gets the approval toast and approves (right); the developer's view updates live](docs/assets/demo.gif)
+
+*Recorded from the real Compose stack by the opt-in live test (`npm run test:e2e:live`): a developer (left)
+requests a Production deployment, the Worker evaluates it to **RequireApproval (2)**, the security approver
+(right) receives the toast within a second and approves, and the developer's list updates without a reload.
+The test then cancels the request.*
+
+| Approval toast | Policy explanation | One of two approvals |
+| --- | --- | --- |
+| ![Approval toast on the Approvals page](docs/assets/approval-toast.png) | ![Deployment awaiting approval with rule-by-rule policy checks](docs/assets/deployment-awaiting-approval.png) | ![Deployment list after the first approval](docs/assets/deployment-one-approval.png) |
+
+To re-record: `AEGISOPS_LIVE_VIDEO=1 npm run test:e2e:live` in `src/AegisOps.Web` (demo passwords in the
+environment), then `scripts/make-demo-gif.sh`.
 
 ## What AegisOps governs
 
@@ -205,6 +221,16 @@ OLLAMA_MODEL=qwen2.5-coder:7b docker compose --profile ai up -d ollama-init   # 
   the `ollama` service.
 - Without Ollama the platform still runs: readiness reports Ollama as Degraded, and AI
   requests fail with `ProviderUnavailable` (sensitive-data blocks still apply first).
+
+## Releases
+
+Pushing a version tag runs `.github/workflows/release.yml`: it builds the API, Worker and web images, refuses
+to publish any image with a fixable CRITICAL vulnerability (Trivy), pushes them to
+`ghcr.io/<owner>/aegisops-{api,worker,web}:<tag>` and `:latest`, and creates the GitHub Release.
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
 
 ## Interview notes — design trade-offs
 

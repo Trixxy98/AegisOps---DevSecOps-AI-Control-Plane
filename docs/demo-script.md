@@ -24,7 +24,9 @@ Open two browser windows side by side, both at <http://localhost:3000>:
 
 `approver@aegisops.local` is the second approver for Production, and
 `admin@aegisops.local` can see the audit log and the job queue. The seed creates the
-`Production baseline` policy (two approvals, plus `MaxFindings(Critical) = 0` across all
+`Network Platform` team (developer and rith as Owners, security and approver as Members) with the
+`circuit-service`, `site-service` and `notification-service` projects (Development, Staging and Production
+environments), the `Production baseline` policy (two approvals, plus `MaxFindings(Critical) = 0` across all
 tiers) and Docker Staging targets for `circuit-service` and `site-service` on the
 `aegisops-staging` network.
 
