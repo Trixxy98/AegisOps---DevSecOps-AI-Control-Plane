@@ -118,6 +118,9 @@ outside Development, no TLS setup, and the open items in
 
 ## Local quick start (Development only)
 
+> **New to DevSecOps?** Start with the [user manual](docs/user-manual.md): it explains the ideas in plain
+> words, then walks you through installation and four hands-on tutorials.
+
 Requires Docker Compose, about 4 GB of free memory and ~5 GB of disk. A fresh clone is up in about a minute on
 an Apple M-series laptop (images already cached: ~30 s; cold build: ~50 s, plus base-image downloads).
 

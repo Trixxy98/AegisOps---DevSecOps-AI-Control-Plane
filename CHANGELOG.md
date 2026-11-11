@@ -7,6 +7,11 @@ Conventional Commit history (`git log --no-merges`).
 
 ## [Unreleased]
 
+### Documentation
+
+- `docs/user-manual.md`: a beginner's guide with plain-language concepts, a glossary, installation, a
+  screen-by-screen tour, four hands-on tutorials, AI usage, roles and troubleshooting.
+
 ### Security
 
 - API and Worker containers run as the unprivileged `app` user (UID 1654) instead of root.
