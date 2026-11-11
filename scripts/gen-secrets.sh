@@ -32,6 +32,10 @@ trap 'rm -f "$tmp"' EXIT
   echo "WEBHOOK_SECRETS_CURRENT_KEY_ID=key1"
   echo "WEBHOOK_SECRETS_KEY_1=$(openssl rand -base64 32 | tr -d '\n')"
   echo "WEBHOOK_SECRETS_KEY_2=$(openssl rand -base64 32 | tr -d '\n')"
+  # Secret environment variables (docs/17 §5): stored AES-256-GCM encrypted with this key.
+  echo "ENVIRONMENT_SECRETS_ENABLED=true"
+  echo "ENVIRONMENT_SECRETS_CURRENT_KEY_ID=key1"
+  echo "ENVIRONMENT_SECRETS_KEY_1=$(openssl rand -base64 32 | tr -d '\n')"
 } > "$tmp"
 chmod 600 "$tmp"
 mv "$tmp" "$output"

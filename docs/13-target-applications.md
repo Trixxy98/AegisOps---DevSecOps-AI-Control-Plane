@@ -67,7 +67,20 @@ that scanners and the policy engine are language-agnostic.
 ```
 
 Values are injected at build time (`--build-arg VERSION=… COMMIT_SHA=…`) and at run time
-(`ASPNETCORE_ENVIRONMENT` from `Environment.Target.env`).
+(`DOTNET_ENVIRONMENT`/`ASPNETCORE_ENVIRONMENT` set to the AegisOps environment name).
+
+### Runtime configuration (environment variables)
+
+A target that needs configuration (a connection string, an API token, a feature flag) gets it from the
+environment's **variables**, managed per environment in the Projects screen or through
+`PUT /api/v1/projects/{slug}/environments/{envId}/variables/{name}` (docs/10). The Worker passes them to the
+container as ordinary environment variables at deploy time, so ASP.NET Core reads them through its default
+configuration providers: `ConnectionStrings__Default` becomes `ConnectionStrings:Default`.
+
+- Names: `^[A-Za-z_][A-Za-z0-9_]{0,127}$`; values up to 8192 characters; at most 50 per environment.
+- `DOTNET_ENVIRONMENT`, `ASPNETCORE_ENVIRONMENT` and `AEGISOPS_*` are reserved and always set by AegisOps.
+- Mark credentials as **secret**: they are encrypted at rest and never shown again (docs/17 §5).
+- A change takes effect on the next deployment of that environment.
 
 ## 4. Template repository layout
 

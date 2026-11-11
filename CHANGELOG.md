@@ -7,6 +7,16 @@ Conventional Commit history (`git log --no-merges`).
 
 ## [Unreleased]
 
+### Added
+
+- Environment configuration and secrets: Owners and Admins set per-environment variables
+  (`GET/PUT/DELETE /api/v1/projects/{slug}/environments/{envId}/variables[/{name}]`) that the Worker injects into
+  the deployed container next to `DOTNET_ENVIRONMENT`/`ASPNETCORE_ENVIRONMENT`. Secret values are AES-256-GCM
+  encrypted with the new `EnvironmentSecrets` key ring (bound to the environment and name), write-only in the API
+  and UI, and never written to audit rows or logs. New table `org.environment_variables` (migration
+  `EnvironmentVariables`); `scripts/gen-secrets.sh` now generates `ENVIRONMENT_SECRETS_*`; Projects screen shows
+  and edits variables per environment.
+
 ### Documentation
 
 - `docs/user-manual.md`: a beginner's guide with plain-language concepts, a glossary, installation, a

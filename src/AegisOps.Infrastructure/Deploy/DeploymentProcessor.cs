@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text.Json;
 using AegisOps.Application.Observability;
 using AegisOps.Application.Audit;
@@ -20,13 +21,15 @@ using StackExchange.Redis;
 
 namespace AegisOps.Infrastructure.Deploy;
 
-/// <summary>Runs a Docker deployment, reporting each timeline step through <paramref name="record"/> as it happens.</summary>
+/// <summary>Runs a Docker deployment, reporting each timeline step through <paramref name="record"/> as it happens.
+/// <paramref name="variables"/> are the environment's configured variables (secrets already decrypted).</summary>
 public delegate Task<DockerExecution> DeploymentStepExecutor(
     DeploymentTarget target,
     Artifact artifact,
     string projectSlug,
     string environmentName,
     Guid deploymentId,
+    IReadOnlyList<KeyValuePair<string, string>> variables,
     Func<DeploymentEventType, string, CancellationToken, Task> record,
     CancellationToken cancellationToken);
 
@@ -65,7 +68,8 @@ public static class DeploymentProcessor {
                 if (job.Type == JobType.EvaluateDeployment) {
                     await EvaluateAsync(db, audit, deploymentId, time, lost.Token);
                 } else if (job.Type == JobType.ExecuteDeployment) {
-                    await ExecuteAsync(db, audit, deploymentId, time, lost.Token, redis, LeaseGuard(db, job.Id, token, time, lost));
+                    await ExecuteAsync(db, audit, deploymentId, time, lost.Token, redis, LeaseGuard(db, job.Id, token, time, lost),
+                        secretProtector: () => ResolveSecretProtector(scopes));
                     executedDeploymentId = deploymentId;
                 }
             }
@@ -357,7 +361,8 @@ public static class DeploymentProcessor {
         CancellationToken cancellationToken,
         IConnectionMultiplexer? redis = null,
         Func<CancellationToken, Task<bool>>? leaseGuard = null,
-        DeploymentStepExecutor? executor = null
+        DeploymentStepExecutor? executor = null,
+        Func<EnvironmentSecretProtector>? secretProtector = null
     ) {
         using var activity = AegisOpsTracing.Source.StartActivity("ExecuteDeployment");
         var deployment = await db.Deployments.SingleAsync(item => item.Id == deploymentId, cancellationToken);
@@ -386,12 +391,21 @@ public static class DeploymentProcessor {
             // exactly one execution attempt.
             await CommitStepAsync(db, deployment.Id, DeploymentEventType.DeployStarted,
                 $"Docker executor started for {environment.Target.ContainerName}.", time, leaseGuard, redis, cancellationToken);
+            var variables = await LoadVariablesAsync(db, environment.Id, secretProtector, cancellationToken);
+            if (variables.Error is not null) {
+                deployment.Fail(variables.Error, time.GetUtcNow());
+                await AddEventAsync(db, deployment.Id, DeploymentEventType.Failed, variables.Error, time, cancellationToken);
+                audit.Write(AuditEvent.Record(time.GetUtcNow(), "System", null, "docker-executor", "deployment.failed", "Deployment", deployment.Id, "Failed", deployment.CorrelationId));
+                return;
+            }
+
             var execution = await (executor ?? DockerDeploymentExecutor.ExecuteAsync)(
                 environment.Target,
                 artifact,
                 project.Slug,
                 environment.Name,
                 deployment.Id,
+                variables.Values,
                 // Each Docker step is committed and hinted as it happens so viewers see it live.
                 (type, message, token) => CommitStepAsync(db, deployment.Id, type, message, time, leaseGuard, redis, token),
                 cancellationToken);
@@ -420,6 +434,59 @@ public static class DeploymentProcessor {
             "Succeeded",
             deployment.CorrelationId
         ));
+    }
+
+    internal sealed record LoadedVariables(IReadOnlyList<KeyValuePair<string, string>> Values, string? Error);
+
+    /// <summary>
+    /// Loads the environment's variables and decrypts secret ones (docs/06, docs/17 §5). A secret that cannot be
+    /// decrypted fails the deployment with a message naming the variable, never its value.
+    /// </summary>
+    internal static async Task<LoadedVariables> LoadVariablesAsync(
+        AegisOpsDbContext db,
+        Guid environmentId,
+        Func<EnvironmentSecretProtector>? secretProtector,
+        CancellationToken cancellationToken
+    ) {
+        var stored = await db.EnvironmentVariables.AsNoTracking()
+            .Where(item => item.EnvironmentId == environmentId)
+            .OrderBy(item => item.Name)
+            .ToListAsync(cancellationToken);
+        var values = new List<KeyValuePair<string, string>>(stored.Count);
+        EnvironmentSecretProtector? protector = null;
+        foreach (var variable in stored) {
+            if (!variable.IsSecret) {
+                values.Add(new(variable.Name, variable.Value ?? string.Empty));
+                continue;
+            }
+
+            if (protector is null) {
+                try {
+                    protector = secretProtector?.Invoke();
+                } catch (Exception exception) when (exception is InvalidOperationException or System.Reflection.TargetInvocationException) {
+                    // Invalid key configuration: report it without the configuration values.
+                    protector = null;
+                }
+
+                if (protector is null || !protector.IsConfigured) {
+                    return new([], "Secret variables are set for this environment, but secret storage is not configured on the Worker (EnvironmentSecrets).");
+                }
+            }
+
+            try {
+                values.Add(new(variable.Name, protector.Unprotect(environmentId, variable.Name, variable.ProtectedValue ?? string.Empty)));
+            } catch (CryptographicException) {
+                return new([], $"Secret variable {variable.Name} could not be decrypted; its encryption key may be missing from EnvironmentSecrets:Keys.");
+            }
+        }
+
+        return new(values, null);
+    }
+
+    private static EnvironmentSecretProtector ResolveSecretProtector(IServiceScopeFactory scopes) {
+        using var scope = scopes.CreateScope();
+        return scope.ServiceProvider.GetService<EnvironmentSecretProtector>()
+            ?? new EnvironmentSecretProtector(scope.ServiceProvider.GetRequiredService<IConfiguration>());
     }
 
     private static async Task<PolicyOutcome> DecideAsync(

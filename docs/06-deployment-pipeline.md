@@ -211,6 +211,15 @@ flowchart TD
   `aegisops.artifact` so they can be listed/cleaned (`GET /environments/{id}/runtime`).
 - Image must be pulled by **digest** when `Artifact.ImageDigest` is set.
 - Registry auth (GHCR) via `Docker:Registries[]` configuration (token from env var).
+- **Container environment.** Before creating the container the Worker (`DeploymentProcessor.LoadVariablesAsync`)
+  loads the environment's variables from `org.environment_variables` and decrypts secret ones with the
+  `EnvironmentSecrets` key ring (`EnvironmentSecretProtector`). `DockerDeploymentExecutor.ComposeContainerEnvironment`
+  then builds `Env`: `DOTNET_ENVIRONMENT` and `ASPNETCORE_ENVIRONMENT` (the environment name) first, followed by the
+  configured variables ordered by name. Reserved names (`DOTNET_ENVIRONMENT`, `ASPNETCORE_ENVIRONMENT`, `AEGISOPS_*`,
+  case-insensitive) are rejected by the API and skipped by the executor, so they can never be overridden. If a secret
+  cannot be decrypted (key removed from `EnvironmentSecrets:Keys`, or secret storage not configured on the Worker)
+  the deployment fails before any Docker step with a message naming the variable, never its value. Variables are
+  read at execution time, so a change applies to the next deployment; running containers are not restarted.
 - Security note: Docker socket access equals root on the host. Mitigations in
   [17 Security hardening §4](17-security-hardening.md#4-docker-socket-exposure).
 

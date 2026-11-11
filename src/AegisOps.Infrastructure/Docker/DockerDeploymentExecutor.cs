@@ -18,6 +18,7 @@ public static class DockerDeploymentExecutor {
         string projectSlug,
         string environmentName,
         Guid deploymentId,
+        IReadOnlyList<KeyValuePair<string, string>> variables,
         Func<DeploymentEventType, string, CancellationToken, Task> record,
         CancellationToken cancellationToken
     ) {
@@ -85,7 +86,7 @@ public static class DockerDeploymentExecutor {
                 Name = name,
                 Image = image,
                 Platform = platform,
-                Env = ContainerEnvironment(environmentName),
+                Env = ComposeContainerEnvironment(environmentName, variables),
                 Labels = new Dictionary<string, string> {
                     ["aegisops.project"] = projectSlug,
                     ["aegisops.environment"] = environmentName,
@@ -222,6 +223,30 @@ public static class DockerDeploymentExecutor {
         }
 
         return [$"DOTNET_ENVIRONMENT={environmentName}", $"ASPNETCORE_ENVIRONMENT={environmentName}"];
+    }
+
+    /// <summary>
+    /// The container's final environment: the reserved entries from <see cref="ContainerEnvironment"/> first, then the
+    /// environment's configured variables ordered by name. Reserved names (DOTNET_ENVIRONMENT, ASPNETCORE_ENVIRONMENT,
+    /// AEGISOPS_*), invalid names and repeated names are skipped, so a stored variable can never override what the
+    /// executor sets. Values are passed as-is and must never be logged.
+    /// </summary>
+    internal static IList<string> ComposeContainerEnvironment(
+        string environmentName,
+        IEnumerable<KeyValuePair<string, string>> variables
+    ) {
+        ArgumentNullException.ThrowIfNull(variables);
+        var result = new List<string>(ContainerEnvironment(environmentName));
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (name, value) in variables.OrderBy(item => item.Key, StringComparer.Ordinal)) {
+            if (!EnvironmentVariable.IsValidName(name) || EnvironmentVariable.IsReservedName(name) || !seen.Add(name)) {
+                continue;
+            }
+
+            result.Add($"{name}={value}");
+        }
+
+        return result;
     }
 
     private static async Task<ContainerListResponse?> FindAsync(DockerClient client, string name, CancellationToken cancellationToken) {

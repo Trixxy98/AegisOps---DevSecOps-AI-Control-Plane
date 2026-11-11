@@ -115,6 +115,23 @@ Copy the passwords somewhere safe. If you lose them, see [Troubleshooting](#8-tr
 | **Audit log** | The logbook: who did what, when, with what result. |
 | **Administration** | Users, teams (members and webhooks) and background jobs (Admin only). |
 
+### Configuration and secrets (Projects screen)
+
+Real applications need settings, such as a database connection string or an API token. Under each environment
+in **Projects** there is a **Variables** box:
+
+1. Type a **Variable name** (letters, digits and `_`, for example `ConnectionStrings__Default`; a .NET app
+   reads it as `ConnectionStrings:Default`) and a **Value**.
+2. Tick **Secret** for passwords and tokens. A secret is stored encrypted and is never shown again, not even to
+   an Admin: the list only shows `••••• (secret)`. To change it, save the same name with a new value.
+3. Click **Save variable**. The value reaches the container the **next time you deploy** to that environment.
+
+Only an Admin or the team's Owner can add or delete variables; other team members can see the names and the
+plain (non-secret) values. `DOTNET_ENVIRONMENT`, `ASPNETCORE_ENVIRONMENT` and names starting with `AEGISOPS_`
+are set by AegisOps and cannot be used. If saving a secret says **"Secret storage is not configured"**, your
+`.env` has no encryption key yet: an `.env` made by an older `scripts/gen-secrets.sh` lacks the
+`ENVIRONMENT_SECRETS_*` lines (see `.env.example`). Plain variables still work without it.
+
 ## 5. Hands-on tutorials (no GitHub account needed)
 
 These tutorials use the seeded project **`circuit-service`** and a saved "CI result" file that ships with

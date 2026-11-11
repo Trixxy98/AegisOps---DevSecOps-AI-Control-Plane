@@ -46,7 +46,7 @@ public sealed class DeploymentStepStreamingTests {
             : [DeploymentEventType.ImagePulled, DeploymentEventType.ContainerStarted, DeploymentEventType.HealthCheckFailed, DeploymentEventType.RolledBack];
 
         async Task<DockerExecution> Execute(DeploymentTarget target, Artifact artifact, string slug, string environment, Guid id,
-            Func<DeploymentEventType, string, CancellationToken, Task> record, CancellationToken token) {
+            IReadOnlyList<KeyValuePair<string, string>> variables, Func<DeploymentEventType, string, CancellationToken, Task> record, CancellationToken token) {
             Assert.Equal(fixture.Deployment.Id, id);
             for (var index = 0; index < steps.Length; index++) {
                 // Before the step starts, every earlier step (plus DeployStarted) is already committed and hinted.
@@ -93,7 +93,7 @@ public sealed class DeploymentStepStreamingTests {
         var reachedAfterLoss = false;
 
         async Task<DockerExecution> Execute(DeploymentTarget target, Artifact artifact, string slug, string environment, Guid id,
-            Func<DeploymentEventType, string, CancellationToken, Task> record, CancellationToken token) {
+            IReadOnlyList<KeyValuePair<string, string>> variables, Func<DeploymentEventType, string, CancellationToken, Task> record, CancellationToken token) {
             await record(DeploymentEventType.ImagePulled, "image", token);
             await fixture.TakeOverLeaseAsync(token); // another worker now owns the job
             await record(DeploymentEventType.ContainerStarted, "container", token);
@@ -121,7 +121,7 @@ public sealed class DeploymentStepStreamingTests {
         await using var retry = fixture.NewContext();
         var executorCalled = false;
         Task<DockerExecution> Never(DeploymentTarget target, Artifact artifact, string slug, string environment, Guid id,
-            Func<DeploymentEventType, string, CancellationToken, Task> record, CancellationToken token) {
+            IReadOnlyList<KeyValuePair<string, string>> variables, Func<DeploymentEventType, string, CancellationToken, Task> record, CancellationToken token) {
             executorCalled = true;
             return Task.FromResult(new DockerExecution(true, "unexpected"));
         }

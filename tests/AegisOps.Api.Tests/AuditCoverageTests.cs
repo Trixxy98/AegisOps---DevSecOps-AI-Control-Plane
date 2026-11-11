@@ -97,6 +97,8 @@ public sealed partial class AuditCoverageTests {
         new("PATCH", "/api/v1/projects/{slug}", "project.updated", nameof(ProjectEnvironmentRepositoryAndApiKeyChangesAreAudited)),
         new("PUT", "/api/v1/projects/{slug}/repository", "repository.upserted", nameof(ProjectEnvironmentRepositoryAndApiKeyChangesAreAudited)),
         new("PATCH", "/api/v1/projects/{slug}/environments/{envId:guid}", "environment.updated", nameof(ProjectEnvironmentRepositoryAndApiKeyChangesAreAudited)),
+        new("PUT", "/api/v1/projects/{slug}/environments/{envId:guid}/variables/{name}", "environment.variable_set", nameof(EnvironmentVariableChangesAreAuditedWithoutTheValue)),
+        new("DELETE", "/api/v1/projects/{slug}/environments/{envId:guid}/variables/{name}", "environment.variable_removed", nameof(EnvironmentVariableChangesAreAuditedWithoutTheValue)),
         new("POST", "/api/v1/projects/{slug}/api-keys", "apikey.created", nameof(ProjectEnvironmentRepositoryAndApiKeyChangesAreAudited)),
         new("DELETE", "/api/v1/projects/{slug}/api-keys/{keyId:guid}", "apikey.revoked", nameof(ProjectEnvironmentRepositoryAndApiKeyChangesAreAudited)),
         new("POST", "/api/v1/projects/{slug}/artifacts", "artifact.created", nameof(ArtifactScanAndFindingChangesAreAudited)),
@@ -511,6 +513,43 @@ public sealed partial class AuditCoverageTests {
             admin.Principal, Users(services), Db(services), Audit(services), TimeProvider.System, http));
         Assert.Equal(StatusCodes.Status204NoContent, revoked.Status);
         AssertSingleAudit(revoked.Rows, "apikey.revoked", "User", admin.Id, admin.Email, "ApiKey", keyId, "Succeeded");
+    }
+
+    [Fact]
+    public async Task EnvironmentVariableChangesAreAuditedWithoutTheValue() {
+        await using var host = await AuditHost.StartAsync();
+        var admin = await host.CreateUserAsync("admin@example.test", "Admin");
+        var world = await host.SeedWorldAsync();
+        const string plainValue = "Host=db;Username=app-audit-plain-value";
+        const string secretValue = "audit-secret-value-never-in-rows";
+        var secrets = new EnvironmentSecretProtector(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+            ["EnvironmentSecrets:Enabled"] = "true",
+            ["EnvironmentSecrets:CurrentKeyId"] = "k1",
+            ["EnvironmentSecrets:Keys:k1"] = Convert.ToBase64String(Key(21)),
+        }).Build());
+
+        var plain = await host.CallAsync((services, http) => EnvironmentVariableEndpoints.Set(world.ProjectSlug, world.EnvironmentId, "ConnectionStrings__Main",
+            new SetEnvironmentVariableRequest(plainValue, false), admin.Principal, Users(services), Db(services), Audit(services), secrets,
+            TimeProvider.System, http));
+        Assert.Equal(StatusCodes.Status201Created, plain.Status);
+        AssertNoValue(AssertSingleAudit(plain.Rows, "environment.variable_set", "User", admin.Id, admin.Email, "Environment", world.EnvironmentId, "Succeeded"));
+
+        var secret = await host.CallAsync((services, http) => EnvironmentVariableEndpoints.Set(world.ProjectSlug, world.EnvironmentId, "API_TOKEN",
+            new SetEnvironmentVariableRequest(secretValue, true), admin.Principal, Users(services), Db(services), Audit(services), secrets,
+            TimeProvider.System, http));
+        Assert.Equal(StatusCodes.Status201Created, secret.Status);
+        AssertNoValue(AssertSingleAudit(secret.Rows, "environment.variable_set", "User", admin.Id, admin.Email, "Environment", world.EnvironmentId, "Succeeded"));
+
+        var removed = await host.CallAsync((services, http) => EnvironmentVariableEndpoints.Remove(world.ProjectSlug, world.EnvironmentId, "API_TOKEN",
+            admin.Principal, Users(services), Db(services), Audit(services), TimeProvider.System, http));
+        Assert.Equal(StatusCodes.Status204NoContent, removed.Status);
+        AssertNoValue(AssertSingleAudit(removed.Rows, "environment.variable_removed", "User", admin.Id, admin.Email, "Environment", world.EnvironmentId, "Succeeded"));
+
+        static void AssertNoValue(AuditEvent row) {
+            var fields = string.Join("|", row.Action, row.ActorType, row.ActorDisplay, row.ResourceType, row.Outcome, row.CorrelationId);
+            Assert.DoesNotContain(plainValue, fields, StringComparison.Ordinal);
+            Assert.DoesNotContain(secretValue, fields, StringComparison.Ordinal);
+        }
     }
 
     // ---------- Artifacts, scans, findings ----------

@@ -44,6 +44,9 @@ services:
       WebhookSecrets__CurrentKeyId: ${WEBHOOK_SECRETS_CURRENT_KEY_ID:-key1}
       WebhookSecrets__Keys__key1: ${WEBHOOK_SECRETS_KEY_1:-}
       WebhookSecrets__Keys__key2: ${WEBHOOK_SECRETS_KEY_2:-}
+      EnvironmentSecrets__Enabled: ${ENVIRONMENT_SECRETS_ENABLED:-false}
+      EnvironmentSecrets__CurrentKeyId: ${ENVIRONMENT_SECRETS_CURRENT_KEY_ID:-key1}
+      EnvironmentSecrets__Keys__key1: ${ENVIRONMENT_SECRETS_KEY_1:-}
       Database__MigrateOnStartup: "true"
       Storage__ReportsPath: /app/reports
     volumes:
@@ -70,6 +73,9 @@ services:
       WebhookSecrets__CurrentKeyId: ${WEBHOOK_SECRETS_CURRENT_KEY_ID:-key1}
       WebhookSecrets__Keys__key1: ${WEBHOOK_SECRETS_KEY_1:-}
       WebhookSecrets__Keys__key2: ${WEBHOOK_SECRETS_KEY_2:-}
+      EnvironmentSecrets__Enabled: ${ENVIRONMENT_SECRETS_ENABLED:-false}
+      EnvironmentSecrets__CurrentKeyId: ${ENVIRONMENT_SECRETS_CURRENT_KEY_ID:-key1}
+      EnvironmentSecrets__Keys__key1: ${ENVIRONMENT_SECRETS_KEY_1:-}
       DOCKER_HEALTH_HOST: host.docker.internal
       Storage__ReportsPath: /app/reports
       Storage__ReportRetentionDays: ${REPORT_RETENTION_DAYS:-90}

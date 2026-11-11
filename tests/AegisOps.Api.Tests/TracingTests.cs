@@ -87,7 +87,7 @@ public sealed class TracingTests {
             "example/image:1", CheckStatus.Passed, CheckStatus.Passed, DateTimeOffset.UtcNow,
             createdById: Guid.NewGuid());
         var result = await DockerDeploymentExecutor.ExecuteAsync(DeploymentTarget.Noop(), artifact,
-            "site-service", "Development", Guid.NewGuid(),
+            "site-service", "Development", Guid.NewGuid(), [],
             (_, _, _) => throw new InvalidOperationException("No Docker event expected."), CancellationToken.None);
         Assert.False(result.Succeeded);
         var span = Assert.Single(seen, activity => activity.DisplayName == "Docker.Execute");

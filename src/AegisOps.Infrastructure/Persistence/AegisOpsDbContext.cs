@@ -24,6 +24,7 @@ public sealed class AegisOpsDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<AegisOps.Domain.Organization.Environment> Environments => Set<AegisOps.Domain.Organization.Environment>();
     public DbSet<Repository> Repositories => Set<Repository>();
+    public DbSet<EnvironmentVariable> EnvironmentVariables => Set<EnvironmentVariable>();
 
     protected override void OnModelCreating(ModelBuilder builder) {
         base.OnModelCreating(builder);
