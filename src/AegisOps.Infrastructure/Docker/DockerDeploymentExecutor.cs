@@ -32,6 +32,11 @@ public static class DockerDeploymentExecutor {
             return new DockerExecution(false, "Docker target needs a container name and host port.");
         }
 
+        // Targets saved before validation existed are re-checked here, before anything is pulled or created.
+        if (!DeploymentTarget.IsAllowedNetwork(target.Network)) {
+            return new DockerExecution(false, $"Refusing to deploy into network '{target.Network}': only aegisops-<name> target networks are allowed.");
+        }
+
         using var client = DockerClientFactory.Create();
         var image = DockerImageRef.ForPull(artifact.ImageReference, artifact.ImageDigest);
         var platform = System.Environment.GetEnvironmentVariable("DOCKER_PLATFORM");
@@ -88,11 +93,7 @@ public static class DockerDeploymentExecutor {
                     ["aegisops.artifact"] = artifact.Id.ToString("D"),
                 },
                 ExposedPorts = new Dictionary<string, EmptyStruct> { [binding] = default },
-                HostConfig = new HostConfig {
-                    PortBindings = new Dictionary<string, IList<PortBinding>> {
-                        [binding] = [new PortBinding { HostPort = target.HostPort.ToString(System.Globalization.CultureInfo.InvariantCulture) }],
-                    },
-                },
+                HostConfig = TargetHostConfig(binding, target.HostPort),
             }, cancellationToken));
             createdId = created.ID;
             if (!string.IsNullOrWhiteSpace(target.Network)) {
@@ -240,7 +241,21 @@ public static class DockerDeploymentExecutor {
         await client.Containers.RemoveContainerAsync(id, new ContainerRemoveParameters { Force = true }, cancellationToken);
     }
 
+    /// <summary>
+    /// Host settings for a deployed target container. `unless-stopped` brings Staging/Production targets back after a
+    /// Docker or host restart, while a container the executor stopped on purpose (a `-previous` backup) stays stopped.
+    /// </summary>
+    internal static HostConfig TargetHostConfig(string binding, int hostPort) => new() {
+        PortBindings = new Dictionary<string, IList<PortBinding>> {
+            [binding] = [new PortBinding { HostPort = hostPort.ToString(System.Globalization.CultureInfo.InvariantCulture) }],
+        },
+        RestartPolicy = new RestartPolicy { Name = RestartPolicyKind.UnlessStopped },
+    };
+
     private static async Task EnsureNetworkAsync(DockerClient client, string network, string containerId, CancellationToken cancellationToken) {
+        if (!DeploymentTarget.IsAllowedNetwork(network)) {
+            throw new InvalidOperationException($"Refusing to attach a deployment to network '{network}': only aegisops-<name> target networks are allowed.");
+        }
         try {
             await client.Networks.InspectNetworkAsync(network, cancellationToken);
         } catch (DockerNetworkNotFoundException) {

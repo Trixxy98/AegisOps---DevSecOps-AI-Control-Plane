@@ -14,7 +14,7 @@ docker compose -f deploy/docker-compose.targets.yml up -d   # target networks + 
 | Service | Image | Ports | Depends on | Notes |
 | --- | --- | --- | --- | --- |
 | `postgres` | `postgres:17-alpine` | 5432 (dev only) | — | volume `pgdata`; `POSTGRES_DB=aegisops`; healthcheck `pg_isready` |
-| `redis` | `redis:7-alpine` | 6379 (dev only) | — | `--maxmemory 256mb --maxmemory-policy allkeys-lru`; no persistence needed |
+| `redis` | `redis:7-alpine` | 127.0.0.1:6380 → 6379 (dev only; `AEGISOPS_REDIS_PORT`) | — | `--maxmemory 256mb --maxmemory-policy allkeys-lru`; no persistence needed |
 | `migrate` | `aegisops-api` | — | postgres healthy | one-shot: `dotnet AegisOps.Api.dll --migrate --seed`; `restart: "no"` |
 | `api` | `aegisops-api` (built from `src/AegisOps.Api/Dockerfile`) | 8080 internal | migrate completed, redis | env: connection strings, JWT signing key, Ollama URL; volume `reports` |
 | `worker` | `aegisops-worker` | 8081 internal (health/metrics) | migrate completed | mounts `/var/run/docker.sock:ro` (Phase 4); volume `reports` |

@@ -33,6 +33,7 @@ public sealed class User : IdentityUser<Guid> {
             DisplayName = displayName.Trim(),
             IsActive = true,
             MustChangePassword = true,
+            LockoutEnabled = true,
             CreatedAt = createdAt,
         };
     }

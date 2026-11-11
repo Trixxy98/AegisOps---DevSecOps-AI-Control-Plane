@@ -9,6 +9,18 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Added
 
+- **Demo projects in the seed:** a fresh Development stack now has `circuit-service`, `site-service` and
+  `notification-service` (Development/Staging/Production) in the `Network Platform` team, with security and
+  approver as members, so docs/demo-script.md works from a fresh clone.
+- **Local tracing:** `deploy/docker-compose.tracing.yml` adds Jaeger and points the API and Worker at it over
+  OTLP; `scripts/trace-check.sh` reports which use-case, policy, scan, Ollama and Docker spans arrived.
+- **Release workflow:** a `v*.*.*` tag builds the API, Worker and web images, blocks images with fixable
+  CRITICAL vulnerabilities (Trivy image scan), publishes them to GHCR and creates the GitHub Release.
+- **Target containers restart after a Docker restart:** the executor creates them with
+  `restart: unless-stopped` (a stopped `-previous` backup stays stopped).
+- **Live realtime check:** `npm run test:e2e:live` (opt-in, never in CI) drives two real browser
+  sessions against the Compose stack and asserts the approver toast arrives within one second
+  of the Worker's AwaitingApproval commit, then cancels the deployment it created.
 - **Policy simulation at a chosen time:** `POST /api/v1/policies/simulate` accepts an optional
   `at` instant for time-based rules (Journey D's Friday-night blackout); `scripts/journey-d.sh`
   runs that check read-only.
@@ -49,6 +61,10 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Fixed
 
+- **Security review (docs/security-review-v1.md):** Docker targets can no longer join the control-plane
+  network (only `aegisops-<name>` networks, validated names, host ports ≥ 1024, re-checked by the executor);
+  login now enforces the 5-failure / 15-minute lockout; stored AI prompt content is the redacted prompt;
+  Compose publishes PostgreSQL, Redis, API and web on `127.0.0.1` only.
 - Deployment authorization is enforced per project and for Production.
 - Matching artifacts are reused safely on CI replay, and CI reports are validated before
   registration.

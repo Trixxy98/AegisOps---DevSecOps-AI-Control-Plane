@@ -47,7 +47,8 @@ public static partial class DevelopmentUserSeed {
         }
 
         var db = scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>();
-        await EnsureDemoTeamAsync(db, users, now);
+        var teamId = await EnsureDemoTeamAsync(db, users, now);
+        await EnsureDemoProjectsAsync(db, teamId, now);
         await EnsureProductionApprovalsAsync(db, users, now);
         await EnsureScanPoliciesAsync(db, users, now);
         await EnsureCircuitStagingTargetAsync(db);
@@ -82,7 +83,7 @@ public static partial class DevelopmentUserSeed {
         new("approver@aegisops.local", "AegisOps Approver", [ApproverRole]),
     ];
 
-    private static async Task EnsureDemoTeamAsync(
+    private static async Task<Guid> EnsureDemoTeamAsync(
         AegisOpsDbContext db,
         UserManager<User> users,
         DateTimeOffset now
@@ -102,6 +103,36 @@ public static partial class DevelopmentUserSeed {
 
         await EnsureMemberAsync(db, users, team.Id, "developer@aegisops.local", TeamRole.Owner, now);
         await EnsureMemberAsync(db, users, team.Id, "rith@aegisops.local", TeamRole.Owner, now);
+        // Approvers must belong to the project's team (docs/09), so Journey A works from a fresh clone.
+        await EnsureMemberAsync(db, users, team.Id, "security@aegisops.local", TeamRole.Member, now);
+        await EnsureMemberAsync(db, users, team.Id, "approver@aegisops.local", TeamRole.Member, now);
+        return team.Id;
+    }
+
+    /// <summary>
+    /// The three target services of docs/13 with the usual Development/Staging/Production environments, so the
+    /// demo journeys (docs/demo-script.md) run from a fresh clone. A slug that already exists anywhere is left
+    /// alone, whichever team owns it.
+    /// </summary>
+    private static async Task EnsureDemoProjectsAsync(AegisOpsDbContext db, Guid teamId, DateTimeOffset now) {
+        (string Slug, string Name, string Description)[] projects = [
+            ("circuit-service", "Circuit Service", "Demo target: circuit inventory API"),
+            ("site-service", "Site Service", "Demo target: site and device inventory API"),
+            ("notification-service", "Notification Service", "Demo target: outbound notifications API"),
+        ];
+        foreach (var (slug, name, description) in projects) {
+            if (await db.Projects.AnyAsync(item => item.Slug == slug)) {
+                continue;
+            }
+
+            var project = Project.Create(teamId, name, slug, now, description);
+            db.Projects.Add(project);
+            db.Environments.AddRange(
+                AegisOps.Domain.Organization.Environment.Create(project.Id, "Development", EnvironmentTier.Development, 0),
+                AegisOps.Domain.Organization.Environment.Create(project.Id, "Staging", EnvironmentTier.Staging, 1),
+                AegisOps.Domain.Organization.Environment.Create(project.Id, "Production", EnvironmentTier.Production, 2));
+            await db.SaveChangesAsync();
+        }
     }
 
     private static async Task EnsureMemberAsync(

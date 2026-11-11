@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: aegisops
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegisops_dev}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
@@ -21,7 +21,8 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
     ports:
-      - "6379:6379"
+      # 6380 on the host: avoids clashing with a local (e.g. Homebrew) Redis on 6379. Override with AEGISOPS_REDIS_PORT.
+      - "127.0.0.1:${AEGISOPS_REDIS_PORT:-6380}:6379"
     networks:
       - aegisops
     healthcheck:
@@ -48,7 +49,7 @@ services:
     volumes:
       - reports:/app/reports
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,7 +92,7 @@ services:
       context: .
       dockerfile: src/AegisOps.Web/Dockerfile
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
     depends_on:
       api:
         condition: service_started

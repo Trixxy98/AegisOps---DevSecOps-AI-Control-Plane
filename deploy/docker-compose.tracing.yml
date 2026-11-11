@@ -1,0 +1,27 @@
+# Opt-in local tracing (P7-03): Jaeger all-in-one receives OTLP from the API and Worker.
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.tracing.yml up -d jaeger api worker
+#   UI: http://127.0.0.1:16686   check: scripts/trace-check.sh
+# Combine with deploy/docker-compose.host-ollama.yml (listed before this file) to also trace Ollama calls.
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:16686:16686"
+    networks:
+      - aegisops
+
+  api:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+    depends_on:
+      jaeger:
+        condition: service_started
+
+  worker:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+    depends_on:
+      jaeger:
+        condition: service_started
