@@ -27,7 +27,10 @@ selected by the `aok_` prefix via a policy scheme (`"Smart"` scheme forwards to 
   check against a local top-100k list (V2).
 - Lockout: 5 failures → 15 min.
 - Email confirmation: **disabled** in v1 (no mail server); admin creates users and sets a
-  temporary password (`MustChangePassword` flag).
+  temporary password (`MustChangePassword` flag). Seeded accounts start with it too. While it is set, access
+  tokens carry `pwd_change=true` and the API answers every route except `/auth/me`, `/auth/change-password`,
+  `/auth/refresh` and `/auth/logout` with 403 Problem Details (`reason: PasswordChangeRequired`); the SPA shows a
+  "Choose a new password" step and signs in again with the new password.
 - Refresh tokens stored hashed (`RefreshToken.TokenHash`); reuse of a rotated token revokes
   the whole family and is audited (`auth.refresh_reuse_detected`, `Outcome = Denied`, owner as actor) in the
   same save as the revocation. Each successful rotation is audited as `auth.refreshed`.

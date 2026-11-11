@@ -387,19 +387,123 @@ function Login({ onToken }: { onToken: (token: string) => void }) {
   const [email, setEmail] = useState("admin@aegisops.local");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Set when the account still has a temporary password (docs/09): the workspace opens only after it is changed.
+  const [pendingToken, setPendingToken] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
-  async function signIn() {
+  async function login(secret: string) {
     const response = await fetch("/api/v1/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password: secret }),
     });
-    const body = (await response.json()) as { title?: string; accessToken: string };
-    if (!response.ok) {
-      setError(body.title ?? "Login failed");
+    const body = (await response.json().catch(() => ({}))) as { title?: string; accessToken?: string };
+    if (!response.ok || !body.accessToken) throw new Error(body.title ?? "Login failed");
+    return body.accessToken;
+  }
+
+  async function signIn() {
+    setError(null);
+    try {
+      const token = await login(password);
+      // If /auth/me cannot be read, continue as before: the API still refuses temporary-password tokens.
+      const me = await api<{ mustChangePassword?: boolean }>("/api/v1/auth/me", token).catch(() => null);
+      if (me?.mustChangePassword) {
+        setPendingToken(token);
+        return;
+      }
+      onToken(token);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Login failed");
+    }
+  }
+
+  async function changePassword() {
+    setError(null);
+    if (newPassword.length < 12) {
+      setError("The new password must be at least 12 characters.");
       return;
     }
-    onToken(body.accessToken);
+    if (newPassword !== confirmPassword) {
+      setError("The new passwords do not match.");
+      return;
+    }
+    if (newPassword === password) {
+      setError("Choose a password different from the temporary one.");
+      return;
+    }
+    try {
+      await api("/api/v1/auth/change-password", pendingToken!, {
+        method: "POST",
+        body: JSON.stringify({ currentPassword: password, newPassword }),
+      });
+      // A fresh token no longer carries the password-change requirement.
+      onToken(await login(newPassword));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Password change failed");
+    }
+  }
+
+  const brand = (
+    <div className="brand">
+      <span className="brand-mark" aria-hidden="true">
+        A
+      </span>
+      <div>
+        <strong>AegisOps</strong>
+        <span>CONTROL PLANE</span>
+      </div>
+    </div>
+  );
+
+  if (pendingToken) {
+    return (
+      <main className="login-page">
+        <form
+          className="login-card"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void changePassword();
+          }}
+        >
+          {brand}
+          <div className="login-heading">
+            <p className="eyebrow">FIRST SIGN-IN</p>
+            <h1>Choose a new password</h1>
+            <p>Your account has a temporary password. Set your own (at least 12 characters) to continue.</p>
+          </div>
+          {error && (
+            <p role="alert" className="error-banner">
+              {error}
+            </p>
+          )}
+          <label className="field-label" htmlFor="new-password">
+            New password
+          </label>
+          <input
+            id="new-password"
+            autoComplete="new-password"
+            type="password"
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+          />
+          <label className="field-label" htmlFor="confirm-password">
+            Confirm new password
+          </label>
+          <input
+            id="confirm-password"
+            autoComplete="new-password"
+            type="password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+          />
+          <button className="primary-button login-submit" type="submit">
+            Set password and continue
+          </button>
+        </form>
+      </main>
+    );
   }
 
   return (
@@ -411,15 +515,7 @@ function Login({ onToken }: { onToken: (token: string) => void }) {
           void signIn();
         }}
       >
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            A
-          </span>
-          <div>
-            <strong>AegisOps</strong>
-            <span>CONTROL PLANE</span>
-          </div>
-        </div>
+        {brand}
         <div className="login-heading">
           <p className="eyebrow">WELCOME BACK</p>
           <h1>Sign in to your workspace</h1>

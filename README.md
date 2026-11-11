@@ -107,18 +107,35 @@ providers, LangChain, multiple AI providers. See [`docs/03-tech-stack.md`](docs/
 | 20 | [Glossary](docs/20-glossary.md) | Terminology |
 | — | [ADRs](docs/adr/README.md) | Architecture decision records |
 
+## Intended use and limits (v1)
+
+AegisOps v1 is for **evaluation, learning and demos on one machine**. Everything binds to `127.0.0.1`, the
+API runs in ASP.NET Development mode, and the seed creates demo users, a team, three demo projects and
+policies. It is **not yet a production deployment**: there is no production profile or first-admin bootstrap
+outside Development, no TLS setup, and the open items in
+[docs/security-review-v1.md](docs/security-review-v1.md) still apply. Production readiness is planned for v1.1
+([docs/roadmap-v1.1.md](docs/roadmap-v1.1.md)). Report security problems privately: [SECURITY.md](SECURITY.md).
+
 ## Local quick start (Development only)
 
-Requires Docker Compose. The API migrates the local database on startup and seeds demo
-users, a team, and policies. Use a fresh random JWT signing key (32+ bytes); never use
-the `.env.example` value outside local development.
+Requires Docker Compose, about 4 GB of free memory and ~5 GB of disk. A fresh clone is up in about a minute on
+an Apple M-series laptop (images already cached: ~30 s; cold build: ~50 s, plus base-image downloads).
 
 ```bash
-scripts/gen-secrets.sh   # writes a mode-600 .env with random keys (or: cp .env.example .env and edit JWT_SIGNING_KEY)
-docker compose up --build -d
-docker compose logs api | grep 'Development user admin@aegisops.local created'
-# Copy the printed password (only generated on first startup) and open http://localhost:3000
-AEGISOPS_ADMIN_PASSWORD='<password from logs>' scripts/smoke-compose-deployment.sh
+scripts/gen-secrets.sh            # writes a mode-600 .env with random keys (never commit it)
+docker compose up --build -d      # API http://127.0.0.1:8080, web http://127.0.0.1:3000
+docker compose logs api | grep 'Development user'   # first-run passwords, printed once
+```
+
+Open <http://127.0.0.1:3000> and sign in as `admin@aegisops.local`. **Every seeded account must choose its own
+password at first sign-in** (12+ characters); until then the API refuses everything except changing it. Lost a
+first-run password? An Admin can issue a new temporary one (`scripts/demo-reset-passwords.sh`), or start over
+with `scripts/reset-demo.sh`. Then follow [docs/demo-script.md](docs/demo-script.md) for the four journeys.
+
+Smoke-test the core loop (after the admin password is changed):
+
+```bash
+AEGISOPS_ADMIN_PASSWORD='<your admin password>' scripts/smoke-compose-deployment.sh
 ```
 
 The smoke test uses the Web proxy to sign in, create a project/artifact, request a

@@ -43,6 +43,10 @@ status, body = call("POST", "/api/v1/auth/login",
 if status != 200 or not body or not body.get("accessToken"):
     print(f"[FAIL] admin sign-in — HTTP {status}"); sys.exit(1)
 token = body["accessToken"]
+_, me = call("GET", "/api/v1/auth/me")
+if (me or {}).get("mustChangePassword"):
+    print("[FAIL] this account still has a temporary password: sign in at the web UI once and choose a new one, then re-run")
+    sys.exit(1)
 
 _, users = call("GET", "/api/v1/admin/users")
 by_email = {u["email"].lower(): u for u in users or []}

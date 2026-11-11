@@ -7,11 +7,15 @@ using Microsoft.IdentityModel.Tokens;
 namespace AegisOps.Infrastructure.Identity;
 
 public static class JwtAccessTokenFactory {
+    /// <summary>Claim on access tokens of users who still have to replace a temporary password (docs/09).</summary>
+    public const string PasswordChangeClaim = "pwd_change";
+
     public static string Create(
         User user,
         IEnumerable<string> roles,
         JwtOptions options,
-        DateTimeOffset now
+        DateTimeOffset now,
+        bool passwordChangeRequired = false
     ) {
         if (!user.IsActive) {
             throw new InvalidOperationException("Inactive users cannot receive an access token.");
@@ -43,6 +47,10 @@ public static class JwtAccessTokenFactory {
 
         foreach (var role in roles.Where(role => !string.IsNullOrWhiteSpace(role)).Distinct(StringComparer.Ordinal)) {
             claims.Add(new Claim("role", role));
+        }
+
+        if (passwordChangeRequired) {
+            claims.Add(new Claim(PasswordChangeClaim, "true"));
         }
 
         var descriptor = new SecurityTokenDescriptor {

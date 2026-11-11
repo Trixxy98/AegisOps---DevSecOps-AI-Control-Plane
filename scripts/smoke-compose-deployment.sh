@@ -12,6 +12,10 @@ curl -fsS "$base/" | grep -q 'id="root"' || { echo "Web is not serving the app" 
 token=$(curl -fsS "$base/api/v1/auth/login" -H 'Content-Type: application/json' \
   -d "$(jq -n --arg password "$AEGISOPS_ADMIN_PASSWORD" '{email:"admin@aegisops.local",password:$password}')" | jq -er '.accessToken')
 auth=(-H "Authorization: Bearer $token")
+if curl -fsS "${auth[@]}" "$base/api/v1/auth/me" | jq -e '.mustChangePassword == true' >/dev/null; then
+  echo "The admin account still has its temporary password: sign in at the web UI once, choose a new one, then re-run." >&2
+  exit 1
+fi
 team=$(curl -fsS "${auth[@]}" "$base/api/v1/teams" | jq -er '.[] | select(.slug == "network-platform") | .id')
 slug="smoke-$(date +%s)-$$"
 version="1.0.$(date +%s)-smoke.$$"

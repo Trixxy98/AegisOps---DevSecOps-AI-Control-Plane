@@ -9,6 +9,10 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Added
 
+- **First sign-in password change:** accounts with a temporary password (seeded or Admin-reset) must choose their
+  own before using AegisOps; the API refuses other routes (`PasswordChangeRequired`) and the SPA guides the change.
+- **Open-source project files:** `SECURITY.md` (private vulnerability reporting), `CONTRIBUTING.md`, issue
+  templates, an "Intended use and limits" README section and the v1.1 production-readiness roadmap.
 - **Demo projects in the seed:** a fresh Development stack now has `circuit-service`, `site-service` and
   `notification-service` (Development/Staging/Production) in the `Network Platform` team, with security and
   approver as members, so docs/demo-script.md works from a fresh clone.
