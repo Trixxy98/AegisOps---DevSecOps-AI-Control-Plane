@@ -245,7 +245,7 @@ The audit inspected local `main` refs, which match their locally cached `origin/
 | P8-12 | README provides final onboarding/run instructions | Verified | README contains Compose startup, seeded admin guidance, and deployment smoke-script instructions. This does not prove the full four-journey demo. |
 | P8-13 | ADR statuses reflect accepted decisions | Verified | ADR index and ADR files show the recorded decisions as Accepted. |
 | P8-14 | `CHANGELOG.md` and Interview notes are present | Verified | `CHANGELOG.md` (Keep a Changelog, Unreleased towards v1.0.0) is curated from the Conventional Commit history; the README "Interview notes — design trade-offs" section covers the PostgreSQL job queue, the pure policy engine, the Docker socket trust model, the local LLM gateway, real-time with fallback, bounded telemetry and the evidence-based audit. |
-| P8-15 | v1.0.0 release tag and GHCR images are published | Unverified | `.github/workflows/release.yml` (added 2026-11-11) builds the API, Worker and web images on a `v*.*.*` tag, blocks fixable CRITICAL vulnerabilities with a Trivy image scan, pushes `ghcr.io/<owner>/aegisops-{api,worker,web}` and creates the GitHub Release. Target-repo images are already on GHCR (P2-07). No `v1.0.0` tag has been pushed yet. |
+| P8-15 | v1.0.0 release tag and GHCR images are published | Verified | Tag `v1.0.0` on `main` `6399871` (2026-11-11). The Release workflow (run 42961598403) built the API, Worker and web images, passed the Trivy CRITICAL gate (the first attempt correctly stopped on `nginx:1.27-alpine`; the web image moved to `nginx:1.30-alpine`, and a local Trivy scan of all three images showed 0 CRITICAL before re-tagging), pushed `ghcr.io/trixxy98/aegisops-{api,worker,web}:v1.0.0` and `:latest`, and created the GitHub Release "AegisOps v1.0.0" (not draft, not prerelease). All three manifests are pullable anonymously (HTTP 200). |
 | P8-16 | Fresh clone can run Compose and reproduce all four journeys in under 15 minutes | Unverified | `scripts/fresh-clone-check.sh` on 2026-11-11 cloned `main` (`ede5de2`, CI green) from GitHub into a temporary directory, generated new secrets and ran it as an isolated Compose project (`aegisops-fresh`, own network, API :18080, web :13000). Warm run: 33 s. **Cold run (`NO_CACHE=1`: no layer cache, `--pull`): images built in 37 s, API and web up at 49 s, seeded demo projects present, noop deployment smoke passed — 52 s in total.** Stacks, volumes, networks, images and clones were removed; the main stack was untouched. Base images were already present locally, so a first-ever machine also pays their download. Remaining: the four journeys were each verified live on the main stack (P1-24, P3-13, P6-12/13) but not replayed inside a fresh stack with a stopwatch. |
 
 ### Phase 8 verification caveat
@@ -266,10 +266,10 @@ All Phase 0–8 checks have now been enumerated. The score counts only `Verified
 | 5 | 1 | 12 / 13 | 5.96 percentage points |
 | 6 | 2 | 13 / 13 | 12.90 percentage points |
 | 7 | 1.5 | 8 / 8 | 9.68 percentage points |
-| 8 | 1.5 | 14 / 16 | 8.47 percentage points |
-| **Total** | **15.5** | **139 / 144** | **96.73% complete** |
+| 8 | 1.5 | 15 / 16 | 9.07 percentage points |
+| **Total** | **15.5** | **140 / 144** | **97.33% complete** |
 
-**Estimated remaining: 3.27%** by the same weighted, evidence-based measure. Status totals are 139 Verified, 5 Unverified, 0 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, SPA security headers, and live Overview, Delivery, and AI Governance dashboards are verified; complete seeded Journeys A/D remain unverified. The local P7-03 tracing increment is not yet live-verified.
+**Estimated remaining: 2.67%** by the same weighted, evidence-based measure. Status totals are 140 Verified, 4 Unverified, 0 Missing, and 0 Scope mismatch. The Compose request → PostgreSQL-backed Worker → Development noop path, Docker-backed Staging rollback, API/Worker readiness with signed-in UI warnings, SPA security headers, and live Overview, Delivery, and AI Governance dashboards are verified; complete seeded Journeys A/D remain unverified. The local P7-03 tracing increment is not yet live-verified.
 
 ### Highest-impact next steps
 
@@ -330,3 +330,5 @@ The Staging rollback, Phase 7 readiness, signed-in degraded-status UI/API, and S
 2026-11-11 update 20: P8-11 moved to Verified (README demo GIF and screenshots from a live recording). Overall estimate → 95.52%.
 
 2026-11-11 update 21 (live tracing): with Jaeger receiving OTLP from the API and Worker, a CI-driven Staging deployment and a Journey C request produced spans for use cases, policy, scans, Ollama and Docker; P7-03 moved to Verified. Overall estimate → 96.73%.
+
+2026-11-11 update 22 (release): `v1.0.0` released from `main` `6399871` with Trivy-gated public GHCR images and a GitHub Release; P8-15 moved to Verified. Overall estimate → 97.33%.

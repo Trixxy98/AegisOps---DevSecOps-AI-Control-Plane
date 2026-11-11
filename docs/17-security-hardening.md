@@ -28,7 +28,7 @@ This document is the threat model and control list for the platform.
 | **Denial of service** | Flooding scan uploads / AI requests | Body size limits (20 MB), per-principal rate limits, Redis-backed AI limits, job queue back-pressure (`MaxConcurrency`) |
 | **Elevation of privilege** | Developer approves own production deploy | Resource-based authorization handler: requester ≠ approver, role in policy roles |
 | **Elevation of privilege** | Worker compromised → host takeover via Docker socket | See §4 |
-| **Supply chain** | Vulnerable base image or NuGet in AegisOps | Dogfooded Trivy/Gitleaks/Semgrep in CI with Critical fail; Dependabot; pinned actions by SHA (V2) |
+| **Supply chain** | Vulnerable base image or NuGet in AegisOps | Dogfooded Trivy/Gitleaks/Semgrep in CI with Critical fail; Dependabot with a 3-day cooldown; GitHub Actions pinned by commit SHA |
 
 ## 3. Application controls
 
@@ -57,6 +57,7 @@ root-equivalent power on the host. Mitigations for v1 and stated residual risk:
 | Mitigation | Status |
 | --- | --- |
 | Only the **Worker** mounts the socket (never Api/Web) | v1 |
+| API and Worker containers run as the unprivileged `app` user (UID 1654); the Worker reaches the socket through `group_add`, not root | v1 |
 | Worker runs no user-facing HTTP except `/health` & `/metrics` on the internal network | v1 |
 | Executor only issues a fixed set of calls (pull, create, start, stop, rename, remove, inspect, network create/connect) with container names validated `^[a-z0-9][a-z0-9-]{2,62}$` and networks limited to `aegisops-<name>` (re-checked at execution) — never user-provided raw commands | v1 |
 | Environment targets editable only by team Owner/Admin and audited | v1 |

@@ -5,6 +5,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     groups:
       opentelemetry:
         patterns: ["OpenTelemetry*"]
@@ -14,6 +16,12 @@ updates:
     directory: "/src/AegisOps.Web"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      # react and react-dom must move together (separate PRs fail CI on a version mismatch).
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
   - package-ecosystem: docker
     directories:
       - "/src/AegisOps.Api"
@@ -21,7 +29,15 @@ updates:
       - "/src/AegisOps.Web"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
+    ignore:
+      # The web image follows nginx's stable line (even minor versions); odd minors are mainline.
+      - dependency-name: "nginx"
+        versions: ["1.31.x", "1.33.x", "1.35.x"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
