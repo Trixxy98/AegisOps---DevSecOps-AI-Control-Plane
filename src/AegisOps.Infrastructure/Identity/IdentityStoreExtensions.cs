@@ -20,20 +20,25 @@ public static class IdentityStoreExtensions {
             options.UseNpgsql(connectionString).UseSnakeCaseNamingConvention());
 
         services
-            .AddIdentityCore<User>(identity => {
-                identity.User.RequireUniqueEmail = true;
-                identity.Password.RequiredLength = 12;
-                identity.Password.RequireDigit = false;
-                identity.Password.RequireLowercase = false;
-                identity.Password.RequireUppercase = false;
-                identity.Password.RequireNonAlphanumeric = false;
-                identity.Lockout.MaxFailedAccessAttempts = 5;
-                identity.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-            })
+            .AddIdentityCore<User>(ConfigureIdentity)
             .AddRoles<IdentityRole<Guid>>()
             .AddEntityFrameworkStores<AegisOpsDbContext>();
 
         services.TryAddSingleton(TimeProvider.System);
         return services;
+    }
+
+    /// <summary>docs/09 identity rules: unique email, at least 12 characters with no composition rules (NIST 800-63B),
+    /// lockout after 5 failures for 15 minutes. Tests use the same options as the API.</summary>
+    public static void ConfigureIdentity(IdentityOptions identity) {
+        ArgumentNullException.ThrowIfNull(identity);
+        identity.User.RequireUniqueEmail = true;
+        identity.Password.RequiredLength = 12;
+        identity.Password.RequireDigit = false;
+        identity.Password.RequireLowercase = false;
+        identity.Password.RequireUppercase = false;
+        identity.Password.RequireNonAlphanumeric = false;
+        identity.Lockout.MaxFailedAccessAttempts = 5;
+        identity.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
     }
 }

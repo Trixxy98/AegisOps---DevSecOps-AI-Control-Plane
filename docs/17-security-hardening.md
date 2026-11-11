@@ -80,7 +80,7 @@ Residual risk is documented in the README: the demo is intended for a single tru
 
 Every item below must emit an `AuditEvent` (verified by integration tests):
 
-- auth: `auth.login`, `auth.login_failed`, `auth.refreshed`, `auth.refresh_reuse_detected`, `auth.logout`, `auth.password_changed`
+- auth: `auth.login`, `auth.login_failed`, `auth.refreshed`, `auth.refresh_reuse_detected`, `auth.logout`, `auth.password_changed`, `user.password_reset`
 - users/roles/teams: `user.created`, `user.roles_changed`, `user.deactivated`, `team.member_added/removed`
 - projects/environments/api keys: `project.created/archived`, `environment.target_changed`, `apikey.created/revoked/auth_failed`
 - artifacts/scans/findings: `artifact.registered`, `scan.uploaded`, `finding.suppressed/unsuppressed`

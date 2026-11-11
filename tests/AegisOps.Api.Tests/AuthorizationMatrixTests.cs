@@ -155,6 +155,7 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         new("POST", "/api/v1/admin/ai/models/sync", "models:manage", "models:manage", AdminOnly),
         new("GET", "/api/v1/admin/ping", "users:manage", "users:manage", AdminOnly),
         new("GET", "/api/v1/admin/users", "users:manage", "users:manage", AdminOnly),
+        new("POST", "/api/v1/admin/users/{id:guid}/reset-password", "users:manage", "users:manage", AdminOnly),
         new("GET", "/api/v1/teams", "teams:read", "teams:read", AllRoles),
         // Creating a team: teams:write per docs/09, but the "Owner of team" condition cannot apply to a new team.
         new("POST", "/api/v1/teams", "users:manage", "teams:write", AdminOnly),
@@ -284,7 +285,7 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         Assert.True(missing.Length == 0 && unexpected.Length == 0,
             "Program.cs endpoints differ from the authorization matrix. Add new routes to Routes with their docs/09 permission.\n" +
             $"Not in Program.cs: {string.Join("; ", missing)}\nNot in matrix: {string.Join("; ", unexpected)}");
-        Assert.Equal(67, actual.Length);
+        Assert.Equal(68, actual.Length);
     }
 
     [Fact]

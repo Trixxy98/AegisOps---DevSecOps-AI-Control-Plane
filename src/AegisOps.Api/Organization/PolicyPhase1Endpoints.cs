@@ -107,6 +107,7 @@ public static class PolicyPhase1Endpoints {
         HttpContext http
     ) {
         var cancellationToken = http.RequestAborted;
+        var evaluatedAt = request.At ?? time.GetUtcNow();
         var artifact = await db.Artifacts.AsNoTracking().SingleOrDefaultAsync(item => item.Id == request.ArtifactId, cancellationToken);
         var environment = await db.Environments.AsNoTracking().SingleOrDefaultAsync(item => item.Id == request.EnvironmentId, cancellationToken);
         if (artifact is null || environment is null || artifact.ProjectId != environment.ProjectId) {
@@ -151,10 +152,10 @@ public static class PolicyPhase1Endpoints {
             project.TeamId,
             null,
             0,
-            time.GetUtcNow(),
+            evaluatedAt,
             scans
         ), applicable);
-        return Results.Ok(new { decision = result.Decision.ToString(), result.ApprovalsRequired, result.Message, result.Results });
+        return Results.Ok(new { decision = result.Decision.ToString(), result.ApprovalsRequired, result.Message, result.Results, evaluatedAt });
     }
 
     public static async Task<IResult> Audit(AegisOpsDbContext db, HttpContext http) {
@@ -176,4 +177,6 @@ public static class PolicyPhase1Endpoints {
     }
 }
 
-public sealed record SimulatePolicyRequest(Guid ArtifactId, Guid EnvironmentId);
+/// <summary>Dry-run input. <paramref name="At"/> evaluates time-based rules (DeploymentWindow) at another instant,
+/// e.g. "a Friday 20:00 MYT request" (docs/demo-script.md, Journey D); it defaults to now.</summary>
+public sealed record SimulatePolicyRequest(Guid ArtifactId, Guid EnvironmentId, DateTimeOffset? At = null);

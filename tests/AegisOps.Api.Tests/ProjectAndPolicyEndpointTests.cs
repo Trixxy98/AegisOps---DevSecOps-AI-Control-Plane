@@ -266,6 +266,38 @@ public sealed class ProjectAndPolicyEndpointTests {
         });
     }
 
+    [Fact]
+    public async Task SimulationEvaluatesTheDeploymentWindowAtTheRequestedInstant() {
+        await using var host = await OrgHost.StartAsync();
+        var (adminId, admin) = await host.CreateUserAsync("admin@example.test", "Admin");
+        var (_, developer) = await host.CreateUserAsync("dev@example.test", "Developer");
+        var project = await host.CreateProjectAsync(admin);
+        var production = project.Environments.Single(env => env.Tier == "Production").Id;
+        var artifact = await host.WithDbAsync(async db => {
+            var now = DateTimeOffset.UtcNow;
+            // Journey D's blackout: deployments allowed Mon 08:00 → Fri 18:00 Asia/Kuala_Lumpur only.
+            var policy = Policy.Create("Production baseline", PolicyScope.Global, [EnvironmentTier.Production], adminId, now);
+            var item = Artifact.Create(project.Id, "1.8.2", new string('a', 40), "main", "ghcr.io/datasc/circuit:1.8.2",
+                CheckStatus.Passed, CheckStatus.Passed, now, createdById: adminId);
+            db.AddRange(policy, item, PolicyRule.Create(policy.Id, PolicyRuleType.DeploymentWindow, RuleEffect.Deny, 0,
+                """{"timezone":"Asia/Kuala_Lumpur","allowed":[{"days":["Mon"],"from":"08:00","to":"23:59:59.9999999"},{"days":["Tue","Wed","Thu"],"from":"00:00","to":"23:59:59.9999999"},{"days":["Fri"],"from":"00:00","to":"17:59:59.9999999"}]}"""));
+            await db.SaveChangesAsync(Token);
+            return item.Id;
+        });
+
+        var fridayNight = new DateTimeOffset(2026, 11, 13, 20, 0, 0, TimeSpan.FromHours(8));
+        var denied = await host.SimulateAsync(developer, artifact, production, fridayNight);
+        Assert.Equal("Deny", denied.GetProperty("decision").GetString());
+        Assert.Equal(fridayNight, denied.GetProperty("evaluatedAt").GetDateTimeOffset());
+        Assert.Contains(denied.GetProperty("results").EnumerateArray(), result =>
+            result.GetProperty("type").GetString() == "DeploymentWindow" && !result.GetProperty("passed").GetBoolean());
+
+        var wednesdayMorning = new DateTimeOffset(2026, 11, 11, 10, 0, 0, TimeSpan.FromHours(8));
+        Assert.Equal("Allow", (await host.SimulateAsync(developer, artifact, production, wednesdayMorning)).GetProperty("decision").GetString());
+        var mondayEarly = new DateTimeOffset(2026, 11, 16, 7, 59, 0, TimeSpan.FromHours(8));
+        Assert.Equal("Deny", (await host.SimulateAsync(developer, artifact, production, mondayEarly)).GetProperty("decision").GetString());
+    }
+
     private sealed class OrgHost : IAsyncDisposable {
         private static readonly JwtOptions Jwt = new() {
             Issuer = "aegisops-tests",
@@ -365,9 +397,9 @@ public sealed class ProjectAndPolicyEndpointTests {
             return (await response.Content.ReadFromJsonAsync<ProjectResponse>(Token))!;
         }
 
-        public async Task<JsonElement> SimulateAsync(string bearer, Guid artifactId, Guid environmentId) {
+        public async Task<JsonElement> SimulateAsync(string bearer, Guid artifactId, Guid environmentId, DateTimeOffset? at = null) {
             using var response = await SendAsync(HttpMethod.Post, "/api/v1/policies/simulate", bearer,
-                new SimulatePolicyRequest(artifactId, environmentId));
+                new SimulatePolicyRequest(artifactId, environmentId, at));
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Token));
             return json.RootElement.Clone();

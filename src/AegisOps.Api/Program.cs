@@ -114,6 +114,8 @@ app.MapGet("/api/v1/admin/ping", () => Results.NoContent())
     .RequireAuthorization(Permissions.UsersManage);
 app.MapGet("/api/v1/admin/users", ListUsers.Handle)
     .RequireAuthorization(Permissions.UsersManage);
+app.MapPost("/api/v1/admin/users/{id:guid}/reset-password", ResetUserPassword.Handle)
+    .RequireAuthorization(Permissions.UsersManage);
 app.MapGet("/api/v1/teams", ListTeams.Handle)
     .RequireAuthorization(Permissions.TeamsRead);
 app.MapPost("/api/v1/teams", CreateTeam.Handle)
