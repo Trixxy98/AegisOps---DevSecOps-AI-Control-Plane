@@ -1,0 +1,12 @@
+# Reviewed false positives (gitleaks fingerprints: commit:file:rule:line).
+# docs/user-manual.md once contained a synthetic AWS-style example key (AKIA + placeholder text) for the
+# redaction demo; it was never a real credential and the text was rewritten in the next commit.
+5e144f6223e95e64b5eb575b8826f2dede4afcf6:docs/user-manual.md:aws-access-token:199
+# tests/AegisOps.Api.Tests/AiGatewayTests.cs: synthetic AWS-style keys and secrets that exercise the AI
+# gateway's sensitive-data detector (redaction/block tests). None is a real credential.
+58863190b06e1040099a60b21982385f01e46e00:tests/AegisOps.Api.Tests/AiGatewayTests.cs:aws-access-token:600
+362d7c21dee1f14340e5bba87be6945861705bdd:tests/AegisOps.Api.Tests/AiGatewayTests.cs:aws-access-token:65
+ae9c3108695fb70322a2a53b6cc273f6a355909f:tests/AegisOps.Api.Tests/AiGatewayTests.cs:generic-api-key:183
+ae9c3108695fb70322a2a53b6cc273f6a355909f:tests/AegisOps.Api.Tests/AiGatewayTests.cs:aws-access-token:338
+2fbeb9992d614ca5dfb65ef99b9d61ac5caf475e:tests/AegisOps.Api.Tests/AiGatewayTests.cs:aws-access-token:66
+2fbeb9992d614ca5dfb65ef99b9d61ac5caf475e:tests/AegisOps.Api.Tests/AiGatewayTests.cs:aws-access-token:141

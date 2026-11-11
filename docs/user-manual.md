@@ -195,8 +195,10 @@ The AI model runs **on your own computer** (Ollama), so your questions never lea
 
 2. Wait until the yellow "Ollama unavailable" banner disappears (refresh the page).
 3. Open **AI Playground**, choose `llama3.2:3b`, type a question and click **Send**.
-4. Try a **fake** secret to see the protection, for example
-   `my deploy failed with key AKIAEXAMPLEFAKE12345, what should I check?`
+4. Try a **fake** secret to see the protection. Type a question that contains `AKIA` immediately followed by
+   16 capital letters or digits (for example `EXAMPLEFAKE` and five digits), such as
+   *"my deploy failed with key AKIA…, what should I check?"*. It is written in pieces here on purpose: a
+   complete example would look like a real AWS key to secret scanners.
    - With the default policy (**Redact**), the model receives `[REDACTED:AWS_ACCESS_KEY]` instead of the key.
    - If an **Admin** switches the Global AI policy to **Block** (AI Governance → AI policy controls; Security can
      do the same for a team policy), the same question is refused before it reaches the model.
