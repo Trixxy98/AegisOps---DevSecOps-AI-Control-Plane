@@ -11,8 +11,8 @@ Conventional Commit history (`git log --no-merges`).
 
 - API and Worker containers run as the unprivileged `app` user (UID 1654) instead of root.
 - nginx forwards only `websocket` upgrades to the API (no h2c upgrade smuggling) and the CSP allows
-  `connect-src 'self'` only (no `ws://`, no host taken from the request).
-- GitHub Actions are pinned by commit SHA; Dependabot waits 3 days before proposing a new release, groups
+  `connect-src 'self'` only (no unencrypted WebSocket origin, no host taken from the request).
+- GitHub Actions are pinned by commit SHA; Dependabot waits 7 days before proposing a new release, groups
   `react`/`react-dom`, and keeps nginx on its stable line.
 
 ### Changed

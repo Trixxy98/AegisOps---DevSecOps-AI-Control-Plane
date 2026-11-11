@@ -6,7 +6,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 3
+      default-days: 7
     groups:
       opentelemetry:
         patterns: ["OpenTelemetry*"]
@@ -17,7 +17,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 3
+      default-days: 7
     groups:
       # react and react-dom must move together (separate PRs fail CI on a version mismatch).
       react:
@@ -30,7 +30,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 3
+      default-days: 7
     ignore:
       # The web image follows nginx's stable line (even minor versions); odd minors are mainline.
       - dependency-name: "nginx"
@@ -40,4 +40,4 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 3
+      default-days: 7
