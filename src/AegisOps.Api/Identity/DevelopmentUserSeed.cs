@@ -11,10 +11,10 @@ namespace AegisOps.Api.Identity;
 
 public static partial class DevelopmentUserSeed {
     public const string Email = "admin@aegisops.local";
-    public const string AdminRole = "Admin";
-    public const string DeveloperRole = "Developer";
-    public const string SecurityRole = "Security";
-    public const string ApproverRole = "Approver";
+    public const string AdminRole = IdentityRoles.Admin;
+    public const string DeveloperRole = IdentityRoles.Developer;
+    public const string SecurityRole = IdentityRoles.Security;
+    public const string ApproverRole = IdentityRoles.Approver;
 
     public static async Task SeedAsync(IServiceProvider services) {
         await using var scope = services.CreateAsyncScope();
@@ -25,9 +25,7 @@ public static partial class DevelopmentUserSeed {
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger(nameof(DevelopmentUserSeed));
         
-        foreach (var roleName in new[] {AdminRole, DeveloperRole, SecurityRole, ApproverRole}) {
-            await EnsureRoleAsync(roles, roleName);
-        }
+        await IdentityRoles.EnsureAsync(roles);
 
         var now = time.GetUtcNow();
         foreach (var account in Accounts) {
@@ -294,17 +292,6 @@ public static partial class DevelopmentUserSeed {
             "/health",
             60));
         await db.SaveChangesAsync();
-    }
-
-    private static async Task EnsureRoleAsync(RoleManager<IdentityRole<Guid>> roles, string name) {
-        if (await roles.RoleExistsAsync(name)) {
-            return;
-        }
-
-        ThrowIfFailed(await roles.CreateAsync(new IdentityRole<Guid> {
-            Id = Guid.CreateVersion7(),
-            Name = name,
-        }));
     }
 
     private static void ThrowIfFailed(IdentityResult result) {

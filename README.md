@@ -111,12 +111,16 @@ providers, LangChain, multiple AI providers. See [`docs/03-tech-stack.md`](docs/
 
 ## Intended use and limits (v1)
 
-AegisOps v1 is for **evaluation, learning and demos on one machine**. Everything binds to `127.0.0.1`, the
-API runs in ASP.NET Development mode, and the seed creates demo users, a team, three demo projects and
-policies. It is **not yet a production deployment**: there is no production profile or first-admin bootstrap
-outside Development, no TLS setup, and the open items in
-[docs/security-review-v1.md](docs/security-review-v1.md) still apply. Production readiness is planned for v1.1
-([docs/roadmap-v1.1.md](docs/roadmap-v1.1.md)). Report security problems privately: [SECURITY.md](SECURITY.md).
+The default `docker compose up` stack is for **evaluation, learning and demos on one machine**: everything binds to
+`127.0.0.1`, the API runs in ASP.NET Development mode, and the seed creates demo users, a team, three demo projects
+and policies.
+
+Running AegisOps for a team on **a single server with HTTPS** is supported through the production profile:
+[docs/deploy-production.md](docs/deploy-production.md) (Production mode, one-shot `migrate`, `bootstrap-admin` for
+the first Admin, Caddy with automatic certificates and HSTS). It is still **not** highly available or
+multi-tenant, there is no user-management screen beyond the first Admin yet, and the remaining open items in
+[docs/security-review-v1.md](docs/security-review-v1.md) apply (progress: [docs/roadmap-v1.1.md](docs/roadmap-v1.1.md)).
+Report security problems privately: [SECURITY.md](SECURITY.md).
 
 ## Local quick start (Development only)
 

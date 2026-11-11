@@ -9,6 +9,17 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Added
 
+- Production profile (roadmap v1.1 item 1): `deploy/docker-compose.prod.yml` runs api and worker as `Production`
+  without automatic migrations, unpublishes PostgreSQL and Redis, adds restart policies and a one-shot `migrate`
+  service. The API image has operator commands: `migrate` (EF migrations plus the Admin/Developer/Security/Approver
+  roles, idempotent) and `bootstrap-admin` (below). The Development auto-migrate and demo seed are unchanged.
+- First-admin bootstrap (item 2): `bootstrap-admin --email <address> [--display-name <name>]` creates the first Admin
+  with a random temporary password printed once and a forced change at first sign-in, audited as
+  `user.bootstrapped`; it refuses when any Admin exists.
+- HTTPS (item 3): `deploy/docker-compose.tls.yml` and `deploy/caddy/Caddyfile` put Caddy in front (automatic
+  certificates for `AEGISOPS_DOMAIN`, HTTP→HTTPS, HSTS); only ports 80/443 are published in that mode.
+- Unhandled API exceptions return RFC 9457 Problem Details with a `traceId` (item 5).
+
 - Environment configuration and secrets: Owners and Admins set per-environment variables
   (`GET/PUT/DELETE /api/v1/projects/{slug}/environments/{envId}/variables[/{name}]`) that the Worker injects into
   the deployed container next to `DOTNET_ENVIRONMENT`/`ASPNETCORE_ENVIRONMENT`. Secret values are AES-256-GCM
@@ -25,6 +36,9 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Documentation
 
+- `docs/deploy-production.md`: beginner-friendly guide for one server with HTTPS (requirements, DNS, `.env`,
+  `migrate`, `bootstrap-admin`, start, first steps, backups, upgrades, troubleshooting, what is not covered).
+  README limits, docs/14, docs/17, the user manual and roadmap v1.1 updated accordingly.
 - `docs/connect-your-repository.md`: end-to-end guide for connecting your own repository (prerequisites,
   project and Staging target, API key, GitHub variables/secret/self-hosted runner, full workflow, plain-curl calls
   for other CI systems, what happens next, troubleshooting). `.github/actions/aegisops-report/README.md`
@@ -33,6 +47,14 @@ Conventional Commit history (`git log --no-merges`).
   screen-by-screen tour, four hands-on tutorials, AI usage, roles and troubleshooting.
 
 ### Security
+
+- Outside Development the API refuses to start with the `.env.example` JWT placeholder, a missing JWT key or the
+  Development database password.
+- Opt-in forwarded headers (`ForwardedHeaders:Enabled`, `KnownNetworks`/`KnownProxies`, `ForwardLimit`): the API
+  honours `X-Forwarded-For`/`-Proto` only from listed proxies, before logging, authentication and the auth rate
+  limiter, so limits and refresh-token records see the real client behind Caddy and nginx. nginx now forwards both
+  headers on `/api/` and `/hubs/` and accepts scan uploads up to the API's 20 MiB limit.
+- Exception details are never returned to clients; the generic 500 response carries only a `traceId`.
 
 - API and Worker containers run as the unprivileged `app` user (UID 1654) instead of root.
 - nginx forwards only `websocket` upgrades to the API (no h2c upgrade smuggling) and the CSP allows

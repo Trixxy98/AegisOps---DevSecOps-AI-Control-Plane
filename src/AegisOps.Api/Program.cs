@@ -24,10 +24,15 @@ using StackExchange.Redis;
 using AegisOps.Application.Observability;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using AegisOps.Api.Hosting;
 
-
+// One-shot operator commands (`migrate`, `bootstrap-admin`) run instead of the web host.
+if (AdminCommands.IsCommand(args)) {
+    return await AdminCommands.RunAsync(args, Console.Out, Console.Error);
+}
 
 var builder = WebApplication.CreateBuilder(args);
+ProductionSafety.ThrowIfUnsafe(builder.Configuration, builder.Environment);
 builder.Services.AddAegisOpsSerilog(builder.Configuration, builder.Environment, new AegisOpsLoggingOptions(AegisOpsLogging.ApiServiceName) {
     DevelopmentDisclosureSources = [nameof(DevelopmentUserSeed)],
 });
@@ -67,6 +72,8 @@ builder.Services.AddOpenTelemetry()
     });
 builder.Services.AddSingleton<DeploymentConnections>();
 builder.Services.AddAuthRateLimiting();
+builder.Services.AddAegisOpsForwardedHeaders(builder.Configuration);
+builder.Services.AddApiProblemDetails();
 var redis = builder.Configuration.GetConnectionString("Redis");
 if (!string.IsNullOrWhiteSpace(redis)) {
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ => {
@@ -84,6 +91,9 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(optio
 });
 
 var app = builder.Build();
+// First: logging, metrics, authentication and the auth rate limiter must see the real client (docs/17).
+app.UseAegisOpsForwardedHeaders(app.Configuration);
+app.UseApiExceptionHandler();
 // Activate the listener before the first authenticated request creates an Activity.
 _ = app.Services.GetRequiredService<TracerProvider>();
 app.UseApiMetrics();
@@ -235,7 +245,10 @@ app.MapGet("/api/v1/audit", PolicyPhase1Endpoints.Audit)
     .RequireAuthorization(Permissions.AuditRead);
 
 if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup")) {
-    if (!app.Environment.IsDevelopment()) throw new InvalidOperationException("Automatic migrations are only supported in Development.");
+    if (!app.Environment.IsDevelopment()) {
+        throw new InvalidOperationException(
+            "Automatic migrations are only supported in Development. Run the `migrate` command instead (docs/deploy-production.md).");
+    }
     await using var scope = app.Services.CreateAsyncScope();
     await scope.ServiceProvider.GetRequiredService<AegisOpsDbContext>().Database.MigrateAsync();
 }
@@ -245,3 +258,4 @@ if (app.Environment.IsDevelopment()) {
 }
 
 app.Run();
+return 0;

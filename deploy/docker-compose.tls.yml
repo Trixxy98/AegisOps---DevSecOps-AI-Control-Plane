@@ -1,0 +1,47 @@
+# HTTPS with automatic certificates (roadmap v1.1 item 3; guide: docs/deploy-production.md). Use on top of the
+# production profile:
+#
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml -f deploy/docker-compose.tls.yml up -d
+#
+# Needs AEGISOPS_DOMAIN (a DNS name pointing at this server) and ACME_EMAIL in .env, and ports 80 and 443 open.
+# Caddy is the only published service: it terminates TLS, redirects HTTP to HTTPS, sends HSTS and proxies to
+# the web (nginx) container, which proxies /api/ and /hubs/ to the API. The API trusts X-Forwarded-For/-Proto
+# only from the Docker network (two hops: Caddy, then nginx), so rate limits and audit see the real client.
+services:
+  caddy:
+    # Pinned exact tag; check https://hub.docker.com/_/caddy for the current 2.x patch release when upgrading.
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    environment:
+      AEGISOPS_DOMAIN: ${AEGISOPS_DOMAIN:?Set AEGISOPS_DOMAIN in .env (the DNS name of this server)}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env (certificate expiry notices)}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_started
+    networks:
+      - aegisops
+
+  web:
+    # Only reachable through Caddy.
+    ports: !reset []
+
+  api:
+    ports: !reset []
+    environment:
+      ForwardedHeaders__Enabled: "true"
+      # Docker's default address pools for user-defined networks are inside 172.16.0.0/12. If
+      # `docker network inspect aegisops` shows another subnet, set AEGISOPS_PROXY_NETWORK to it.
+      ForwardedHeaders__KnownNetworks__0: ${AEGISOPS_PROXY_NETWORK:-172.16.0.0/12}
+      ForwardedHeaders__ForwardLimit: "2"
+
+volumes:
+  caddy_data:
+  caddy_config:

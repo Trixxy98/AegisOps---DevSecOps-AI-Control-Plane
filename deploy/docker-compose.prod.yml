@@ -1,0 +1,66 @@
+# Production profile (roadmap v1.1 item 1; guide: docs/deploy-production.md). Combine with the root file:
+#
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml build
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml run --rm migrate
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml run --rm api bootstrap-admin --email you@example.com
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+#
+# Add -f deploy/docker-compose.tls.yml to every command for HTTPS through Caddy.
+# Differences from the Development stack: ASP.NET Production environment (no demo seed, no developer exception
+# page, JSON logs, startup refuses the .env.example JWT key and the Development database password), no automatic
+# migrations (run `migrate` before `up` and after every upgrade), PostgreSQL and Redis not published on the host,
+# and services restart after a reboot.
+x-production-env: &production-env
+  ASPNETCORE_ENVIRONMENT: Production
+  DOTNET_ENVIRONMENT: Production
+  ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=aegisops;Username=aegisops;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (scripts/gen-secrets.sh)}
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (scripts/gen-secrets.sh)}
+    ports: !reset []
+    restart: unless-stopped
+
+  redis:
+    ports: !reset []
+    restart: unless-stopped
+
+  api:
+    image: aegisops-api:${AEGISOPS_IMAGE_TAG:-local}
+    environment:
+      <<: *production-env
+      Database__MigrateOnStartup: "false"
+    restart: unless-stopped
+
+  worker:
+    image: aegisops-worker:${AEGISOPS_IMAGE_TAG:-local}
+    environment:
+      <<: *production-env
+    # Deployment health checks reach published target ports through the Docker host (DOCKER_HEALTH_HOST).
+    # Docker Desktop provides host.docker.internal; on Linux this line maps it to the host gateway.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  web:
+    image: aegisops-web:${AEGISOPS_IMAGE_TAG:-local}
+    restart: unless-stopped
+
+  # One-shot: apply database migrations and create the four roles, then exit. Same image as the API.
+  #   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml run --rm migrate
+  migrate:
+    image: aegisops-api:${AEGISOPS_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: src/AegisOps.Api/Dockerfile
+    profiles: ["tools"]
+    command: ["migrate"]
+    environment:
+      <<: *production-env
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aegisops
