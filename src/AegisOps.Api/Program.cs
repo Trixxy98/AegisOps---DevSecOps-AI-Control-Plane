@@ -43,6 +43,7 @@ builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddIdentityStore(builder.Configuration);
 builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
 builder.Services.AddSingleton<TeamWebhookSecretProtector>();
+builder.Services.AddSingleton<EnvironmentSecretProtector>();
 builder.Services.AddSingleton<ISensitiveDataDetector, RegexSensitiveDataDetector>();
 builder.Services.AddSingleton<IAiRateLimiter>(services => new RedisAiRateLimiter(
     services.GetService<IConnectionMultiplexer>(), services.GetRequiredService<TimeProvider>()));
@@ -155,6 +156,12 @@ app.MapPatch("/api/v1/projects/{slug}/environments/{envId:guid}", UpdateEnvironm
     .RequireAuthorization(Permissions.EnvironmentsWrite);
 app.MapGet("/api/v1/projects/{slug}/environments/{envId:guid}/runtime", GetEnvironmentRuntime.Handle)
     .RequireAuthorization(Permissions.ProjectsRead);
+app.MapGet("/api/v1/projects/{slug}/environments/{envId:guid}/variables", EnvironmentVariableEndpoints.List)
+    .RequireAuthorization(Permissions.ProjectsRead);
+app.MapPut("/api/v1/projects/{slug}/environments/{envId:guid}/variables/{name}", EnvironmentVariableEndpoints.Set)
+    .RequireAuthorization(Permissions.EnvironmentsWrite);
+app.MapDelete("/api/v1/projects/{slug}/environments/{envId:guid}/variables/{name}", EnvironmentVariableEndpoints.Remove)
+    .RequireAuthorization(Permissions.EnvironmentsWrite);
 app.MapPost("/api/v1/projects/{slug}/api-keys", CreateApiKey.Handle)
     .RequireAuthorization(Permissions.ApiKeysManage);
 app.MapGet("/api/v1/projects/{slug}/api-keys", ListApiKeys.Handle)

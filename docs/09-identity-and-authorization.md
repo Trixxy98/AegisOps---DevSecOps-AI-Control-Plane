@@ -92,6 +92,11 @@ How the narrowed cells are enforced:
   permissions, so they get `403` even if they are a team Owner. The team write routes (`PATCH
   /teams/{slug}`, `PUT`/`DELETE /teams/{slug}/members/{userId}`, team webhook settings, deliveries,
   summary and `POST /teams/{slug}/webhook/deliveries/{eventId}/replay`) require `teams:write`.
+- Environment variables (`/projects/{slug}/environments/{envId}/variables`): `GET` requires `projects:read`
+  with the project-detail visibility of §6 (Admin, Security, or a member of the project's team; others get
+  `404`). `PUT` and `DELETE .../variables/{name}` require `environments:write` and the "Owner of team" rule
+  above (Admin or the team's Owner; a Member or non-member gets `404`). Secret values are write-only for
+  everyone, Admin included: no route returns them.
 - Creating a team (`POST /teams`) requires `users:manage` (Admin): the "Owner of team" condition cannot
   apply to a team that does not exist yet. The creator becomes its Owner.
 - `ai:policies:read` is a route policy, not a role permission: `GET /ai/policies` is allowed to whoever

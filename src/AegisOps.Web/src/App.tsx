@@ -7,6 +7,7 @@ import {
   shouldPoll,
   type UpdateConnectionStatus,
 } from "./deploymentUpdates";
+import { EnvironmentVariables } from "./EnvironmentVariables";
 import { Findings } from "./Findings";
 
 type View =
@@ -344,6 +345,7 @@ export function App() {
           {view === "projects" && (
             <Projects
               token={token}
+              permissions={permissions}
               onError={setError}
               pendingDeployments={pendingDeployments}
               onDeploy={requestDeployment}
@@ -603,11 +605,13 @@ function Dashboard({
 
 function Projects({
   token,
+  permissions,
   onError,
   pendingDeployments,
   onDeploy,
 }: {
   token: string;
+  permissions: string[];
   onError: (value: string | null) => void;
   pendingDeployments: string[];
   onDeploy: (artifact: { id: string; version: string }, environment: DeployTarget) => Promise<void>;
@@ -732,94 +736,106 @@ function Projects({
               <span>{detail.environments.length} configured</span>
             </div>
             {detail.environments.map((environment) => (
-              <form
-                key={environment.id}
-                className="environment-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const form = new FormData(event.currentTarget);
-                  void api(`/api/v1/projects/${selected}/environments/${environment.id}`, token, {
-                    method: "PATCH",
-                    body: JSON.stringify({
-                      target: {
-                        type: form.get("type"),
-                        containerName: form.get("containerName") || null,
-                        network: form.get("network") || null,
-                        hostPort: Number(form.get("hostPort")),
-                        containerPort: Number(form.get("containerPort")),
-                        healthPath: form.get("healthPath") || "/health",
-                        healthTimeoutSeconds: Number(form.get("healthTimeoutSeconds")),
-                      },
-                    }),
-                  })
-                    .then(() => open(selected))
-                    .catch((error: Error) => onError(error.message));
-                }}
-              >
-                <p className="environment-title">
-                  {environment.name} <span>{environment.targetType}</span>
-                </p>
-                <div className="form-grid">
-                  <label className="field-label">
-                    Target type
-                    <select defaultValue={environment.targetType} name="type">
-                      <option value="noop">noop</option>
-                      <option value="docker">docker</option>
-                    </select>
-                  </label>
-                  <label className="field-label">
-                    Container name
-                    <input
-                      defaultValue={environment.containerName ?? ""}
-                      name="containerName"
-                      placeholder="Container name"
-                    />
-                  </label>
-                  <label className="field-label">
-                    Network
-                    <input defaultValue={environment.network ?? ""} name="network" placeholder="Network" />
-                  </label>
-                  <label className="field-label">
-                    Host port
-                    <input defaultValue={environment.hostPort || 8102} name="hostPort" inputMode="numeric" />
-                  </label>
-                  <label className="field-label">
-                    Container port
-                    <input defaultValue={environment.containerPort || 8080} name="containerPort" inputMode="numeric" />
-                  </label>
-                  <label className="field-label">
-                    Health path
-                    <input defaultValue={environment.healthPath ?? "/health"} name="healthPath" />
-                  </label>
-                  <label className="field-label">
-                    Health timeout (seconds)
-                    <input
-                      defaultValue={environment.healthTimeoutSeconds || 60}
-                      name="healthTimeoutSeconds"
-                      inputMode="numeric"
-                    />
-                  </label>
-                </div>
-                <div className="action-row">
-                  <button className="primary-button" type="submit">
-                    Save target
-                  </button>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() =>
-                      void api<{ containers: Array<{ name: string; state: string; image: string }> }>(
-                        `/api/v1/projects/${selected}/environments/${environment.id}/runtime`,
-                        token,
-                      )
-                        .then((body) => setRuntime(JSON.stringify(body)))
-                        .catch((error: Error) => onError(error.message))
-                    }
-                  >
-                    Runtime
-                  </button>
-                </div>
-              </form>
+              <div key={environment.id} className="environment-block">
+                <form
+                  className="environment-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const form = new FormData(event.currentTarget);
+                    void api(`/api/v1/projects/${selected}/environments/${environment.id}`, token, {
+                      method: "PATCH",
+                      body: JSON.stringify({
+                        target: {
+                          type: form.get("type"),
+                          containerName: form.get("containerName") || null,
+                          network: form.get("network") || null,
+                          hostPort: Number(form.get("hostPort")),
+                          containerPort: Number(form.get("containerPort")),
+                          healthPath: form.get("healthPath") || "/health",
+                          healthTimeoutSeconds: Number(form.get("healthTimeoutSeconds")),
+                        },
+                      }),
+                    })
+                      .then(() => open(selected))
+                      .catch((error: Error) => onError(error.message));
+                  }}
+                >
+                  <p className="environment-title">
+                    {environment.name} <span>{environment.targetType}</span>
+                  </p>
+                  <div className="form-grid">
+                    <label className="field-label">
+                      Target type
+                      <select defaultValue={environment.targetType} name="type">
+                        <option value="noop">noop</option>
+                        <option value="docker">docker</option>
+                      </select>
+                    </label>
+                    <label className="field-label">
+                      Container name
+                      <input
+                        defaultValue={environment.containerName ?? ""}
+                        name="containerName"
+                        placeholder="Container name"
+                      />
+                    </label>
+                    <label className="field-label">
+                      Network
+                      <input defaultValue={environment.network ?? ""} name="network" placeholder="Network" />
+                    </label>
+                    <label className="field-label">
+                      Host port
+                      <input defaultValue={environment.hostPort || 8102} name="hostPort" inputMode="numeric" />
+                    </label>
+                    <label className="field-label">
+                      Container port
+                      <input
+                        defaultValue={environment.containerPort || 8080}
+                        name="containerPort"
+                        inputMode="numeric"
+                      />
+                    </label>
+                    <label className="field-label">
+                      Health path
+                      <input defaultValue={environment.healthPath ?? "/health"} name="healthPath" />
+                    </label>
+                    <label className="field-label">
+                      Health timeout (seconds)
+                      <input
+                        defaultValue={environment.healthTimeoutSeconds || 60}
+                        name="healthTimeoutSeconds"
+                        inputMode="numeric"
+                      />
+                    </label>
+                  </div>
+                  <div className="action-row">
+                    <button className="primary-button" type="submit">
+                      Save target
+                    </button>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() =>
+                        void api<{ containers: Array<{ name: string; state: string; image: string }> }>(
+                          `/api/v1/projects/${selected}/environments/${environment.id}/runtime`,
+                          token,
+                        )
+                          .then((body) => setRuntime(JSON.stringify(body)))
+                          .catch((error: Error) => onError(error.message))
+                      }
+                    >
+                      Runtime
+                    </button>
+                  </div>
+                </form>
+                <EnvironmentVariables
+                  token={token}
+                  slug={selected}
+                  environmentId={environment.id}
+                  environmentName={environment.name}
+                  canEdit={permissions.includes("environments:write")}
+                />
+              </div>
             ))}
             {runtime && <pre className="runtime-output">{runtime}</pre>}
           </section>

@@ -176,6 +176,9 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         new("PUT", "/api/v1/projects/{slug}/repository", "projects:write", "projects:write", AdminDev),
         new("PATCH", "/api/v1/projects/{slug}/environments/{envId:guid}", "environments:write", "environments:write", AdminDev),
         new("GET", "/api/v1/projects/{slug}/environments/{envId:guid}/runtime", "projects:read", "projects:read", AllRoles),
+        new("GET", "/api/v1/projects/{slug}/environments/{envId:guid}/variables", "projects:read", "projects:read", AllRoles),
+        new("PUT", "/api/v1/projects/{slug}/environments/{envId:guid}/variables/{name}", "environments:write", "environments:write", AdminDev),
+        new("DELETE", "/api/v1/projects/{slug}/environments/{envId:guid}/variables/{name}", "environments:write", "environments:write", AdminDev),
         new("POST", "/api/v1/projects/{slug}/api-keys", "apikeys:manage", "apikeys:manage", AdminDev),
         new("GET", "/api/v1/projects/{slug}/api-keys", "apikeys:manage", "apikeys:manage", AdminDev),
         new("DELETE", "/api/v1/projects/{slug}/api-keys/{keyId:guid}", "apikeys:manage", "apikeys:manage", AdminDev),
@@ -285,7 +288,7 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         Assert.True(missing.Length == 0 && unexpected.Length == 0,
             "Program.cs endpoints differ from the authorization matrix. Add new routes to Routes with their docs/09 permission.\n" +
             $"Not in Program.cs: {string.Join("; ", missing)}\nNot in matrix: {string.Join("; ", unexpected)}");
-        Assert.Equal(68, actual.Length);
+        Assert.Equal(71, actual.Length);
     }
 
     [Fact]

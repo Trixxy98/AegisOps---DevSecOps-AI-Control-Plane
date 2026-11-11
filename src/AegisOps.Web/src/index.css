@@ -632,6 +632,56 @@ select:focus-visible {
   border-radius: 8px;
   margin-top: 10px;
 }
+.environment-block + .environment-block {
+  margin-top: 14px;
+}
+.environment-variables {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: #161b23;
+  border: 1px solid #2b3440;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+}
+.environment-variables .environment-title {
+  margin: 0;
+}
+.variable-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: #dce3ec;
+}
+.variable-list code {
+  overflow-wrap: anywhere;
+}
+.variable-form .action-row {
+  margin-top: 12px;
+}
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #c2ccda;
+  font-size: 12px;
+}
+.checkbox-label input {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  accent-color: #c5d7ed;
+}
+.inline-error {
+  margin: 0;
+  color: #f2a7a7;
+  font-size: 12px;
+}
 .environment-title {
   margin: 0 0 16px;
   font-weight: 600;

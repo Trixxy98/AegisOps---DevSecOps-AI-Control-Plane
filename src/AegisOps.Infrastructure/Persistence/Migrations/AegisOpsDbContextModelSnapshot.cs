@@ -18,7 +18,7 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("identity")
-                .HasAnnotation("ProductVersion", "10.0.4")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -944,6 +944,55 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_environments_tier", "tier IN ('Development', 'Staging', 'Production')");
                         });
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Organization.EnvironmentVariable", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("EnvironmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("environment_id");
+
+                    b.Property<bool>("IsSecret")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_secret");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("ProtectedValue")
+                        .HasMaxLength(16384)
+                        .HasColumnType("character varying(16384)")
+                        .HasColumnName("protected_value");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<string>("Value")
+                        .HasMaxLength(8192)
+                        .HasColumnType("character varying(8192)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_environment_variables");
+
+                    b.HasIndex("EnvironmentId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_environment_variables_environment_id_name");
+
+                    b.ToTable("environment_variables", "org");
                 });
 
             modelBuilder.Entity("AegisOps.Domain.Organization.Project", b =>
@@ -2084,6 +2133,16 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
 
                     b.Navigation("Target")
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Organization.EnvironmentVariable", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Organization.Environment", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_environment_variables_environments_environment_id");
                 });
 
             modelBuilder.Entity("AegisOps.Domain.Organization.Project", b =>

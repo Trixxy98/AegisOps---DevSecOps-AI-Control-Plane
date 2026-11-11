@@ -83,6 +83,9 @@ Legend for **Auth**: permission name, or `key:<scope>` for API keys, `Admin` for
 | POST | `/projects/{slug}/environments` | Add environment | `environments:write` |
 | PATCH | `/projects/{slug}/environments/{envId}` | Name, order, `target` JSON | `environments:write` |
 | GET | `/projects/{slug}/environments/{envId}/runtime` | Live container status from Docker (Phase 4) | `projects:read` |
+| GET | `/projects/{slug}/environments/{envId}/variables` | Variables injected into the container: `[{ name, isSecret, value, updatedAt }]` ordered by name; `value` is always `null` for secrets | `projects:read` (team visibility, docs/09 §6) |
+| PUT | `/projects/{slug}/environments/{envId}/variables/{name}` | Create (`201`) or replace (`200`) one variable: `{ "value": "...", "isSecret": false }`. `400` invalid/reserved name (`DOTNET_ENVIRONMENT`, `ASPNETCORE_ENVIRONMENT`, `AEGISOPS_*`) or value > 8192 chars; `409` more than 50 variables, or `isSecret: true` while secret storage is not configured ("Secret storage is not configured"). Audited as `environment.variable_set` (never the value) | `environments:write` (Admin or team Owner) |
+| DELETE | `/projects/{slug}/environments/{envId}/variables/{name}` | Remove one variable (`204`; `404` if absent). Audited as `environment.variable_removed` | `environments:write` (Admin or team Owner) |
 | PUT | `/projects/{slug}/repository` | Set repository info | `projects:write` |
 | GET | `/projects/{slug}/api-keys` | List keys (prefix, scopes, expiry, last used) | `apikeys:manage` |
 | POST | `/projects/{slug}/api-keys` | Create key → returns plain key once | `apikeys:manage` |

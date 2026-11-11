@@ -23,6 +23,7 @@ builder.Services.AddDependencyReadiness()
 builder.Services.AddSingleton<WorkerPollHeartbeat>();
 builder.Services.AddIdentityStore(builder.Configuration);
 builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
+builder.Services.AddSingleton<EnvironmentSecretProtector>();
 var redis = builder.Configuration.GetConnectionString("Redis");
 if (!string.IsNullOrWhiteSpace(redis)) builder.Services.AddSingleton<IConnectionMultiplexer>(_ => {
     var options = ConfigurationOptions.Parse(redis);
