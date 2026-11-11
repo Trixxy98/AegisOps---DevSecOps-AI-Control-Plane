@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /source
 COPY . .
 RUN dotnet publish src/AegisOps.Worker/AegisOps.Worker.csproj -c Release -o /publish
