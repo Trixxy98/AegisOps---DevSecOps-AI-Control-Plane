@@ -9,6 +9,13 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Added
 
+- **Policy simulation at a chosen time:** `POST /api/v1/policies/simulate` accepts an optional
+  `at` instant for time-based rules (Journey D's Friday-night blackout); `scripts/journey-d.sh`
+  runs that check read-only.
+- **Admin password reset:** `POST /api/v1/admin/users/{id}/reset-password` sets a random
+  temporary password returned once, requires a change on next sign-in, ends the user's
+  sessions, and is audited as `user.password_reset` (docs/09). `scripts/demo-reset-passwords.sh`
+  uses it for the demo accounts.
 - **Control plane (Phase 1):** projects, repositories, environments with noop/Docker
   targets, project-scoped API keys (create/list/revoke), artifact registration with
   digest backfill and CI pre-release versions, policies with editable rule parameters,

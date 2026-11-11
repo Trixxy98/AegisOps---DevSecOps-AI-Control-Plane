@@ -45,6 +45,7 @@ selected by the `aok_` prefix via a policy scheme (`"Smart"` scheme forwards to 
 | `POST /api/v1/auth/logout` | Revokes current refresh token family |
 | `GET /api/v1/auth/me` | Current user, roles, teams, permissions |
 | `POST /api/v1/auth/change-password` | Requires current password |
+| `POST /api/v1/admin/users/{id}/reset-password` | Admin (`users:manage`): sets a random temporary password returned once (`Cache-Control: no-store`), sets `MustChangePassword`, clears lockout, revokes the user's refresh tokens; audited as `user.password_reset` without the password |
 
 Rate limiting on `login`/`refresh`: 10 req/min per IP (ASP.NET rate limiter, fixed window).
 

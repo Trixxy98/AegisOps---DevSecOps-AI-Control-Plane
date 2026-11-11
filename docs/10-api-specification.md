@@ -55,6 +55,7 @@ Legend for **Auth**: permission name, or `key:<scope>` for API keys, `Admin` for
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
 | GET | `/admin/users` | List users (`?search=`) | `users:manage` |
+| POST | `/admin/users/{id}/reset-password` | Set a temporary password (returned once) and require a change | `users:manage` |
 | POST | `/admin/users` | Create user with temp password | `users:manage` |
 | PATCH | `/admin/users/{id}` | Activate/deactivate, display name | `users:manage` |
 | PUT | `/admin/users/{id}/roles` | Set roles | `roles:manage` |
@@ -132,7 +133,7 @@ Legend for **Auth**: permission name, or `key:<scope>` for API keys, `Admin` for
 | PATCH | `/policies/{id}` | `{ isEnabled }` | `policies:write` |
 | DELETE | `/policies/{id}` | Soft-delete (disable + archive) | `policies:write` |
 | GET | `/policies/rule-types` | Rule type catalogue with JSON schema of parameters (drives the UI editor) | `policies:read` |
-| POST | `/policies/simulate` | `{ artifactId, environmentId }` → dry-run evaluation without creating a deployment | `policies:read` |
+| POST | `/policies/simulate` | `{ artifactId, environmentId, at? }` → dry-run evaluation without creating a deployment; `at` (ISO 8601, default now) evaluates time-based rules such as `DeploymentWindow` at that instant and is echoed as `evaluatedAt` | `policies:read` |
 
 ### 2.8 AI gateway
 

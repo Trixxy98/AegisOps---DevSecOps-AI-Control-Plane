@@ -82,6 +82,7 @@ public sealed partial class AuditCoverageTests {
         new("POST", "/api/v1/auth/refresh", "auth.refreshed", nameof(RefreshRotationIsAudited)),
         new("POST", "/api/v1/auth/logout", "auth.logout", nameof(LoginLogoutAndPasswordChangeAreAudited)),
         new("POST", "/api/v1/auth/change-password", "auth.password_changed", nameof(LoginLogoutAndPasswordChangeAreAudited)),
+        new("POST", "/api/v1/admin/users/{id:guid}/reset-password", "user.password_reset", nameof(AdminPasswordResetIsAuditedWithoutThePassword)),
         new("POST", "/api/v1/ai/chat", "ai.request", nameof(AiChatIsAuditedWhenCompletedAndWhenBlocked)),
         new("PUT", "/api/v1/ai/policies", "ai.policy_updated", nameof(AiPolicySaveIsAudited)),
         new("POST", "/api/v1/admin/ai/models/sync", "ai.model_synced", nameof(AiModelSyncIsAudited)),
@@ -228,6 +229,41 @@ public sealed partial class AuditCoverageTests {
             user.Principal, Users(services), Db(services), Audit(services), TimeProvider.System));
         Assert.Equal(StatusCodes.Status204NoContent, changed.Status);
         AssertSingleAudit(changed.Rows, "auth.password_changed", "User", user.Id, user.Email, "User", user.Id, "Succeeded");
+    }
+
+    [Fact]
+    public async Task AdminPasswordResetIsAuditedWithoutThePassword() {
+        await using var host = await AuditHost.StartAsync();
+        var admin = await host.CreateUserAsync("admin@example.test", "Admin");
+        var user = await host.CreateUserAsync("dev@example.test", "Developer");
+        Task<Call> LoginAsync(string password) => host.CallAsync((services, http) => Login.Handle(new LoginRequest(user.Email, password),
+            Users(services), services.GetRequiredService<IOptions<JwtOptions>>(), TimeProvider.System, Db(services), Audit(services), http));
+        Assert.Equal(StatusCodes.Status200OK, (await LoginAsync(AuditHost.Password)).Status);
+
+        ResetUserPasswordResponse? response = null;
+        var reset = await host.CallAsync(async (services, http) => {
+            var result = await ResetUserPassword.Handle(user.Id, admin.Principal, Users(services), Db(services), Audit(services), TimeProvider.System, http);
+            response = Assert.IsType<Ok<ResetUserPasswordResponse>>(result).Value;
+            return result;
+        });
+        Assert.Equal(StatusCodes.Status200OK, reset.Status);
+        Assert.Equal("no-store", reset.Http.Response.Headers.CacheControl.ToString());
+        AssertSingleAudit(reset.Rows, "user.password_reset", "User", admin.Id, admin.Email, "User", user.Id, "Succeeded");
+        var temporary = Assert.IsType<string>(response?.TemporaryPassword);
+        Assert.True(temporary.Length >= 12);
+        Assert.True(response!.MustChangePassword);
+        Assert.DoesNotContain(reset.Rows, row => (row.ActorDisplay + row.Action + row.Outcome + row.ResourceType).Contains(temporary, StringComparison.Ordinal));
+
+        // The old session and password stop working; the temporary password signs in and must be changed.
+        Assert.False(await host.WithDbAsync(db => db.RefreshTokens.AnyAsync(token => token.UserId == user.Id && token.RevokedAt == null, Token)));
+        Assert.Equal(StatusCodes.Status401Unauthorized, (await LoginAsync(AuditHost.Password)).Status);
+        Assert.Equal(StatusCodes.Status200OK, (await LoginAsync(temporary)).Status);
+        Assert.True(await host.WithDbAsync(db => db.Users.Where(item => item.Id == user.Id).Select(item => item.MustChangePassword).SingleAsync(Token)));
+
+        var missing = await host.CallAsync((services, http) =>
+            ResetUserPassword.Handle(Guid.NewGuid(), admin.Principal, Users(services), Db(services), Audit(services), TimeProvider.System, http));
+        Assert.Equal(StatusCodes.Status404NotFound, missing.Status);
+        Assert.Empty(missing.Rows);
     }
 
     [Fact]
@@ -928,7 +964,7 @@ public sealed partial class AuditCoverageTests {
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddDbContext<AegisOpsDbContext>(options => options.UseSqlite(connection)
                 .UseSnakeCaseNamingConvention().ReplaceService<IModelCustomizer, SqliteModelCustomizer>());
-            builder.Services.AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
+            builder.Services.AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
             if (failingAudit) builder.Services.AddScoped<IAuditWriter, ThrowingAuditWriter>();
             else builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
             builder.Services.AddJwtAuthentication(builder.Configuration);

@@ -67,4 +67,9 @@ public sealed class User : IdentityUser<Guid> {
     public void MarkPasswordChanged() {
         MustChangePassword = false;
     }
+
+    /// <summary>An administrator set a temporary password: the user must choose a new one (docs/09).</summary>
+    public void RequirePasswordChange() {
+        MustChangePassword = true;
+    }
 }

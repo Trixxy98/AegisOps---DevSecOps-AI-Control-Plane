@@ -89,8 +89,9 @@ developer's access token (`POST /api/v1/ai/chat`, see [08 AI gateway](08-ai-gate
    `Production baseline` and add a `DeploymentWindow` rule
    that blocks Fri 18:00 → Mon 08:00 in `Asia/Kuala_Lumpur`.
 2. Save. The policy version increments and **Audit log** shows the policy change.
-3. Simulate a Friday 20:00 MYT request with `POST /api/v1/policies/simulate` (there is no
-   UI button yet). The result is **Deny**, with the window explanation. A real request inside the window is denied the same way.
+3. Simulate a Friday 20:00 MYT request with `POST /api/v1/policies/simulate` and
+   `"at": "<Friday>T20:00:00+08:00"` (there is no UI button yet; `scripts/journey-d.sh` does it).
+   The result is **Deny**, with the window explanation. A real request inside the window is denied the same way.
 
 ## Reset
 
