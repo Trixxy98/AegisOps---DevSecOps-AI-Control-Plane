@@ -57,7 +57,7 @@ public static class Login {
         var options = jwtOptions.Value;
         var now = time.GetUtcNow();
         var roles = await users.GetRolesAsync(user);
-        var token = JwtAccessTokenFactory.Create(user, roles, options, now);
+        var token = JwtAccessTokenFactory.Create(user, roles, options, now, user.MustChangePassword);
 
         await RefreshCookie.IssueAsync(http, db, user, options, now, http.RequestAborted);
         audit.Write(now, user.Id, user.Email ?? user.DisplayName, "auth.login", "User", user.Id);

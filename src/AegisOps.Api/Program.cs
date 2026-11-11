@@ -89,6 +89,7 @@ app.UseApiMetrics();
 app.UseApiRequestTracing();
 app.UseApiRequestLogging();
 app.UseAuthentication();
+app.UsePasswordChangeGate();
 app.UseAuthorization();
 app.UseRateLimiter();
 

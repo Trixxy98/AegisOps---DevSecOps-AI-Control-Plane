@@ -46,6 +46,10 @@ status, body = call("POST", "/api/v1/auth/login",
 if not step("admin sign-in", status == 200 and body and body.get("accessToken"), f"HTTP {status}"):
     sys.exit(1)
 token = body["accessToken"]
+_, me = call("GET", "/api/v1/auth/me")
+if (me or {}).get("mustChangePassword"):
+    print("[FAIL] this account still has a temporary password: sign in at the web UI once and choose a new one, then re-run")
+    sys.exit(1)
 
 # Map every environment to its project and tier.
 _, projects = call("GET", "/api/v1/projects")

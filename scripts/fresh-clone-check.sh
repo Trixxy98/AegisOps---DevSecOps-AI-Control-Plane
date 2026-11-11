@@ -9,6 +9,7 @@
 #
 # Usage: scripts/fresh-clone-check.sh [git-url] [branch]   (defaults: this repo's origin, current branch)
 #   KEEP=1 keeps the stack and clone afterwards; by default both are removed.
+#   NO_CACHE=1 builds the images without Docker's layer cache (a cold build, as on a new machine).
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 url="${1:-$(git -C "$here" remote get-url origin)}"
@@ -52,6 +53,11 @@ networks:
 YAML
 compose=(docker compose -p "$project" -f docker-compose.yml -f fresh.override.yml)
 
+if [[ "${NO_CACHE:-0}" == 1 ]]; then
+  # Cold build: no layer cache and fresh base images, as on a new machine.
+  phase "building images without cache (NO_CACHE=1)"
+  "${compose[@]}" build --no-cache --pull api worker web >/dev/null
+fi
 phase "building and starting the stack"
 "${compose[@]}" up -d --build --wait postgres redis >/dev/null
 "${compose[@]}" up -d --build api worker web >/dev/null
@@ -72,8 +78,19 @@ for _ in $(seq 1 30); do
 done
 [[ -n "$admin_password" ]] || { echo "Seeded admin password not found in the API log" >&2; exit 1; }
 
-token="$(curl -fsS http://127.0.0.1:18080/api/v1/auth/login -H 'Content-Type: application/json' \
-  -d "$(jq -n --arg p "$admin_password" '{email:"admin@aegisops.local",password:$p}')" | jq -er .accessToken)"
+login() {
+  curl -fsS http://127.0.0.1:18080/api/v1/auth/login -H 'Content-Type: application/json' \
+    -d "$(jq -n --arg p "$1" '{email:"admin@aegisops.local",password:$p}')" | jq -er .accessToken
+}
+# First sign-in: the seeded password is temporary, so replace it (as the web UI would) with a random one.
+temporary_token="$(login "$admin_password")"
+new_password="$(openssl rand -base64 24 | tr -d '\n/+=')"
+curl -fsS -o /dev/null -X POST http://127.0.0.1:18080/api/v1/auth/change-password \
+  -H "Authorization: Bearer $temporary_token" -H 'Content-Type: application/json' \
+  -d "$(jq -n --arg c "$admin_password" --arg n "$new_password" '{currentPassword:$c,newPassword:$n}')"
+admin_password="$new_password"
+token="$(login "$admin_password")"
+phase "first sign-in: temporary admin password replaced"
 projects="$(curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:18080/api/v1/projects | jq -r '[.[].slug] | sort | join(",")')"
 [[ "$projects" == "circuit-service,notification-service,site-service" ]] || { echo "Unexpected seeded projects: $projects" >&2; exit 1; }
 phase "seeded demo projects present: $projects"

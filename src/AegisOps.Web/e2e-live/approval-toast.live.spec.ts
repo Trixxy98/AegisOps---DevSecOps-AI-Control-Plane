@@ -39,6 +39,11 @@ async function signIn(page: Page, email: string, password: string) {
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Continue" }).click();
+  const changeRequired = page.getByRole("heading", { name: "Choose a new password" });
+  await expect(page.getByText("Live updates").first().or(changeRequired)).toBeVisible({ timeout: 15_000 });
+  if (await changeRequired.isVisible()) {
+    throw new Error(`${email} still has a temporary password: sign in once in the web UI and choose a new one.`);
+  }
   await expect(page.getByText("Live updates").first()).toBeVisible({ timeout: 15_000 });
 }
 
