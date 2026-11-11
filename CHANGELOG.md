@@ -5,7 +5,11 @@ All notable changes to AegisOps are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Entries are curated from the
 Conventional Commit history (`git log --no-merges`).
 
-## [Unreleased] — towards v1.0.0
+## [Unreleased]
+
+## [1.0.0] — 2026-11-11
+
+First public release, for evaluation and demos on a single machine (see README, "Intended use and limits").
 
 ### Added
 
