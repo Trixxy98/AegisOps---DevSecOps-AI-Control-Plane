@@ -1,0 +1,19 @@
+# AegisOps behind Caddy (deploy/docker-compose.tls.yml, docs/deploy-production.md).
+# Caddy obtains and renews the certificate for AEGISOPS_DOMAIN automatically and redirects HTTP to HTTPS.
+{
+	email {$ACME_EMAIL}
+}
+
+{$AEGISOPS_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		# One year, all subdomains. Add "; preload" only after reading https://hstspreload.org.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# Caddy replaces any client-supplied X-Forwarded-For with the real client address and sets
+	# X-Forwarded-Proto: https. nginx (web) appends Caddy's address and passes both to the API.
+	reverse_proxy web:80
+}

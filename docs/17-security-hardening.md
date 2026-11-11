@@ -34,7 +34,8 @@ This document is the threat model and control list for the platform.
 
 | Area | Control |
 | --- | --- |
-| Transport | TLS terminated by reverse proxy (Caddy/nginx) outside Compose demo; HSTS in production-like; HTTP only on loopback for demo |
+| Transport | Demo: HTTP on loopback only. Production profile: Caddy (`deploy/docker-compose.tls.yml`) terminates TLS with automatic certificates, redirects HTTP to HTTPS and sends `Strict-Transport-Security: max-age=31536000; includeSubDomains`; only 80/443 are published ([deploy guide](deploy-production.md)) |
+| Forwarded headers | Off by default. With `ForwardedHeaders:Enabled`, the API applies `X-Forwarded-For`/`X-Forwarded-Proto` only from `ForwardedHeaders:KnownNetworks`/`KnownProxies` (plus loopback), unwinding at most `ForwardLimit` hops (2 for Caddy → nginx); headers from other addresses are ignored (`ProductionHostingTests`). It runs first in the pipeline, so request logs, the auth rate limiter and refresh-token records see the real client. nginx passes both headers on `/api/` and `/hubs/` |
 | Headers | `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, CSP for the SPA (`default-src 'self'`; no inline scripts) via nginx |
 | CORS | Explicit allow-list; disabled when web and API share origin (Compose) |
 | Auth | Identity password hashing (PBKDF2, Identity defaults, 100k+ iterations), lockout, JWT `HS256` with ≥ 256-bit key (or `RS256` keys if multi-instance later), `nbf/exp/iss/aud` validated, clock skew 30 s |
@@ -44,8 +45,10 @@ This document is the threat model and control list for the platform.
 | Injection | EF Core parameterization; raw SQL only for job claiming/completion/leases and webhook counters, always via `FromSqlInterpolated`/`ExecuteSqlInterpolated`; detector and AI blocked-pattern regexes have timeouts (policy branch globs: see §8) |
 | File handling | Reports saved under server-generated paths only; original filenames never used; content-type sniffed |
 | Secrets | Env vars / user-secrets / Docker secrets; `.env` ignored; Gitleaks on every commit; secrets never logged (Serilog destructuring policy) |
-| Errors | Problem Details without stack traces outside Development; `traceId` for support |
-| Rate limiting | ASP.NET rate limiter: global per-principal, stricter on `/auth/*` and uploads |
+| Errors | Handlers return RFC 9457 Problem Details; unhandled exceptions go through `AddProblemDetails` + `UseExceptionHandler` and return a generic 500 Problem Details with `traceId` and no exception text, in every environment (the exception is logged). The developer exception page is never used in Production |
+| Startup configuration | Outside Development the API refuses to start with a missing JWT key, the `.env.example` placeholder key or the Development database password; keys under 32 bytes and a missing Postgres connection string are refused everywhere. Automatic migrations are Development-only; production uses the `migrate` command |
+| First Admin | No seed outside Development. `bootstrap-admin` creates the first Admin with a random 24-character temporary password printed once (never logged or audited), `MustChangePassword`, audited as `user.bootstrapped` by System/`bootstrap-admin`; refused once any Admin exists |
+| Rate limiting | `/auth/login` and `/auth/refresh`: 10/min per client IP (the real client behind the TLS proxy); AI: Redis limits per user. Planned: global per-principal and upload limits (roadmap v1.1 item 4) |
 | Dependency hygiene | `dotnet list package --vulnerable` in CI; `npm audit --audit-level=high` |
 | Time & replay | Idempotency keys; JWT `jti` tracked for logout-all (V2) |
 
@@ -112,8 +115,8 @@ an expected audit action there, and each action is asserted against the real han
 - Audit log integrity is role-based, not cryptographic (V2: hash chain / WORM export).
 - Single JWT signing key; rotation requires restart (V2: key ring with `kid`).
 - Open v1 items from the [v1 security review](security-review-v1.md): no INSERT/SELECT-only database role for
-  `audit.*`; no per-principal or upload rate limiting and no forwarded-headers handling behind nginx; no
-  Problem Details for unhandled exceptions and Compose runs the API as `Development` (loopback-only); policy
+  `audit.*`; no per-principal or upload rate limiting (forwarded headers and Problem Details for unhandled
+  exceptions are done in v1.1; the demo Compose stack still runs as `Development` on loopback); policy
   branch globs without `NonBacktracking`; Semgrep without `p/owasp-top-ten` and not failing; no Trivy image scan
   or `npm audit` in CI; no client IP on approvals, no policy diff in audit, no "policy changed" banner; stored AI
   content not encrypted at rest.

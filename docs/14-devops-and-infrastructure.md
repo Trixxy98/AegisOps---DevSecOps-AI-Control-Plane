@@ -7,6 +7,12 @@ docker compose up -d                      # core: postgres, redis, migrate, api,
 docker compose --profile ai up -d         # + ollama, ollama-init
 docker compose --profile observability up -d   # + prometheus, grafana
 docker compose -f deploy/docker-compose.targets.yml up -d   # target networks + latest target images
+
+# Production profile on one server (docs/deploy-production.md)
+P="-f docker-compose.yml -f deploy/docker-compose.prod.yml -f deploy/docker-compose.tls.yml"
+docker compose $P run --rm migrate                                   # migrations + roles, then exit
+docker compose $P run --rm api bootstrap-admin --email you@example.com
+docker compose $P up -d                                              # caddy on 80/443, nothing else published
 ```
 
 ### `docker-compose.yml` (services)
@@ -15,14 +21,20 @@ docker compose -f deploy/docker-compose.targets.yml up -d   # target networks + 
 | --- | --- | --- | --- | --- |
 | `postgres` | `postgres:17-alpine` | 5432 (dev only) | — | volume `pgdata`; `POSTGRES_DB=aegisops`; healthcheck `pg_isready` |
 | `redis` | `redis:7-alpine` | 127.0.0.1:6380 → 6379 (dev only; `AEGISOPS_REDIS_PORT`) | — | `--maxmemory 256mb --maxmemory-policy allkeys-lru`; no persistence needed |
-| `migrate` | `aegisops-api` | — | postgres healthy | one-shot: `dotnet AegisOps.Api.dll --migrate --seed`; `restart: "no"` |
-| `api` | `aegisops-api` (built from `src/AegisOps.Api/Dockerfile`) | 8080 internal | migrate completed, redis | env: connection strings, JWT signing key, Ollama URL; volume `reports` |
-| `worker` | `aegisops-worker` | 8081 internal (health/metrics) | migrate completed | mounts `/var/run/docker.sock:ro` (Phase 4); volume `reports` |
+| `migrate` | `aegisops-api` | — | postgres healthy | `deploy/docker-compose.prod.yml` only, profile `tools`: `dotnet AegisOps.Api.dll migrate` (EF migrations + the four roles, idempotent); `restart: "no"`. In Development the API migrates and seeds at startup instead (`Database__MigrateOnStartup=true`) |
+| `api` | `aegisops-api` (built from `src/AegisOps.Api/Dockerfile`) | 127.0.0.1:8080 (none with the TLS override) | postgres, redis | env: connection strings, JWT signing key, Ollama URL; volume `reports`. Commands: `migrate`, `bootstrap-admin --email … [--display-name …]` |
+| `worker` | `aegisops-worker` | 8081 internal (health/metrics) | api | mounts `/var/run/docker.sock` (group `DOCKER_GID`); volume `reports` |
 | `web` | `aegisops-web` (nginx) | **3000** | api | serves SPA, proxies `/api`, `/hubs` |
 | `ollama` | `ollama/ollama` | 11434 internal | — | profile `ai`; volume `ollama`; GPU passthrough optional |
 | `ollama-init` | `ollama/ollama` | — | ollama | profile `ai`; `ollama pull llama3.2:3b` then exits |
 | `prometheus` | `prom/prometheus` | 9090 | api, worker | profile `observability`; config `deploy/prometheus/prometheus.yml` |
 | `grafana` | `grafana/grafana` | **3001** | prometheus | profile `observability`; provisioned datasource + dashboards from `deploy/grafana/` |
+| `caddy` | `caddy:2.10.2-alpine` | **80, 443** (public) | web | `deploy/docker-compose.tls.yml` only: TLS for `AEGISOPS_DOMAIN` (ACME, `ACME_EMAIL`), HTTP→HTTPS, HSTS, proxies to `web`; `deploy/caddy/Caddyfile`; web/api host ports removed |
+
+Overrides: `deploy/docker-compose.prod.yml` sets `ASPNETCORE_ENVIRONMENT`/`DOTNET_ENVIRONMENT=Production` for api
+and worker, `Database__MigrateOnStartup=false`, requires `POSTGRES_PASSWORD`, removes the Postgres/Redis host ports,
+adds `restart: unless-stopped` and the `migrate` service. `deploy/docker-compose.tls.yml` adds Caddy and the API's
+forwarded-headers settings.
 
 Networks: `aegisops` (platform). Target networks `aegisops-staging`, `aegisops-production`
 are created by the targets compose file (external) so the Worker can attach containers.
@@ -48,6 +60,12 @@ web dev server (`vite` with HMR on 5173 proxying to `api`), enables Scalar anony
 | `Seed__Demo` | `true` | demo data |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | optional | traces |
 | `Cors__AllowedOrigins__0` | `http://localhost:5173` | dev only |
+| `ASPNETCORE_ENVIRONMENT` / `DOTNET_ENVIRONMENT` | `Development` (Compose) / `Production` (prod override) | outside Development the API refuses to start with a missing JWT key, the `.env.example` placeholder key or the Development database password (`ProductionSafety`) |
+| `Database__MigrateOnStartup` | `true` (Development) / `false` | refused outside Development; use the `migrate` command |
+| `ForwardedHeaders__Enabled` | `false` | api; honour `X-Forwarded-For`/`-Proto` (docs/17). `true` in the TLS override |
+| `ForwardedHeaders__KnownNetworks__<n>`, `ForwardedHeaders__KnownProxies__<n>` | `172.16.0.0/12` (`AEGISOPS_PROXY_NETWORK`) | api; required when enabled; only these (and loopback) are trusted |
+| `ForwardedHeaders__ForwardLimit` | `1` (code default), `2` (TLS override: Caddy → nginx) | api; proxy hops to unwind |
+| `AEGISOPS_DOMAIN`, `ACME_EMAIL` | `aegisops.example.com`, `ops@example.com` | `.env`, TLS override (Caddy) |
 
 `.env.example` is committed; `.env` is git-ignored and scanned by Gitleaks anyway.
 
@@ -217,7 +235,7 @@ AegisOps runs on a laptop in the demo. Options, in order of preference:
 | --- | --- | --- |
 | `Development` | `dotnet run` + `docker compose up postgres redis` + `npm run dev` | daily work; Scalar open; seed on |
 | `Demo` (Compose) | full compose stack | interviews, README GIF; seed on |
-| `Production-like` (optional) | small VPS / home server with the same compose + Caddy for TLS | proving `Production` settings (no seed, secrets from files) |
+| `Production` | one server: root compose + `deploy/docker-compose.prod.yml` + `deploy/docker-compose.tls.yml` ([guide](deploy-production.md)) | real use by one team: no seed, `migrate` + `bootstrap-admin`, HTTPS via Caddy |
 
 ## 6. Configuration & secrets management
 

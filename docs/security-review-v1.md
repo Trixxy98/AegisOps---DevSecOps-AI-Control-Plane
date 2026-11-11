@@ -37,9 +37,11 @@ Ordered by impact. None is exploitable from outside the host now that Compose bi
    `INSERT`/`SELECT`-only role on `audit.*`.
 2. **No per-principal or upload rate limiting.** Only `/auth/login` and `/auth/refresh` (10/min per client IP)
    and the Redis AI limits exist. Behind nginx all browser users share one IP bucket (no forwarded-headers
-   handling); the auth limiter sends no `Retry-After`.
+   handling); the auth limiter sends no `Retry-After`. *v1.1: forwarded headers from known proxies are honoured
+   behind the TLS proxy, so the auth limiter sees real client IPs; per-principal/upload limits remain open.*
 3. **Errors:** no `AddProblemDetails`/`UseExceptionHandler`; Compose runs the API as `Development`, so the
-   developer exception page is served (now loopback-only).
+   developer exception page is served (now loopback-only). *Resolved in v1.1: unhandled exceptions return Problem
+   Details with a `traceId` in every environment, and the production profile runs as `Production`.*
 4. **Regex hardening:** policy branch globs have no `NonBacktracking`/timeout; AI `BlockedPatterns` use a
    100 ms timeout but backtracking.
 5. **CI scope:** Semgrep has no `p/owasp-top-ten` and never fails the build; Trivy scans the file system only

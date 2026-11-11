@@ -135,6 +135,7 @@ public sealed partial class AuditCoverageTests {
         new("EVENT", "AI request blocked by governance", "ai.request", nameof(AiChatIsAuditedWhenCompletedAndWhenBlocked)),
         new("EVENT", "job retry attributed to the authenticated admin", "job.retried", nameof(DeadLetteredJobRetryIsAttributedToTheAdmin)),
         new("EVENT", "API-key actor recorded as ApiKey", "artifact.created", nameof(ApiKeyActionsAreAttributedToTheApiKeyActorType)),
+        new("EVENT", "first Admin created by the bootstrap-admin command", "user.bootstrapped", nameof(BootstrapAdminIsAuditedAsSystemWithoutThePassword)),
     ];
 
     // ---------- Guard tests ----------
@@ -231,6 +232,22 @@ public sealed partial class AuditCoverageTests {
             user.Principal, Users(services), Db(services), Audit(services), TimeProvider.System));
         Assert.Equal(StatusCodes.Status204NoContent, changed.Status);
         AssertSingleAudit(changed.Rows, "auth.password_changed", "User", user.Id, user.Email, "User", user.Id, "Succeeded");
+    }
+
+    [Fact]
+    public async Task BootstrapAdminIsAuditedAsSystemWithoutThePassword() {
+        await using var host = await AuditHost.StartAsync();
+        var before = await host.AuditIdsAsync();
+        using var output = new StringWriter();
+
+        var exit = await BootstrapAdmin.RunAsync(host.Services, "first-admin@example.test", null, output, TextWriter.Null, Token);
+
+        Assert.Equal(0, exit);
+        var rows = await host.AuditSinceAsync(before);
+        var adminId = await host.WithDbAsync(db => db.Users.Where(user => user.Email == "first-admin@example.test").Select(user => user.Id).SingleAsync(Token));
+        var row = AssertSingleAudit(rows, "user.bootstrapped", "System", null, "bootstrap-admin", "User", adminId, "Succeeded");
+        var temporary = output.ToString().Split('\n').Single(line => line.StartsWith("Temporary password", StringComparison.Ordinal)).Split(": ")[1].Trim();
+        Assert.DoesNotContain(temporary, row.ActorDisplay + row.Action + row.ResourceType + row.Outcome + row.CorrelationId, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1019,6 +1036,8 @@ public sealed partial class AuditCoverageTests {
             await host.WithDbAsync(db => db.Database.EnsureCreatedAsync(Token));
             return host;
         }
+
+        public IServiceProvider Services => app.Services;
 
         public async Task<Actor> CreateUserAsync(string email, string role) {
             await using var scope = app.Services.CreateAsyncScope();

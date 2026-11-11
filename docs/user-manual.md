@@ -251,10 +251,11 @@ approval. AI answers are labelled *"AI-generated — verify before acting"*: alw
 
 ## 9. Important limits of this version
 
-AegisOps v1 is for **learning, evaluation and demos on one computer**. It is not ready to protect real
-production systems yet: it runs in development mode, only on `127.0.0.1`, without HTTPS, and some security
-items are still open (see [security review](security-review-v1.md)). The plan for production use is in
-[roadmap v1.1](roadmap-v1.1.md).
+The setup in this manual is for **learning, evaluation and demos on one computer**: it runs in development mode,
+only on `127.0.0.1`, without HTTPS, with demo accounts. To run AegisOps for a team on a server with a real domain
+and HTTPS, follow [run AegisOps on a server](deploy-production.md) instead. Even then it is one server (not highly
+available), there is no screen to create more user accounts yet, and some security items are still open (see the
+[security review](security-review-v1.md) and [roadmap v1.1](roadmap-v1.1.md)).
 
 ## 10. Where to go next
 
@@ -262,6 +263,7 @@ items are still open (see [security review](security-review-v1.md)). The plan fo
 - [Vision and scope](01-vision-and-scope.md) and [architecture](02-architecture.md) — how the pieces fit together.
 - [Policy engine](05-policy-engine.md) — every rule type and how decisions are made.
 - [AI gateway](08-ai-gateway.md) — how detection, redaction and limits work.
+- [Run AegisOps on a server](deploy-production.md) — production profile, first Admin, HTTPS with Caddy.
 - [Connect your repository](connect-your-repository.md) — put **your own application** behind AegisOps: create
   the project, configure Staging, add the copy-paste GitHub Actions workflow (or plain `curl` for GitLab, Jenkins
   and others), and fix common problems.
