@@ -7,6 +7,18 @@ Conventional Commit history (`git log --no-merges`).
 
 ## [Unreleased]
 
+### Security
+
+- API and Worker containers run as the unprivileged `app` user (UID 1654) instead of root.
+- nginx forwards only `websocket` upgrades to the API (no h2c upgrade smuggling) and the CSP allows
+  `connect-src 'self'` only (no unencrypted WebSocket origin, no host taken from the request).
+- GitHub Actions are pinned by commit SHA; Dependabot waits 7 days before proposing a new release, groups
+  `react`/`react-dom`, and keeps nginx on its stable line.
+
+### Changed
+
+- `react` and `react-dom` 19.3.1.
+
 ## [1.0.0] — 2026-11-11
 
 First public release, for evaluation and demos on a single machine (see README, "Intended use and limits").

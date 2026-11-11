@@ -8,7 +8,9 @@ with urlopen("http://127.0.0.1:3000/", timeout=10) as response:
     assert "script-src 'self'" in policy, policy
     assert "object-src 'none'" in policy, policy
     assert "frame-ancestors 'none'" in policy, policy
-    assert "connect-src 'self' ws://127.0.0.1:3000 wss://127.0.0.1:3000" in policy, policy
+    # 'self' covers same-origin ws:/wss: (CSP Level 3); no host taken from the request's Host header.
+    assert "connect-src 'self';" in policy, policy
+    assert "ws://" not in policy and "wss://" not in policy, policy
     assert "'unsafe-inline'" not in policy, policy
     assert "'unsafe-eval'" not in policy, policy
 
