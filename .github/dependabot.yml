@@ -35,6 +35,14 @@ updates:
       # The web image follows nginx's stable line (even minor versions); odd minors are mainline.
       - dependency-name: "nginx"
         versions: ["1.31.x", "1.33.x", "1.35.x"]
+      # The projects target net10.0 (LTS): a new .NET major is a planned retarget, not an image bump.
+      - dependency-name: "dotnet/sdk"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dotnet/aspnet"
+        update-types: ["version-update:semver-major"]
+      # Build with Node.js LTS lines only (even majors); odd majors are never LTS.
+      - dependency-name: "node"
+        versions: ["23.x", "25.x", "27.x"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
