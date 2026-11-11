@@ -106,6 +106,8 @@ providers, LangChain, multiple AI providers. See [`docs/03-tech-stack.md`](docs/
 | 19 | [Roadmap](docs/19-roadmap.md) | Phases 0–8, deliverables, definition of done |
 | 20 | [Glossary](docs/20-glossary.md) | Terminology |
 | — | [ADRs](docs/adr/README.md) | Architecture decision records |
+| — | [User manual](docs/user-manual.md) | Beginner's guide: concepts, installation, tutorials |
+| — | [Connect your repository](docs/connect-your-repository.md) | Onboard your own app: project, Staging target, API key, GitHub Actions or curl |
 
 ## Intended use and limits (v1)
 
@@ -120,6 +122,7 @@ outside Development, no TLS setup, and the open items in
 
 > **New to DevSecOps?** Start with the [user manual](docs/user-manual.md): it explains the ideas in plain
 > words, then walks you through installation and four hands-on tutorials.
+> **Want to deploy your own application?** Follow [connect your repository](docs/connect-your-repository.md).
 
 Requires Docker Compose, about 4 GB of free memory and ~5 GB of disk. A fresh clone is up in about a minute on
 an Apple M-series laptop (images already cached: ~30 s; cold build: ~50 s, plus base-image downloads).

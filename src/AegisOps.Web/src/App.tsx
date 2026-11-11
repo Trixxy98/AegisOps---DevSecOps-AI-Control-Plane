@@ -7,6 +7,7 @@ import {
   shouldPoll,
   type UpdateConnectionStatus,
 } from "./deploymentUpdates";
+import { CreateProject } from "./CreateProject";
 import { EnvironmentVariables } from "./EnvironmentVariables";
 import { Findings } from "./Findings";
 
@@ -603,6 +604,11 @@ function Dashboard({
   );
 }
 
+/** API keys created from the Projects page expire after 90 days. */
+function apiKeyExpiry(): string {
+  return new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+}
+
 function Projects({
   token,
   permissions,
@@ -646,6 +652,15 @@ function Projects({
       .catch((error: Error) => onError(error.message));
   }, [token, onError]);
 
+  async function projectCreated(project: { slug: string; name: string }) {
+    setProjects((current) =>
+      [...current.filter((item) => item.slug !== project.slug), { slug: project.slug, name: project.name }].sort(
+        (left, right) => left.name.localeCompare(right.name),
+      ),
+    );
+    await open(project.slug);
+  }
+
   async function open(slug: string) {
     setSelected(slug);
     const [project, items, apiKeys] = await Promise.all([
@@ -679,7 +694,7 @@ function Projects({
     if (!selected) {
       return;
     }
-    const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = apiKeyExpiry();
     const created = await api<{ plaintext: string }>(`/api/v1/projects/${selected}/api-keys`, token, {
       method: "POST",
       body: JSON.stringify({
@@ -723,6 +738,12 @@ function Projects({
           ))}
         </ul>
         {projects.length === 0 && <p className="empty-state">No projects available.</p>}
+        {permissions.includes("projects:write") && (
+          <CreateProject
+            token={token}
+            onCreated={(project) => void projectCreated(project).catch((error: Error) => onError(error.message))}
+          />
+        )}
       </section>
       {selected && detail && (
         <div className="detail-stack">

@@ -1235,3 +1235,21 @@ textarea:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.create-project-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 16px;
+  background: #1a2029;
+  border: 1px solid #2b3440;
+  border-radius: 8px;
+}
+.create-project-form .environment-title {
+  margin: 0;
+}
+.field-hint {
+  margin: -4px 0 0;
+  color: #9ba9ba;
+  font-size: 12px;
+}

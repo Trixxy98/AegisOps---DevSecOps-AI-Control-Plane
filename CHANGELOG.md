@@ -16,9 +16,19 @@ Conventional Commit history (`git log --no-merges`).
   and UI, and never written to audit rows or logs. New table `org.environment_variables` (migration
   `EnvironmentVariables`); `scripts/gen-secrets.sh` now generates `ENVIRONMENT_SECRETS_*`; Projects screen shows
   and edits variables per environment.
+- Self-service onboarding: a **Create project** form on the Projects page (team, name, slug, description) for
+  Admins and team Owners, using the existing `POST /api/v1/projects`; the new project is selected after creation
+  and API Problem Details are shown inline.
+- `examples/github-actions/`: a copy-paste GitHub Actions workflow (build/test, GHCR image with a unique version
+  per run, Gitleaks/Semgrep/Trivy SARIF, report job on a self-hosted runner) with `image-meta.sh`,
+  `verify-scans.sh` and `test-summary.sh` (JUnit XML to the AegisOps test summary).
 
 ### Documentation
 
+- `docs/connect-your-repository.md`: end-to-end guide for connecting your own repository (prerequisites,
+  project and Staging target, API key, GitHub variables/secret/self-hosted runner, full workflow, plain-curl calls
+  for other CI systems, what happens next, troubleshooting). `.github/actions/aegisops-report/README.md`
+  documents the action's inputs, API key scopes, exit behaviour and `@v1` versioning.
 - `docs/user-manual.md`: a beginner's guide with plain-language concepts, a glossary, installation, a
   screen-by-screen tour, four hands-on tutorials, AI usage, roles and troubleshooting.
 
