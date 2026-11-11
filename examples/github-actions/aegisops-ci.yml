@@ -1,0 +1,184 @@
+# AegisOps example CI workflow for GitHub Actions.
+# Guide: docs/connect-your-repository.md in the AegisOps repository.
+#
+# Copy this file to .github/workflows/aegisops-ci.yml in YOUR repository, copy scripts/*.sh to scripts/,
+# then change every line marked "# CHANGE ME".
+#
+# Flow: build + test -> build and push the image to GHCR (unique version per run) -> Gitleaks, Semgrep and
+# Trivy SARIF -> register the artifact, upload the scans and request a Staging deployment in AegisOps.
+#
+# Needs in the repository settings:
+#   Variables: AEGISOPS_URL      (for example http://127.0.0.1:8080, as seen from the self-hosted runner)
+#   Secrets:   AEGISOPS_API_KEY  (a project API key with artifacts:write, scans:write, deployments:request)
+#   A self-hosted runner on the AegisOps machine with the label "aegisops" (it needs bash, curl and jq).
+#
+# Third-party actions are pinned by commit SHA (the comment shows the version). Dependabot
+# (package-ecosystem: github-actions) keeps the SHAs current.
+
+name: aegisops-ci
+
+on:
+  push:
+    branches: [main] # CHANGE ME: the branches that should be deployed to Staging
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: AegisOps environment to request
+        type: choice
+        options: [Staging, Production]
+
+permissions:
+  contents: read
+
+env:
+  AEGISOPS_PROJECT: orders-service # CHANGE ME: your AegisOps project slug
+  IMAGE_NAME: orders-service # CHANGE ME: your image name (ghcr.io/<owner>/<IMAGE_NAME>)
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # CHANGE ME: install your toolchain (actions/setup-dotnet, actions/setup-node, actions/setup-python, ...),
+      # then run your tests so that they write JUnit XML into test-results/. Examples:
+      #   .NET:   dotnet test --logger "junit;LogFilePath=$PWD/test-results/{assembly}.xml"   (JunitXml.TestLogger)
+      #   Node:   npx jest --ci --reporters=default --reporters=jest-junit   (JEST_JUNIT_OUTPUT_DIR=test-results)
+      #   Python: pytest --junitxml=test-results/junit.xml
+      #   Java:   mvn verify, then use target/surefire-reports/*.xml
+      - name: Run tests
+        run: |
+          echo "Replace this step with your test command (see the comments above)." >&2
+          exit 1
+
+      - name: Test summary for AegisOps
+        run: bash scripts/test-summary.sh test-summary.json test-results/*.xml
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-summary
+          path: test-summary.json
+
+  image:
+    name: Build and push image
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      image: ${{ steps.meta.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - id: meta
+        name: Unique version and image name
+        run: bash scripts/image-meta.sh
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: . # CHANGE ME if your Dockerfile is not at the repository root (also set "file:")
+          push: true
+          tags: ${{ steps.meta.outputs.image }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT_SHA=${{ github.sha }}
+
+  security:
+    name: Security scans (SARIF)
+    needs: image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0 # Gitleaks scans the whole Git history
+
+      # Findings are reported to AegisOps, which decides; only scanner errors fail CI (--exit-code 0).
+      - name: Gitleaks
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src zricethezav/gitleaks:v8.24.3 \
+            git --redact --report-format sarif --report-path /src/gitleaks.sarif --exit-code 0 .
+
+      - name: Semgrep
+        run: |
+          # Add rule packs for your language, for example --config p/csharp, p/javascript, p/python, p/java.
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep:1.177.0 semgrep scan \
+            --config p/default --metrics=off --sarif --output semgrep.sarif
+
+      - name: Authenticate to GHCR for the image scan
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trivy (image)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ needs.image.outputs.image }}
+          format: sarif
+          output: trivy.sarif
+          exit-code: "0"
+          version: v0.71.0
+
+      - name: Verify scanner output
+        run: bash scripts/verify-scans.sh gitleaks.sarif semgrep.sarif trivy.sarif
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: scans
+          path: |
+            gitleaks.sarif
+            semgrep.sarif
+            trivy.sarif
+
+  register:
+    name: Report to AegisOps
+    needs: [image, security]
+    # Never on pull requests: this job runs on your own machine and uses the AegisOps API key.
+    if: github.event_name != 'pull_request'
+    # AegisOps v1 listens on 127.0.0.1 only, so this job must run on a self-hosted runner on the AegisOps machine.
+    runs-on: [self-hosted, aegisops]
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: test-summary
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: scans
+
+      # Pinned to the commit of the AegisOps report action's v1 tag; Dependabot (github-actions) keeps it current.
+      # You may write @v1 instead, but a commit SHA cannot change under you.
+      - uses: Trixxy98/AegisOps---DevSecOps-AI-Control-Plane/.github/actions/aegisops-report@942fea38d724e7ce14f61f6de06113500a358e3b # v1
+        with:
+          url: ${{ vars.AEGISOPS_URL }}
+          api-key: ${{ secrets.AEGISOPS_API_KEY }}
+          project: ${{ env.AEGISOPS_PROJECT }}
+          version: ${{ needs.image.outputs.version }}
+          commit-sha: ${{ github.sha }}
+          branch: ${{ github.ref_name }}
+          image: ${{ needs.image.outputs.image }}
+          digest: ${{ needs.image.outputs.digest }}
+          test-summary: test-summary.json
+          scans: gitleaks.sarif,semgrep.sarif,trivy.sarif
+          deploy-to: ${{ github.event.inputs.environment || 'Staging' }}

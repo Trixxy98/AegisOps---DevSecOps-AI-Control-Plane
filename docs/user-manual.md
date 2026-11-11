@@ -105,7 +105,7 @@ Copy the passwords somewhere safe. If you lose them, see [Troubleshooting](#8-tr
 | Menu | What you do there |
 | --- | --- |
 | **Overview** | Counts of deployments by result (Succeeded, Denied, …). |
-| **Projects** | Pick a project to see its **Environments**, create **API keys**, and see its **Artifacts** with a **Deploy …** button per environment. |
+| **Projects** | **Create project** (Admins and team Owners). Pick a project to see its **Environments**, create **API keys**, and see its **Artifacts** with a **Deploy …** button per environment. |
 | **Deployments** | Every deployment request. Click one to see the **policy decision**, each **rule** that passed or failed, the **timeline** (live), and the **findings** of its artifact. |
 | **Approvals** | Requests waiting for *your* approval, with **Approve** / **Reject**. A pop-up (toast) appears here the moment a new one arrives. |
 | **Findings** | All security findings across your projects, by severity. Security users can **suppress** a reviewed false positive. |
@@ -262,6 +262,7 @@ items are still open (see [security review](security-review-v1.md)). The plan fo
 - [Vision and scope](01-vision-and-scope.md) and [architecture](02-architecture.md) — how the pieces fit together.
 - [Policy engine](05-policy-engine.md) — every rule type and how decisions are made.
 - [AI gateway](08-ai-gateway.md) — how detection, redaction and limits work.
-- Connecting a real GitHub repository: see [target applications](13-target-applications.md) (a step-by-step
-  guide for your own repositories is planned for v1.1).
+- [Connect your repository](connect-your-repository.md) — put **your own application** behind AegisOps: create
+  the project, configure Staging, add the copy-paste GitHub Actions workflow (or plain `curl` for GitLab, Jenkins
+  and others), and fix common problems.
 - Found a bug? Open an issue. Found a security problem? Follow [SECURITY.md](../SECURITY.md).

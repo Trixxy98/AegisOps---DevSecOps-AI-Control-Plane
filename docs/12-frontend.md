@@ -19,7 +19,7 @@ React 19 · TypeScript · Vite · Tailwind CSS 4 · TanStack Query 5 · React Ro
 | --- | --- | --- | --- |
 | `/login` | Login | Email/password form | anonymous |
 | `/` | Dashboard | KPI cards (deployments 7d by status, pending approvals, open findings by severity, AI requests 24h), activity feed (live), charts | all |
-| `/projects` | Projects list | Cards grouped by team; env badges with current version | all |
+| `/projects` | Projects list | Cards grouped by team; env badges with current version. As built: a list plus a **Create project** form (`CreateProject.tsx`, team/name/slug/description → `POST /api/v1/projects`), shown with `projects:write` and offering only teams the user owns (Admins: all) | all |
 | `/projects/:slug` | Project overview | Environments strip (Dev/Staging/Prod with current artifact + "Deploy" action), recent deployments, latest artifact scan summary | all |
 | `/projects/:slug/artifacts` | Artifacts | Table: version, branch, sha, checks (build/test/3 scanners as ✓/✗/–), deployed-to badges | all |
 | `/projects/:slug/artifacts/:id` | Artifact detail | Metadata, scan summaries, findings tabs per scanner, "Request deployment" per environment | all |
