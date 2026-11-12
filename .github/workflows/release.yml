@@ -53,7 +53,7 @@ jobs:
           platforms: arm64
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # A multi-platform build cannot be loaded into the local Docker image store, so the gate scans the amd64
       # image; the arm64 image is built from the same Dockerfile and sources in the push step below.
