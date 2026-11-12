@@ -108,6 +108,8 @@ providers, LangChain, multiple AI providers. See [`docs/03-tech-stack.md`](docs/
 | — | [ADRs](docs/adr/README.md) | Architecture decision records |
 | — | [User manual](docs/user-manual.md) | Beginner's guide: concepts, installation, tutorials |
 | — | [Connect your repository](docs/connect-your-repository.md) | Onboard your own app: project, Staging target, API key, GitHub Actions or curl |
+| — | [Deploy to production](docs/deploy-production.md) | One server with HTTPS: production profile, `migrate`, first Admin, Caddy |
+| — | [Operations guide](docs/operations.md) | Backups and restore drills, upgrades, secret rotation, monitoring, sizing |
 
 ## Intended use and limits (v1)
 
@@ -117,7 +119,9 @@ and policies.
 
 Running AegisOps for a team on **a single server with HTTPS** is supported through the production profile:
 [docs/deploy-production.md](docs/deploy-production.md) (Production mode, one-shot `migrate`, `bootstrap-admin` for
-the first Admin, Caddy with automatic certificates and HSTS). It is still **not** highly available or
+the first Admin, Caddy with automatic certificates and HSTS). Day-two work (backups with `scripts/backup.sh`,
+restores and restore drills with `scripts/restore.sh`, upgrades, key rotation, sizing) is in
+[docs/operations.md](docs/operations.md). It is still **not** highly available or
 multi-tenant, there is no user-management screen beyond the first Admin yet, and the remaining open items in
 [docs/security-review-v1.md](docs/security-review-v1.md) apply (progress: [docs/roadmap-v1.1.md](docs/roadmap-v1.1.md)).
 Report security problems privately: [SECURITY.md](SECURITY.md).

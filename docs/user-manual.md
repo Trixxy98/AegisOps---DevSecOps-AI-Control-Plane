@@ -279,6 +279,9 @@ available), and some security items are still open (see the
 - [Policy engine](05-policy-engine.md) — every rule type and how decisions are made.
 - [AI gateway](08-ai-gateway.md) — how detection, redaction and limits work.
 - [Run AegisOps on a server](deploy-production.md) — production profile, first Admin, HTTPS with Caddy.
+- [Operations guide](operations.md) — backups (`scripts/backup.sh`), restores and restore drills
+  (`scripts/restore.sh`), upgrades, rotating keys and passwords, monitoring and sizing. Back up before you
+  upgrade, also on a laptop.
 - [Connect your repository](connect-your-repository.md) — put **your own application** behind AegisOps: create
   the project, configure Staging, add the copy-paste GitHub Actions workflow (or plain `curl` for GitLab, Jenkins
   and others), and fix common problems.

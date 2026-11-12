@@ -1,0 +1,29 @@
+# Restore drill (docs/operations.md): run a SECOND, isolated copy of AegisOps next to the real one, restore a
+# backup into it and compare. Always use it with its own project name and without the TLS file:
+#
+#   scripts/restore.sh backups/aegisops-<stamp> --project-name aegisops-drill [--prod] -f deploy/docker-compose.drill.yml
+#   docker compose -p aegisops-drill -f docker-compose.yml [-f deploy/docker-compose.prod.yml] \
+#     -f deploy/docker-compose.drill.yml down -v          # remove the drill afterwards
+#
+# Isolation: the root file names its network `aegisops` (fixed, shared by every project), so without this file a
+# second project's `postgres` and `redis` would answer on the real stack's network. Here the drill gets its own
+# network, publishes nothing except the API and web on other loopback ports, and does NOT start the worker: a
+# restored database may hold queued deployment jobs, and a drill must never touch real containers.
+services:
+  postgres:
+    ports: !reset []
+  redis:
+    ports: !reset []
+  api:
+    ports: !override
+      - "127.0.0.1:18080:8080"
+  web:
+    ports: !override
+      - "127.0.0.1:13000:80"
+  worker:
+    # Only started when named explicitly; never name it in a drill.
+    profiles: !override ["drill-worker-disabled"]
+
+networks:
+  aegisops:
+    name: aegisops-drill
