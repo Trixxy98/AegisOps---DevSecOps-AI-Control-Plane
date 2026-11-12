@@ -60,6 +60,24 @@ Legend for **Auth**: permission name, or `key:<scope>` for API keys, `Admin` for
 | PATCH | `/admin/users/{id}` | Activate/deactivate, display name | `users:manage` |
 | PUT | `/admin/users/{id}/roles` | Set roles | `roles:manage` |
 
+Rules and guard rails: [09](09-identity-and-authorization.md) §3 "User lifecycle".
+
+```jsonc
+// POST /admin/users
+{ "email": "aina@example.com", "displayName": "Aina", "roles": ["Developer"],
+  "team": { "slug": "platform", "role": "Member" } }       // team optional; "teamId" instead of "slug" also works
+// 201 Created, Location: /api/v1/admin/users/{id}, Cache-Control: no-store
+{ "id": "…", "email": "aina@example.com", "displayName": "Aina", "roles": ["Developer"],
+  "team": { "teamId": "…", "slug": "platform", "role": "Member" },   // null without a team
+  "temporaryPassword": "<24 characters, shown once>", "mustChangePassword": true }
+// 400 invalid email/display name/role/team, 409 email already exists
+
+// PATCH /admin/users/{id}           body: { "displayName"?: "…", "isActive"?: false }
+// PUT   /admin/users/{id}/roles     body: { "roles": ["Security", "Approver"] }
+// both → 200 { "id", "email", "displayName", "isActive", "roles" }  (same shape as GET /admin/users items)
+// 400 invalid input, 404 unknown user, 409 guard rail (self-deactivation, own Admin role, last active Admin)
+```
+
 ### 2.3 Teams
 
 | Method | Path | Purpose | Auth |

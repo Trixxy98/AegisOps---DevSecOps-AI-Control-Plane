@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Security.Cryptography;
 using AegisOps.Application.Audit;
 using AegisOps.Domain.Audit;
 using AegisOps.Domain.Identity;
@@ -61,8 +60,7 @@ public static class BootstrapAdmin {
             return Refused;
         }
 
-        // 18 random bytes → 24 Base64Url characters: above the 12-character policy, no composition rules needed.
-        var temporary = Base64UrlEncode(RandomNumberGenerator.GetBytes(18));
+        var temporary = UserAdministration.GenerateTemporaryPassword();
         var now = time.GetUtcNow();
         var user = User.Create(email, displayName, now); // MustChangePassword is true for new users.
 
@@ -85,9 +83,6 @@ public static class BootstrapAdmin {
         await output.WriteLineAsync("Sign in with it now; AegisOps makes you change it at first sign-in.");
         return 0;
     }
-
-    private static string Base64UrlEncode(byte[] bytes) =>
-        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     private static void ThrowIfFailed(IdentityResult result) {
         if (!result.Succeeded) {

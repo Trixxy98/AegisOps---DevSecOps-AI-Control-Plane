@@ -10,6 +10,7 @@ import {
 import { CreateProject } from "./CreateProject";
 import { EnvironmentVariables } from "./EnvironmentVariables";
 import { Findings } from "./Findings";
+import { UserManagement } from "./UserManagement";
 
 type View =
   | "dashboard"
@@ -61,14 +62,17 @@ export function App() {
   const [dependencyHealth, setDependencyHealth] = useState<DependencyHealth | null>(null);
   const approvalHint = useRef<(id?: string) => void>(() => {});
   const [permissions, setPermissions] = useState<string[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const visibleNavigation = navigation.filter((item) => !item.permission || permissions.includes(item.permission));
 
   useEffect(() => {
     if (!token) return;
     let active = true;
-    api<{ permissions?: string[] }>("/api/v1/auth/me", token)
+    api<{ id?: string; permissions?: string[] }>("/api/v1/auth/me", token)
       .then((me) => {
-        if (active) setPermissions(me.permissions ?? []);
+        if (!active) return;
+        setPermissions(me.permissions ?? []);
+        setCurrentUserId(me.id ?? null);
       })
       .catch(() => {
         if (active) setPermissions([]);
@@ -363,7 +367,9 @@ export function App() {
           {view === "ai" && <AiGovernance token={token} />}
           {view === "ai-chat" && <AiPlayground token={token} />}
           {view === "audit" && <Audit token={token} onError={setError} />}
-          {view === "admin" && <Admin token={token} onError={setError} />}
+          {view === "admin" && (
+            <Admin token={token} onError={setError} permissions={permissions} currentUserId={currentUserId} />
+          )}
         </section>
       </div>
       {deploymentToast && (
@@ -1863,8 +1869,17 @@ function AiGovernance({ token }: { token: string }) {
   );
 }
 
-function Admin({ token, onError }: { token: string; onError: (value: string | null) => void }) {
-  const [users, setUsers] = useState<Array<{ id: string; email: string; displayName: string; roles: string[] }>>([]);
+function Admin({
+  token,
+  onError,
+  permissions,
+  currentUserId,
+}: {
+  token: string;
+  onError: (value: string | null) => void;
+  permissions: string[];
+  currentUserId: string | null;
+}) {
   const [teams, setTeams] = useState<Array<{ slug: string; name: string; myRole?: string | null }>>([]);
   const [webhooks, setWebhooks] = useState<Record<string, { url: string; configured: boolean; eventTypes: string[] }>>(
     {},
@@ -1911,7 +1926,6 @@ function Admin({ token, onError }: { token: string; onError: (value: string | nu
   const [queue, setQueue] = useState<{ pending: number; running: number; deadLettered: number } | null>(null);
   useEffect(() => {
     Promise.all([
-      api<Array<{ id: string; email: string; displayName: string; roles: string[] }>>("/api/v1/admin/users", token),
       api<Array<{ slug: string; name: string; myRole?: string | null }>>("/api/v1/teams", token),
       api<Array<{ id: string; type: string; status: string; lastError?: string }>>(
         "/api/v1/admin/jobs?status=DeadLettered",
@@ -1921,8 +1935,7 @@ function Admin({ token, onError }: { token: string; onError: (value: string | nu
         () => null,
       ),
     ])
-      .then(([accounts, groups, dead, depth]) => {
-        setUsers(accounts);
+      .then(([groups, dead, depth]) => {
         setTeams(groups);
         void Promise.all(
           groups.map(async (team) => {
@@ -2000,19 +2013,7 @@ function Admin({ token, onError }: { token: string; onError: (value: string | nu
 
   return (
     <div className="admin-grid">
-      <section className="panel">
-        <div className="panel-heading">
-          <h2>Users</h2>
-          <span>{users.length} total</span>
-        </div>
-        <ul className="item-list">
-          {users.map((user) => (
-            <li key={user.id} className="detail-row">
-              {user.displayName} · {user.email} · {user.roles.join(", ")}
-            </li>
-          ))}
-        </ul>
-      </section>
+      <UserManagement token={token} permissions={permissions} currentUserId={currentUserId} teams={teams} />
       <section className="panel">
         <div className="panel-heading">
           <h2>Teams</h2>

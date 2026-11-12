@@ -126,6 +126,12 @@ app.MapGet("/api/v1/admin/ping", () => Results.NoContent())
     .RequireAuthorization(Permissions.UsersManage);
 app.MapGet("/api/v1/admin/users", ListUsers.Handle)
     .RequireAuthorization(Permissions.UsersManage);
+app.MapPost("/api/v1/admin/users", CreateUser.Handle)
+    .RequireAuthorization(Permissions.UsersManage);
+app.MapPatch("/api/v1/admin/users/{id:guid}", UpdateUser.Handle)
+    .RequireAuthorization(Permissions.UsersManage);
+app.MapPut("/api/v1/admin/users/{id:guid}/roles", SetUserRoles.Handle)
+    .RequireAuthorization(Permissions.RolesManage);
 app.MapPost("/api/v1/admin/users/{id:guid}/reset-password", ResetUserPassword.Handle)
     .RequireAuthorization(Permissions.UsersManage);
 app.MapGet("/api/v1/teams", ListTeams.Handle)

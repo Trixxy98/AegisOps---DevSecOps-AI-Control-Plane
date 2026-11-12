@@ -19,6 +19,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Xunit;
+using AegisOps.Infrastructure.Identity;
 
 namespace AegisOps.Api.Tests;
 
@@ -269,7 +270,7 @@ public sealed class TeamWebhookManagementTests {
                 .AddLogging()
                 .AddDbContext<AegisOpsDbContext>(options => options.UseSqlite(connection)
                     .UseSnakeCaseNamingConvention().ReplaceService<IModelCustomizer, SqliteModelCustomizer>())
-                .AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>()
+                .AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>()
                 .Services.BuildServiceProvider();
             Db = services.GetRequiredService<AegisOpsDbContext>();
             Users = services.GetRequiredService<UserManager<User>>();

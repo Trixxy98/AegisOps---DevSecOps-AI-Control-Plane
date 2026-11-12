@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using System.Security.Cryptography;
 using AegisOps.Application.Audit;
 using AegisOps.Domain.Identity;
 using AegisOps.Infrastructure.Persistence;
@@ -42,8 +41,7 @@ public static class ResetUserPassword {
             return Results.Problem(title: "User was not found.", statusCode: StatusCodes.Status404NotFound);
         }
 
-        // 18 random bytes → 24 Base64Url characters: above the 12-character policy, no composition rules needed.
-        var temporary = Base64UrlEncode(RandomNumberGenerator.GetBytes(18));
+        var temporary = UserAdministration.GenerateTemporaryPassword();
         if (await users.HasPasswordAsync(user)) {
             ThrowIfFailed(await users.RemovePasswordAsync(user));
         }
@@ -68,9 +66,6 @@ public static class ResetUserPassword {
         http.Response.Headers.CacheControl = "no-store";
         return Results.Ok(new ResetUserPasswordResponse(user.Id, temporary, true));
     }
-
-    private static string Base64UrlEncode(byte[] bytes) =>
-        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     private static void ThrowIfFailed(IdentityResult result) {
         if (!result.Succeeded) {

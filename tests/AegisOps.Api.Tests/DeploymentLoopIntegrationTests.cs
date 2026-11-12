@@ -18,6 +18,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using OrgEnvironment = AegisOps.Domain.Organization.Environment;
+using AegisOps.Infrastructure.Identity;
 
 namespace AegisOps.Api.Tests;
 
@@ -113,7 +114,7 @@ public sealed class DeploymentLoopIntegrationTests {
         collection.AddDbContext<AegisOpsDbContext>(options => options.UseNpgsql(connectionString)
             .UseSnakeCaseNamingConvention().EnableServiceProviderCaching(false));
         collection.AddScoped<IAuditWriter, EfAuditWriter>();
-        collection.AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
+        collection.AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
         return collection.BuildServiceProvider();
     }
 

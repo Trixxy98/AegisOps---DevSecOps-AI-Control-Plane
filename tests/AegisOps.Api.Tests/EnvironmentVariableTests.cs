@@ -28,6 +28,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ProjectEnvironment = AegisOps.Domain.Organization.Environment;
+using AegisOps.Infrastructure.Identity;
 
 namespace AegisOps.Api.Tests;
 
@@ -371,7 +372,7 @@ public sealed class EnvironmentVariableTests {
             builder.Services.AddSingleton(secretsEnabled
                 ? Protector(("k1", Key(9)))
                 : new EnvironmentSecretProtector(new ConfigurationBuilder().Build()));
-            builder.Services.AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
+            builder.Services.AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
             var app = builder.Build();
             app.UseAuthentication();
             app.UseAuthorization();

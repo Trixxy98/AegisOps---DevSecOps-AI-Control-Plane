@@ -16,6 +16,14 @@ Conventional Commit history (`git log --no-merges`).
 - First-admin bootstrap (item 2): `bootstrap-admin --email <address> [--display-name <name>]` creates the first Admin
   with a random temporary password printed once and a forced change at first sign-in, audited as
   `user.bootstrapped`; it refuses when any Admin exists.
+- User management (item 2 follow-up): `POST /api/v1/admin/users` creates a user with roles, an optional team
+  membership and a random temporary password returned once (`Cache-Control: no-store`, forced change at first
+  sign-in); `PATCH /api/v1/admin/users/{id}` renames and activates/deactivates (revoking refresh tokens);
+  `PUT /api/v1/admin/users/{id}/roles` replaces roles (`roles:manage`, revokes refresh tokens). Guard rails: no
+  self-deactivation or removal of one's own Admin role, and the last active Admin is kept (409). Audited as
+  `user.created`, `user.updated`, `user.deactivated`, `user.activated`, `user.roles_changed`, never with the
+  password. Administration → Users gets an Add user form (password shown once), Activate/Deactivate, Edit roles
+  and Reset password.
 - HTTPS (item 3): `deploy/docker-compose.tls.yml` and `deploy/caddy/Caddyfile` put Caddy in front (automatic
   certificates for `AEGISOPS_DOMAIN`, HTTP→HTTPS, HSTS); only ports 80/443 are published in that mode.
 - Unhandled API exceptions return RFC 9457 Problem Details with a `traceId` (item 5).

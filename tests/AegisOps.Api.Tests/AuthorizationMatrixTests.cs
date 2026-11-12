@@ -156,6 +156,9 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         new("GET", "/api/v1/admin/ping", "users:manage", "users:manage", AdminOnly),
         new("GET", "/api/v1/admin/users", "users:manage", "users:manage", AdminOnly),
         new("POST", "/api/v1/admin/users/{id:guid}/reset-password", "users:manage", "users:manage", AdminOnly),
+        new("POST", "/api/v1/admin/users", "users:manage", "users:manage", AdminOnly),
+        new("PATCH", "/api/v1/admin/users/{id:guid}", "users:manage", "users:manage", AdminOnly),
+        new("PUT", "/api/v1/admin/users/{id:guid}/roles", "roles:manage", "roles:manage", AdminOnly),
         new("GET", "/api/v1/teams", "teams:read", "teams:read", AllRoles),
         // Creating a team: teams:write per docs/09, but the "Owner of team" condition cannot apply to a new team.
         new("POST", "/api/v1/teams", "users:manage", "teams:write", AdminOnly),
@@ -288,7 +291,7 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         Assert.True(missing.Length == 0 && unexpected.Length == 0,
             "Program.cs endpoints differ from the authorization matrix. Add new routes to Routes with their docs/09 permission.\n" +
             $"Not in Program.cs: {string.Join("; ", missing)}\nNot in matrix: {string.Join("; ", unexpected)}");
-        Assert.Equal(71, actual.Length);
+        Assert.Equal(74, actual.Length);
     }
 
     [Fact]
@@ -487,6 +490,7 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
     public async Task RepresentativeRoutesSucceedOrForbidPerDocMatrix(string role) {
         await using var host = await MatrixSqlHost.StartAsync();
         var (_, bearer) = await host.CreateUserAsync($"{role}@example.test", role);
+        var (created, _) = await host.CreateUserAsync($"target-{role}@example.test", Developer);
         var team = await host.SeedTeamAsync("matrix-team");
         var expected = (string permission, HttpStatusCode success) =>
             DocMatrix[permission][Array.IndexOf(Roles, role)] == Cell.No ? HttpStatusCode.Forbidden : success;
@@ -496,6 +500,10 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         await AssertStatus(host, "GET", "/api/v1/policies", bearer, null, expected("policies:read", HttpStatusCode.OK));
         await AssertStatus(host, "GET", "/api/v1/audit", bearer, null, expected("audit:read", HttpStatusCode.OK));
         await AssertStatus(host, "GET", "/api/v1/admin/users", bearer, null, expected("users:manage", HttpStatusCode.OK));
+        await AssertStatus(host, "POST", "/api/v1/admin/users", bearer,
+            new CreateUserRequest($"new-{role}@example.test", "New user", [role], null), expected("users:manage", HttpStatusCode.Created));
+        await AssertStatus(host, "PUT", $"/api/v1/admin/users/{created}/roles", bearer,
+            new SetUserRolesRequest([role]), expected("roles:manage", HttpStatusCode.OK));
         await AssertStatus(host, "POST", "/api/v1/policies", bearer,
             new CreatePolicyRequest($"{role} team policy", null, "Team", team, ProductionTier, null),
             expected("policies:write", HttpStatusCode.Created));
@@ -871,7 +879,8 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         internal static readonly (string Method, string Path)[] MappedRoutes = [
             ("GET", "/api/v1/teams"), ("GET", "/api/v1/projects"), ("GET", "/api/v1/projects/any"),
             ("PATCH", "/api/v1/projects/any"), ("POST", "/api/v1/projects"), ("GET", "/api/v1/policies"), ("POST", "/api/v1/policies"),
-            ("PUT", "/api/v1/ai/policies"), ("GET", "/api/v1/audit"), ("GET", "/api/v1/admin/users"),
+            ("PUT", "/api/v1/ai/policies"), ("GET", "/api/v1/audit"), ("GET", "/api/v1/admin/users"), ("POST", "/api/v1/admin/users"),
+            ("PUT", $"/api/v1/admin/users/{Guid.Empty}/roles"),
         ];
 
         private readonly WebApplication _app;
@@ -900,7 +909,7 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddDbContext<AegisOpsDbContext>(options => options.UseSqlite(connection)
                 .UseSnakeCaseNamingConvention().ReplaceService<IModelCustomizer, SqliteModelCustomizer>());
-            builder.Services.AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
+            builder.Services.AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
             builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
             builder.Services.AddJwtAuthentication(builder.Configuration);
 
@@ -964,6 +973,14 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
                 .RequireAuthorization(Permissions.AuditRead);
             app.MapGet("/api/v1/admin/users", (UserManager<User> users) => ListUsers.Handle(users))
                 .RequireAuthorization(Permissions.UsersManage);
+            app.MapPost("/api/v1/admin/users", (CreateUserRequest body, ClaimsPrincipal user, UserManager<User> users,
+                AegisOpsDbContext db, IAuditWriter audit, TimeProvider time, HttpContext http) =>
+                CreateUser.Handle(body, user, users, db, audit, time, http))
+                .RequireAuthorization(Permissions.UsersManage);
+            app.MapPut("/api/v1/admin/users/{id:guid}/roles", (Guid id, SetUserRolesRequest body, ClaimsPrincipal user,
+                UserManager<User> users, AegisOpsDbContext db, IAuditWriter audit, TimeProvider time, HttpContext http) =>
+                SetUserRoles.Handle(id, body, user, users, db, audit, time, http))
+                .RequireAuthorization(Permissions.RolesManage);
             await app.StartAsync(Token);
 
             var host = new MatrixSqlHost(app, connection);
