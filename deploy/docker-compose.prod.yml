@@ -10,10 +10,14 @@
 # page, JSON logs, startup refuses the .env.example JWT key and the Development database password), no automatic
 # migrations (run `migrate` before `up` and after every upgrade), PostgreSQL and Redis not published on the host,
 # and services restart after a reboot.
+# Database roles (audit tamper protection, docs/17 §2): api and worker connect as the restricted role `aegisops_app`
+# (APP_DB_PASSWORD), which may only SELECT and INSERT on audit.*; only `migrate` connects as the owner `aegisops`
+# (POSTGRES_PASSWORD) and creates/updates that role. Upgrading: add APP_DB_PASSWORD (scripts/gen-secrets.sh --upgrade),
+# run `migrate` once, then `up -d`. The Development stack (root file alone) still connects as the owner.
 x-production-env: &production-env
   ASPNETCORE_ENVIRONMENT: Production
   DOTNET_ENVIRONMENT: Production
-  ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=aegisops;Username=aegisops;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (scripts/gen-secrets.sh)}
+  ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=aegisops;Username=aegisops_app;Password=${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env (scripts/gen-secrets.sh --upgrade)}
 
 services:
   postgres:
@@ -47,7 +51,8 @@ services:
     image: aegisops-web:${AEGISOPS_IMAGE_TAG:-local}
     restart: unless-stopped
 
-  # One-shot: apply database migrations and create the four roles, then exit. Same image as the API.
+  # One-shot: apply database migrations, create the four application roles and the restricted database role
+  # aegisops_app, then exit. Same image as the API; the only service that connects as the owner.
   #   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml run --rm migrate
   migrate:
     image: aegisops-api:${AEGISOPS_IMAGE_TAG:-local}
@@ -58,6 +63,8 @@ services:
     command: ["migrate"]
     environment:
       <<: *production-env
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=aegisops;Username=aegisops;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (scripts/gen-secrets.sh)}
+      AppDatabase__Password: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env (scripts/gen-secrets.sh --upgrade)}
     restart: "no"
     depends_on:
       postgres:

@@ -26,7 +26,8 @@ public static class AdminCommands {
     private const string Usage = """
         Usage:
           dotnet AegisOps.Api.dll migrate
-              Apply database migrations and create the Admin, Developer, Security and Approver roles.
+              Apply database migrations, create the Admin, Developer, Security and Approver roles and, when
+              AppDatabase:Password (APP_DB_PASSWORD) is set, the restricted aegisops_app database role.
           dotnet AegisOps.Api.dll bootstrap-admin --email <address> [--display-name <name>]
               Create the first Admin with a temporary password (refused when an Admin exists).
         """;
@@ -89,7 +90,33 @@ public static class AdminCommands {
         await output.WriteLineAsync(created.Count == 0
             ? "Roles already present: " + string.Join(", ", IdentityRoles.All) + "."
             : "Created roles: " + string.Join(", ", created) + ".");
+        await EnsureAppDatabaseRoleAsync(scope.ServiceProvider, output, cancellationToken);
         return 0;
+    }
+
+    /// <summary>
+    /// Roadmap v1.1 item 6: when <c>AppDatabase:Password</c> (<c>APP_DB_PASSWORD</c>) is configured, creates or updates the
+    /// restricted <see cref="AppDatabaseRole.DefaultName"/> role used by the production api and worker (SELECT/INSERT only on
+    /// <c>audit</c>). Without it, nothing changes: the Development stack keeps connecting as the owner. Never prints the
+    /// password.
+    /// </summary>
+    private static async Task EnsureAppDatabaseRoleAsync(IServiceProvider services, TextWriter output, CancellationToken cancellationToken) {
+        var password = services.GetService<IConfiguration>()?[AppDatabaseRole.PasswordKey];
+        if (string.IsNullOrWhiteSpace(password)) {
+            await output.WriteLineAsync(
+                $"{AppDatabaseRole.PasswordKey} (APP_DB_PASSWORD) is not set: the restricted role {AppDatabaseRole.DefaultName} was not created or updated.");
+            return;
+        }
+
+        var db = services.GetRequiredService<AegisOpsDbContext>();
+        if (!db.Database.IsNpgsql()) {
+            await output.WriteLineAsync("Not a PostgreSQL database: the application role was skipped.");
+            return;
+        }
+
+        await AppDatabaseRole.EnsureAsync(db, AppDatabaseRole.DefaultName, password, cancellationToken);
+        await output.WriteLineAsync(
+            $"Database role {AppDatabaseRole.DefaultName} is up to date (audit: SELECT and INSERT only).");
     }
 
     public static bool TryParseBootstrapOptions(

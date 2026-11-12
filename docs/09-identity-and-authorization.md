@@ -71,7 +71,7 @@ Guard rails (all `409` Problem Details, nothing is changed or audited):
 The SPA hides actions the caller lacks (`users:manage` for add/activate/deactivate/reset password, `roles:manage`
 for role editing) and does not offer "Deactivate" on the caller's own row; the API enforces both regardless.
 
-Rate limiting on `login`/`refresh`: 10 req/min per IP (ASP.NET rate limiter, fixed window).
+Rate limiting on `login`/`refresh`: 10 req/min per IP (ASP.NET rate limiter, fixed window). All other `/api` traffic shares a token bucket per principal (user `sub`, API key id, or client IP when anonymous; 300 tokens) and scan uploads have an extra 30-token bucket; 429s carry `Retry-After` (docs/17 §3).
 
 ## 4. Roles and permissions
 

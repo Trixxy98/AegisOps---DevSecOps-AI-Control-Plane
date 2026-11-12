@@ -63,6 +63,18 @@ Conventional Commit history (`git log --no-merges`).
   limiter, so limits and refresh-token records see the real client behind Caddy and nginx. nginx now forwards both
   headers on `/api/` and `/hubs/` and accepts scan uploads up to the API's 20 MiB limit.
 - Exception details are never returned to clients; the generic 500 response carries only a `traceId`.
+- Rate limits per principal (roadmap v1.1 item 4): a global token bucket on `/api` per user (`sub`), API key or,
+  for anonymous requests, client IP (300 tokens, 50 back every 10 s), a separate bucket on `/hubs`, an `uploads`
+  policy for `POST /api/v1/artifacts/{id}/scans` (30, 5 every 10 s) and the unchanged `auth` policy (10/min per
+  IP). Health and metrics are never limited. Every 429 is RFC 9457 Problem Details with `Retry-After` (the auth
+  limiter sent none before). Configurable under `RateLimits:*`. The limiter now runs right after authentication.
+- Audit tamper protection (item 6): the `migrate` command creates or updates the LOGIN role `aegisops_app` from
+  `AppDatabase:Password` (`APP_DB_PASSWORD`) with normal rights on the application schemas but only
+  `SELECT`/`INSERT` on `audit.*`, including default privileges for future tables. In
+  `deploy/docker-compose.prod.yml` the api and worker connect as `aegisops_app` and only `migrate` as the owner.
+  `scripts/gen-secrets.sh` generates `APP_DB_PASSWORD`; `--upgrade` appends it (and only it) to an existing `.env`,
+  adding a missing final newline first. **Upgrade:** run `scripts/gen-secrets.sh --upgrade`, `migrate`, then
+  `up -d`. The Development stack is unchanged (owner connection).
 
 - API and Worker containers run as the unprivileged `app` user (UID 1654) instead of root.
 - nginx forwards only `websocket` upgrades to the API (no h2c upgrade smuggling) and the CSP allows

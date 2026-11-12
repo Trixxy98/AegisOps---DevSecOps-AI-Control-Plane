@@ -189,7 +189,7 @@ CREATE INDEX ix_audit_actor ON audit.audit_events (actor_id, "timestamp" DESC);
 CREATE INDEX ix_audit_action ON audit.audit_events (action);
 ```
 
-Immutability: the application role `aegisops_app` has `INSERT, SELECT` only on `audit.*`.
+Immutability: the application role `aegisops_app` has `INSERT, SELECT` only on `audit.*` (production profile; created and granted by the `migrate` command, `AppDatabaseRole`; the Development stack connects as the owner).
 Migrations run as a separate role `aegisops_migrator` (owner). V2: monthly partitioning by
 `timestamp`.
 

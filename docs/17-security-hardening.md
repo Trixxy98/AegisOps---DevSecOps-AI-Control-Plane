@@ -20,7 +20,7 @@ This document is the threat model and control list for the platform.
 | --- | --- | --- |
 | **Spoofing** | Stolen API key used to register a "clean" artifact | Project-scoped keys, expiry ≤ 1 y, revocation, `LastUsedAt` anomaly visible, keys cannot deploy to Production by default, image digest recorded |
 | **Spoofing** | Stolen refresh token | Rotation + family revocation on reuse; httpOnly/SameSite=Strict/Secure cookie; short access tokens |
-| **Tampering** | Insider edits audit rows | DB role without `UPDATE/DELETE` on `audit.*`; hash-chain of audit rows (V2) |
+| **Tampering** | Insider edits audit rows | Production api/worker connect as `aegisops_app`, which has only `SELECT`/`INSERT` on `audit.*` (no `UPDATE`/`DELETE`/`TRUNCATE`; §3 "Audit integrity"); hash-chain of audit rows (V2) |
 | **Tampering** | Policy weakened before a risky deploy | Policy changes audited with diff; policy version frozen into each evaluation; `Security`/`Admin` only; UI shows "policy changed 3 min ago" banner on evaluation panel |
 | **Repudiation** | "I never approved that" | Approvals tied to authenticated user id + IP + timestamp; audit event in same transaction |
 | **Information disclosure** | Findings/report paths leak to wrong team | Team scoping on every read; 404 instead of 403 for invisible resources; raw reports served only through authorized endpoint |
@@ -42,13 +42,14 @@ This document is the threat model and control list for the platform.
 | Authorization | Deny by default: every endpoint requires authorization unless explicitly `AllowAnonymous`. Enforced by `AuthorizationMatrixTests`, which compares the real `Program.cs` endpoint table with the docs/09 matrix and allows only login/refresh anonymously (no ASP.NET fallback policy) |
 | Input validation | Hand-written checks in handlers and domain factories (no FluentValidation); max lengths; strict enum parsing; SARIF JSON depth limit 64; Docker targets restricted to `aegisops-<name>` networks, names `^[a-z0-9][a-z0-9-]{2,62}$`, host ports ≥ 1024 |
 | Output encoding | JSON only; React escapes by default; no `dangerouslySetInnerHTML` |
-| Injection | EF Core parameterization; raw SQL only for job claiming/completion/leases and webhook counters, always via `FromSqlInterpolated`/`ExecuteSqlInterpolated`; detector and AI blocked-pattern regexes have timeouts (policy branch globs: see §8) |
+| Injection | EF Core parameterization; raw SQL only for job claiming/completion/leases and webhook counters, always via `FromSqlInterpolated`/`ExecuteSqlInterpolated`, plus the `migrate` role provisioning (bind parameters, identifiers and the password quoted with `format('%I'/'%L')` in a DO block); detector and AI blocked-pattern regexes have timeouts (policy branch globs: see §8) |
 | File handling | Reports saved under server-generated paths only; original filenames never used; content-type sniffed |
 | Secrets | Env vars / user-secrets / Docker secrets; `.env` ignored; Gitleaks on every commit; secrets never logged (Serilog destructuring policy) |
 | Errors | Handlers return RFC 9457 Problem Details; unhandled exceptions go through `AddProblemDetails` + `UseExceptionHandler` and return a generic 500 Problem Details with `traceId` and no exception text, in every environment (the exception is logged). The developer exception page is never used in Production |
 | Startup configuration | Outside Development the API refuses to start with a missing JWT key, the `.env.example` placeholder key or the Development database password; keys under 32 bytes and a missing Postgres connection string are refused everywhere. Automatic migrations are Development-only; production uses the `migrate` command |
 | First Admin | No seed outside Development. `bootstrap-admin` creates the first Admin with a random 24-character temporary password printed once (never logged or audited), `MustChangePassword`, audited as `user.bootstrapped` by System/`bootstrap-admin`; refused once any Admin exists |
-| Rate limiting | `/auth/login` and `/auth/refresh`: 10/min per client IP (the real client behind the TLS proxy); AI: Redis limits per user. Planned: global per-principal and upload limits (roadmap v1.1 item 4) |
+| Rate limiting | ASP.NET rate limiter (`ApiRateLimiting`, roadmap v1.1 item 4), after authentication and before authorization so rejected floods never reach handlers or authorization audit. **Global**: token bucket per principal on `/api/*` — JWT `sub` for users, the key id for API keys, the client IP for anonymous requests — 300 tokens, 50 back every 10 s (`RateLimits:Global:*`); `/hubs/*` has its own bucket per principal so realtime cannot be starved by API use (or the reverse); `/health/*` and `/metrics` are never limited. **`uploads`** (`POST /api/v1/artifacts/{id}/scans`): 30 tokens, 5 every 10 s per principal (`RateLimits:Uploads:*`), on top of the global bucket. **`auth`** (`/auth/login`, `/auth/refresh`): 10 per minute per client IP, fixed window (`RateLimits:Auth:*`; the real client behind the TLS proxy). Every rejection is `429` Problem Details with `Retry-After` in seconds from the limiter (60 when unknown). State is in memory per API instance (one instance in v1). AI: Redis limits per user, unchanged (`RateLimitingTests`) |
+| Audit integrity | Production profile: the api and worker connect as the LOGIN role `aegisops_app`; only the one-shot `migrate` command connects as the owner (`POSTGRES_USER`). `migrate` creates or updates the role (`AppDatabaseRole`, password from `AppDatabase:Password` = `APP_DB_PASSWORD`, passed as a bind parameter and quoted with `format('%L')`, never logged), grants USAGE and `SELECT/INSERT/UPDATE/DELETE` on every owner schema except `audit`, resets `audit.*` to `SELECT, INSERT` only, sets `ALTER DEFAULT PRIVILEGES` for future tables, leaves `__EFMigrationsHistory` read-only, and refuses a role with superuser/CREATEROLE/CREATEDB/replication/BYPASSRLS or membership in the owner. No code updates or deletes audit rows (there is no audit retention), so nothing loses functionality. Tested against PostgreSQL by `AppDatabaseRoleTests` (`AEGISOPS_TEST_POSTGRES`). Residual: the owner password (in `.env` on the host) can still rewrite history; the Development stack connects as the owner; the API does not check its own role at startup |
 | Dependency hygiene | `dotnet list package --vulnerable` in CI; `npm audit --audit-level=high` |
 | Time & replay | Idempotency keys; JWT `jti` tracked for logout-all (V2) |
 
@@ -114,9 +115,9 @@ an expected audit action there, and each action is asserted against the real han
 - No image signature verification (V2: cosign + `RequireSignedImage` rule).
 - Audit log integrity is role-based, not cryptographic (V2: hash chain / WORM export).
 - Single JWT signing key; rotation requires restart (V2: key ring with `kid`).
-- Open v1 items from the [v1 security review](security-review-v1.md): no INSERT/SELECT-only database role for
-  `audit.*`; no per-principal or upload rate limiting (forwarded headers and Problem Details for unhandled
-  exceptions are done in v1.1; the demo Compose stack still runs as `Development` on loopback); policy
-  branch globs without `NonBacktracking`; Semgrep without `p/owasp-top-ten` and not failing; no Trivy image scan
-  or `npm audit` in CI; no client IP on approvals, no policy diff in audit, no "policy changed" banner; stored AI
-  content not encrypted at rest.
+- Open v1 items from the [v1 security review](security-review-v1.md): policy branch globs without `NonBacktracking`;
+  Semgrep without `p/owasp-top-ten` and not failing; no Trivy image scan or `npm audit` in CI; no client IP on
+  approvals, no policy diff in audit, no "policy changed" banner; stored AI content not encrypted at rest. (Done in
+  v1.1: forwarded headers, Problem Details for unhandled exceptions, per-principal/upload rate limits with
+  `Retry-After`, and the `SELECT`/`INSERT`-only database role on `audit.*` in the production profile; the demo
+  Compose stack still runs as `Development` on loopback with the owner connection.)
