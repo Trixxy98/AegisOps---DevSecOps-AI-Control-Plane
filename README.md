@@ -1,292 +1,88 @@
-# AegisOps — DevSecOps & AI Control Plane
+# AegisOps
 
-> **Status:** v1.1.0 — runs on a single server with HTTPS (see [deploy-production](docs/deploy-production.md)); evaluation and demos work on any machine (see [Intended use and limits](#intended-use-and-limits-v1)).
-> CI-registered artifacts with Gitleaks/Semgrep/Trivy evidence, policy-gated Docker deployments with
-> two-person Production approvals, live updates over SignalR, and a governed local LLM gateway. Progress
-> against the roadmap is tracked in [`docs/v1-progress-audit.md`](docs/v1-progress-audit.md); the design is in
-> [`docs/README.md`](docs/README.md).
+**A self-hosted control plane between your CI and your environments.** AegisOps decides whether a build may
+reach an environment, runs the deployment, and governs how people use AI models, with an audit trail for both.
 
-AegisOps is a self-hosted **control plane** that sits between CI and your environments.
-It does not build code (GitHub Actions does that). It decides **whether a change may
-reach an environment**, and it governs **how people and services use AI models** — with a
-complete audit trail for both.
+[![CI](https://github.com/Trixxy98/AegisOps---DevSecOps-AI-Control-Plane/actions/workflows/ci.yml/badge.svg)](https://github.com/Trixxy98/AegisOps---DevSecOps-AI-Control-Plane/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Trixxy98/AegisOps---DevSecOps-AI-Control-Plane)](https://github.com/Trixxy98/AegisOps---DevSecOps-AI-Control-Plane/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-```
-                GitHub Actions (CI)                         Users
-        build · test · gitleaks · trivy · semgrep             │
-                        │                                     │
-                        ▼                                     ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                              AegisOps                                │
-│                                                                      │
-│   Artifacts ─► Security Scans ─► Policy Engine ─► Approvals ─► Deploy │
-│                                                                      │
-│   AI Gateway: model access · rate limit · sensitive-data · audit     │
-└──────────────────────────────────────────────────────────────────────┘
-                        │                                     │
-                        ▼                                     ▼
-          Target services (staging / production)        Ollama (local LLM)
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/dark-deployments.png">
+  <img alt="Deployment awaiting approval, with rule-by-rule policy checks, findings and timeline" src="docs/assets/screens/light-deployments.png">
+</picture>
 
-## Demo
+## What it does
 
-![A developer requests a Production deployment (left); the security approver gets the approval toast and approves (right); the developer's view updates live](docs/assets/demo.gif)
+- **Registers CI builds and their security evidence.** GitHub Actions uploads the artifact and Gitleaks,
+  Semgrep and Trivy results (SARIF); findings are normalised and tracked.
+- **Gates every deployment with policies.** Each request is evaluated to *Allow*, *Require approval* or *Deny*,
+  with a rule-by-rule explanation. Production can require two approvals from people other than the requester.
+- **Deploys and rolls back Docker containers** through a Worker with leased jobs, health checks and encrypted
+  per-environment secrets. Timelines and approval requests update live.
+- **Governs AI use.** A gateway in front of a local LLM (Ollama) applies model allow-lists, sensitive-data
+  redaction or blocking, and per-user rate limits.
+- **Audits everything.** Every state change is recorded; in production the application cannot modify or
+  delete audit rows.
 
-*Recorded from the real Compose stack by the opt-in live test (`npm run test:e2e:live`): a developer (left)
-requests a Production deployment, the Worker evaluates it to **RequireApproval (2)**, the security approver
-(right) receives the toast within a second and approves, and the developer's list updates without a reload.
-The test then cancels the request.*
-
-| Approval toast | Policy explanation | One of two approvals |
+|  |  |  |
 | --- | --- | --- |
-| ![Approval toast on the Approvals page](docs/assets/approval-toast.png) | ![Deployment awaiting approval with rule-by-rule policy checks](docs/assets/deployment-awaiting-approval.png) | ![Deployment list after the first approval](docs/assets/deployment-one-approval.png) |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/dark-overview.png"><img alt="Overview" src="docs/assets/screens/light-overview.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/dark-findings.png"><img alt="Findings" src="docs/assets/screens/light-findings.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/dark-ai-playground.png"><img alt="AI Playground with governance details" src="docs/assets/screens/light-ai-playground.png"></picture> |
+| Overview | Findings | AI Playground |
 
-To re-record: `AEGISOPS_LIVE_VIDEO=1 npm run test:e2e:live` in `src/AegisOps.Web` (demo passwords in the
-environment), then `scripts/make-demo-gif.sh`.
+## Quick start
 
-## What AegisOps governs
+Try it on your own machine (Docker Compose, ~4 GB free memory):
 
-| Plane | Question it answers | Result |
-| --- | --- | --- |
-| **Deployment governance** | "May artifact `v1.8.2` of `circuit-service` reach **Production**?" | `ALLOW` / `REQUIRE_APPROVAL` / `DENY` with a rule-by-rule explanation |
-| **AI governance** | "May this user send this prompt to this model right now?" | Forwarded, redacted, or blocked — always audited |
+```bash
+scripts/gen-secrets.sh                                # creates a private .env with random keys
+docker compose up --build -d                          # web http://127.0.0.1:3000
+docker compose logs api | grep 'Development user'     # first-run demo passwords, shown once
+```
 
-## Target applications
+Sign in as `admin@aegisops.local` and choose a new password. The demo data includes users for each role, a
+team, three projects and policies. Details, the optional local AI model and monitoring:
+[local development](docs/local-development.md).
 
-AegisOps manages a small fleet of independent demo services (each in its own repository
-with its own CI pipeline). They exist to be built, scanned, evaluated and deployed:
+**Running it for a team?** Use the published images on one server with HTTPS:
+[deploy to production](docs/deploy-production.md).
 
-| Service | Purpose |
+## Documentation
+
+| Start here | |
 | --- | --- |
-| `site-service` | Network site & device inventory |
-| `circuit-service` | Circuit / link management |
-| `notification-service` | Outbound notifications (email/webhook stubs) |
+| [User manual](docs/user-manual.md) | Concepts in plain words, installation and hands-on tutorials |
+| [Connect your repository](docs/connect-your-repository.md) | Onboard your own app with GitHub Actions |
+| [Deploy to production](docs/deploy-production.md) | One server, HTTPS, first admin, upgrades |
+| [Operations guide](docs/operations.md) | Backups and restore, key rotation, monitoring, sizing |
+| [Design documents](docs/README.md) | Architecture, policy engine, AI gateway, API, security model and ADRs |
 
-See [`docs/13-target-applications.md`](docs/13-target-applications.md).
+## Tech stack
 
-## Locked tech stack (v1)
+ASP.NET Core 10 (API and Worker), EF Core with PostgreSQL, Redis, SignalR, React 19 with TypeScript and
+Tailwind CSS, Docker Compose, GitHub Actions, Ollama, OpenTelemetry with Prometheus and Grafana.
 
-| Area | Choice |
-| --- | --- |
-| Frontend | React · TypeScript · Tailwind CSS · TanStack Query · Axios · SignalR client |
-| Backend | C# · ASP.NET Core 10 · EF Core · ASP.NET Core Identity · JWT · SignalR |
-| Architecture | Clean Architecture · Modular Monolith · separate Worker process |
-| Data | PostgreSQL (source of truth) · Redis (ephemeral / high-frequency state) |
-| DevOps | Docker · Docker Compose · GitHub Actions |
-| Security scanners | Gitleaks · Trivy · Semgrep |
-| AI | Ollama (local LLM) |
-| Observability | OpenTelemetry · Prometheus · Grafana |
-| Testing | xUnit · Testcontainers · integration tests · Vitest |
+Each release publishes multi-arch images (amd64 and arm64) to GHCR after a Trivy gate; CI runs over a thousand
+tests plus Semgrep, Gitleaks, and npm and NuGet vulnerability checks.
 
-Deliberately **out of scope for v1**: Kubernetes, Kafka/RabbitMQ, Terraform, cloud
-providers, LangChain, multiple AI providers. See [`docs/03-tech-stack.md`](docs/03-tech-stack.md).
+## Limits
 
-## Documentation map
+AegisOps runs on **one server for one organisation**: no high availability, single sign-on or MFA yet, and it
+deploys to Docker on the same host. The Worker uses the Docker socket, so give AegisOps a dedicated host.
+See [deploy-production](docs/deploy-production.md#11-what-is-not-covered-yet) and the
+[security model](docs/17-security-hardening.md).
 
-| # | Document | What it covers |
-| --- | --- | --- |
-| 01 | [Vision & scope](docs/01-vision-and-scope.md) | Problem, goals, non-goals, personas, success criteria |
-| 02 | [Architecture](docs/02-architecture.md) | Context/container diagrams, modules, layering, key flows |
-| 03 | [Tech stack](docs/03-tech-stack.md) | Every technology, why it was chosen, what is excluded |
-| 04 | [Domain model](docs/04-domain-model.md) | Entities, enums, relationships, state machines |
-| 05 | [Policy engine](docs/05-policy-engine.md) | Rule types, evaluation algorithm, explainability |
-| 06 | [Deployment pipeline](docs/06-deployment-pipeline.md) | End-to-end lifecycle, worker jobs, executors |
-| 07 | [Security scanning](docs/07-security-scanning.md) | Gitleaks/Trivy/Semgrep, SARIF normalization, severities |
-| 08 | [AI gateway](docs/08-ai-gateway.md) | Governance pipeline, rate limits, sensitive-data detection |
-| 09 | [Identity & authorization](docs/09-identity-and-authorization.md) | Roles, permissions, policy-based authorization, API keys |
-| 10 | [API specification](docs/10-api-specification.md) | REST endpoints, conventions, SignalR hub contract |
-| 11 | [Database design](docs/11-database-design.md) | Schemas, tables, indexes, migrations, seeding |
-| 12 | [Frontend](docs/12-frontend.md) | Pages, routing, data layer, realtime, structure |
-| 13 | [Target applications](docs/13-target-applications.md) | The demo services AegisOps governs |
-| 14 | [DevOps & infrastructure](docs/14-devops-and-infrastructure.md) | Docker Compose, Dockerfiles, GitHub Actions workflows |
-| 15 | [Observability](docs/15-observability.md) | Metrics, traces, logs, dashboards, health checks |
-| 16 | [Testing strategy](docs/16-testing-strategy.md) | Test pyramid, PolicyEngine test matrix, integration tests |
-| 17 | [Security hardening](docs/17-security-hardening.md) | Threat model and controls for AegisOps itself |
-| 18 | [Repository structure & conventions](docs/18-repository-structure-and-conventions.md) | Solution layout, coding standards, Git workflow |
-| 19 | [Roadmap](docs/19-roadmap.md) | Phases 0–8, deliverables, definition of done |
-| 20 | [Glossary](docs/20-glossary.md) | Terminology |
-| — | [ADRs](docs/adr/README.md) | Architecture decision records |
-| — | [User manual](docs/user-manual.md) | Beginner's guide: concepts, installation, tutorials |
-| — | [Connect your repository](docs/connect-your-repository.md) | Onboard your own app: project, Staging target, API key, GitHub Actions or curl |
-| — | [Deploy to production](docs/deploy-production.md) | One server with HTTPS: production profile, `migrate`, first Admin, Caddy |
-| — | [Operations guide](docs/operations.md) | Backups and restore drills, upgrades, secret rotation, monitoring, sizing |
+## Design notes
 
-## Intended use and limits (v1)
+- **PostgreSQL as the job queue.** Jobs are leased with `FOR UPDATE SKIP LOCKED`, so a timeline event and its
+  follow-up job commit together without a message broker.
+- **The policy engine is a pure function.** No I/O, so every decision is explainable, can be simulated before
+  saving, and is re-checked just before execution.
+- **Real-time with a fallback.** SignalR pushes updates; polling takes over only while disconnected, so
+  correctness never depends on a message arriving.
+- **Bounded telemetry.** Metric labels are fixed sets: no user IDs, prompts or image names.
 
-The default `docker compose up` stack is for **evaluation, learning and demos on one machine**: everything binds to
-`127.0.0.1`, the API runs in ASP.NET Development mode, and the seed creates demo users, a team, three demo projects
-and policies.
+## Contributing and security
 
-Running AegisOps for a team on **a single server with HTTPS** is supported through the production profile:
-[docs/deploy-production.md](docs/deploy-production.md) (Production mode, one-shot `migrate`, `bootstrap-admin` for
-the first Admin, Caddy with automatic certificates and HSTS). Day-two work (backups with `scripts/backup.sh`,
-restores and restore drills with `scripts/restore.sh`, upgrades, key rotation, sizing) is in
-[docs/operations.md](docs/operations.md). It is still **not** highly available or
-multi-tenant, there is no user-management screen beyond the first Admin yet, and the remaining open items in
-[docs/security-review-v1.md](docs/security-review-v1.md) apply (progress: [docs/roadmap-v1.1.md](docs/roadmap-v1.1.md)).
-Report security problems privately: [SECURITY.md](SECURITY.md).
-
-## Local quick start (Development only)
-
-> **New to DevSecOps?** Start with the [user manual](docs/user-manual.md): it explains the ideas in plain
-> words, then walks you through installation and four hands-on tutorials.
-> **Want to deploy your own application?** Follow [connect your repository](docs/connect-your-repository.md).
-
-Requires Docker Compose, about 4 GB of free memory and ~5 GB of disk. A fresh clone is up in about a minute on
-an Apple M-series laptop (images already cached: ~30 s; cold build: ~50 s, plus base-image downloads).
-
-```bash
-scripts/gen-secrets.sh            # writes a mode-600 .env with random keys (never commit it)
-docker compose up --build -d      # API http://127.0.0.1:8080, web http://127.0.0.1:3000
-docker compose logs api | grep 'Development user'   # first-run passwords, printed once
-```
-
-Open <http://127.0.0.1:3000> and sign in as `admin@aegisops.local`. **Every seeded account must choose its own
-password at first sign-in** (12+ characters); until then the API refuses everything except changing it. Lost a
-first-run password? An Admin can issue a new temporary one (`scripts/demo-reset-passwords.sh`), or start over
-with `scripts/reset-demo.sh`. Then follow [docs/demo-script.md](docs/demo-script.md) for the four journeys.
-
-Smoke-test the core loop (after the admin password is changed):
-
-```bash
-AEGISOPS_ADMIN_PASSWORD='<your admin password>' scripts/smoke-compose-deployment.sh
-```
-
-The smoke test uses the Web proxy to sign in, create a project/artifact, request a
-Development deployment, and assert the worker recorded an Allow evaluation and
-Succeeded event and updated the environment's current artifact. Each run creates a
-uniquely named test project in the local database. If the database already exists, the
-seed password is not regenerated: keep the first-run password or reset the local database deliberately.
-The API is also exposed at `http://localhost:8080`; Web is at `http://localhost:3000`.
-
-### Optional Prometheus and Grafana
-
-Set `GRAFANA_ADMIN_PASSWORD` in your shell or the gitignored `.env` file before
-starting the opt-in overlay; there is no checked-in/default Grafana password.
-The base Compose stack does not require this variable. With a working Docker daemon:
-
-```bash
-docker compose -f docker-compose.yml -f deploy/docker-compose.observability.yml \
-  --profile observability up --build -d
-```
-
-Open Grafana at `http://127.0.0.1:3001` (user `admin`, password from your
-configuration) and the Prometheus targets/rules pages at `http://127.0.0.1:9090`.
-Only these UI ports bind to host loopback; Prometheus scrapes API `:9464` and
-Worker `:8081` internally. The provisioned **AegisOps Overview** dashboard
-shows API p95/5xx and Worker queue/throughput; additional Delivery/AI panels
-need instruments that are not yet built. Prometheus rules do not send notifications
-by default. To stop only monitoring, use the same Compose flags followed by
-`stop grafana prometheus`; do not run `down -v` because it removes persistent data.
-See [`docs/15-observability.md`](docs/15-observability.md) for metric semantics.
-
-This path uses the **noop** executor; it does not start a target container. For the
-existing `site-service` project only, the Development seed changes its **Staging**
-environment from noop to Docker (`site-service-staging`, network `aegisops-staging`,
-host port 8101, container port 8080, `/health`). It never changes Production or an
-operator-configured target. Staging requires three fresh security scans and passing
-tests. Register a real CI artifact from `ghcr.io/trixxy98/site-service` before
-requesting Staging; `ghcr.io/aegisops/site-service:latest` in the design-only
-`deploy/docker-compose.targets.yml` is not a published image. That file is **not**
-part of this Compose startup; do not start its Production services. The target image
-currently publishes linux/amd64 only; the executor retries with that platform when
-the default pull fails on arm64.
-
-The Worker passes the target environment name to new containers as both
-`DOTNET_ENVIRONMENT` and `ASPNETCORE_ENVIRONMENT`. `site-service` reads this via
-ASP.NET for `/version`; an already-running Staging container will continue to say
-Production until a new authorized Staging deployment replaces it. This does not
-modify running containers or the Production target.
-
-Compose mounts the host Docker socket **only into the Worker** so it can manage
-containers. `DOCKER_HEALTH_HOST=host.docker.internal` lets the Worker probe host
-published port 8101 (its own loopback is not the Docker host). This assumes Docker
-Desktop; another Docker host needs an operator-configured reachable address. The
-API does not have socket access. Its Docker runtime endpoint reports
-`inspectionAvailable: false` and `containers: null` when no Docker socket exists,
-rather than returning 503 or pretending that no containers are running. The
-deployment timeline and host `/health` and `/version` remain usable. Other Docker
-errors can still return 503; no socket access is added to the API.
-The Docker socket grants effective root-equivalent control over the host Docker daemon
-and all containers/volumes, despite being mounted only in the Worker. Run this
-Development stack only on a trusted local machine, restrict access to AegisOps
-deployment APIs, and never use this pattern in Production without isolating the daemon
-or introducing a constrained Docker authorization proxy. The executor refuses to
-replace an unlabeled/foreign named container or remove an existing `-previous` backup;
-verify target names and port 8101 are free before requesting a deployment. It does not
-auto-deploy during Compose startup. Check wiring with
-`python3 tests/staging-docker-contract.py`. Do not point this stack at production.
-For the controlled upgrade and failed-health rollback exercise, see
-[`docs/staging-rollback-validation.md`](docs/staging-rollback-validation.md).
-
-SARIF uploads larger than 2 MB are queued for parsing by the worker. Compose mounts a
-dedicated persistent `reports` volume at `/app/reports` in both API and worker, separate
-from `pgdata`. Before upgrading an existing stack, preserve any pending reports from the
-old API container's `/app/reports` (or re-upload those reports after upgrading); an
-existing container's private filesystem is **not** migrated automatically into the new
-volume. Do not run `docker compose down -v`: it deletes the database and reports volumes.
-Check the mount wiring with `python3 tests/report-storage-contract.py`.
-
-### Optional local AI model (Ollama) and hardware
-
-The AI gateway talks to Ollama at `http://ollama:11434/`. Ollama is opt-in:
-
-```bash
-docker compose --profile ai up -d   # starts ollama, then ollama-init pulls the model once
-OLLAMA_MODEL=qwen2.5-coder:7b docker compose --profile ai up -d ollama-init   # optional second model
-```
-
-| Model | Download | Practical minimum | Notes |
-| --- | --- | --- | --- |
-| `llama3.2:3b` (default) | ~2 GB | 8 GB RAM, 4 CPU cores, no GPU | Chat, deployment summaries; expect a few seconds per reply on CPU |
-| `qwen2.5-coder:7b` (optional) | ~4.7 GB | 16 GB RAM; GPU or Apple Silicon recommended | Better finding explanations; slow on CPU-only laptops |
-
-- Leave at least 4 GB free for PostgreSQL, Redis, the API/Worker and the browser on top
-  of the model's memory. Models are kept in the `ollama` volume, so pulls happen once.
-- Docker Desktop on macOS runs Ollama in a Linux VM **without** Metal GPU access, so it
-  is CPU-only. For faster replies, run native Ollama on the host (optionally with
-  `OLLAMA_MODELS` on an external disk) and add `-f deploy/docker-compose.host-ollama.yml`,
-  which points the API at `http://host.docker.internal:11434/`. On an Apple M4, a
-  `llama3.2:3b` reply took about 2 s this way.
-- NVIDIA GPUs on Linux need the NVIDIA Container Toolkit and a `gpus: all` override for
-  the `ollama` service.
-- Without Ollama the platform still runs: readiness reports Ollama as Degraded, and AI
-  requests fail with `ProviderUnavailable` (sensitive-data blocks still apply first).
-
-## Releases
-
-Pushing a version tag runs `.github/workflows/release.yml`: it builds the API, Worker and web images, refuses
-to publish any image with a fixable CRITICAL vulnerability (Trivy), pushes them to
-`ghcr.io/<owner>/aegisops-{api,worker,web}:<tag>` and `:latest`, and creates the GitHub Release.
-
-```bash
-git tag v1.0.0 && git push origin v1.0.0
-```
-
-## Interview notes — design trade-offs
-
-- **PostgreSQL job queue instead of a broker.** Jobs are leased with
-  `FOR UPDATE SKIP LOCKED`, heartbeats and lease tokens, so a single dependency gives
-  transactional outbox semantics (a timeline event and its notification job commit
-  together). The cost is polling and a write-heavy table, which retention cleanup bounds.
-- **Policy engine as a pure function.** `PolicyEngine.Evaluate(context, policies)` has no
-  I/O, so every decision is explainable rule-by-rule, simulated before saving, and
-  re-checked just before execution (approvals can go stale).
-- **Docker socket on a single trusted host.** Mounting the socket is root-equivalent; v1
-  accepts that for a single-host demo, adds ownership labels so the Worker only replaces
-  its own containers, and documents a docker-socket-proxy alternative (docs/14).
-- **Local LLM behind a gateway.** Ollama keeps prompts on the machine; the gateway
-  enforces per-team model allow-lists, rate limits and sensitive-data redaction/blocking
-  before any provider call, and stores previews rather than content by default.
-- **Real-time with a fallback.** SignalR pushes timelines and approval toasts, Redis
-  carries Worker hints to API instances, and polling remains as a fallback; correctness
-  never depends on a message being delivered.
-- **Bounded telemetry.** Metric labels and span attributes are fixed enums (no user ids,
-  prompts, image names or exception messages); zero-valued series are seeded so the first
-  event is visible to `rate()`.
-- **Evidence-based progress.** `docs/v1-progress-audit.md` counts only verified checks,
-  so the score is a floor rather than a claim.
-
-## License
-
-MIT (to be added with the first code commit).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md). Released under the [MIT License](LICENSE).

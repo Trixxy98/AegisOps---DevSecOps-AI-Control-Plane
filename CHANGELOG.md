@@ -14,6 +14,9 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Changed
 
+- README shortened, with light/dark screenshots of the new UI; local development details moved to
+  `docs/local-development.md`. The old demo GIF and screenshots were removed (re-record with
+  `scripts/make-demo-gif.sh`).
 - Redesigned web UI with light and dark themes: design tokens, a System/Light/Dark switch in the sidebar
   (stored only as a preference, applied before first paint), grouped navigation with icons and an approvals
   count, one live-connection indicator, tables for lists, consistent status badges, alerts, empty states and

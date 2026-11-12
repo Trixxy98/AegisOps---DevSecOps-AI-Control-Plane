@@ -10,6 +10,7 @@ relevant document here and end by updating it if the design changed.
 | --- | --- |
 | **Use AegisOps for the first time (beginner-friendly)** | [User manual](user-manual.md) |
 | **Connect your own repository (GitHub Actions or plain curl)** | [Connect your repository](connect-your-repository.md) |
+| **Run the demo stack on your own machine (Ollama, monitoring, Docker target notes)** | [Local development](local-development.md) |
 | **Run AegisOps on a server with HTTPS (production profile)** | [Deploy to production](deploy-production.md) |
 | **Keep it running: backups, restores, upgrades, key rotation, sizing** | [Operations guide](operations.md) |
 | Understand the product in 10 minutes | [01 Vision & scope](01-vision-and-scope.md), [02 Architecture](02-architecture.md) |
