@@ -28,6 +28,30 @@ jobs:
       - name: Restore
         run: dotnet restore AegisOps.slnx
 
+      # Restore already runs NuGet audit (direct + transitive; NU190x are errors through TreatWarningsAsErrors).
+      # This step lists every known-vulnerable package explicitly and fails on any of them, whatever the severity.
+      - name: Vulnerable NuGet packages
+        run: |
+          set -euo pipefail
+          dotnet list AegisOps.slnx package --vulnerable --include-transitive --format json > vulnerable-packages.json
+          errors="$(jq '[.problems[]? | select(.level == "error")] | length' vulnerable-packages.json)"
+          if [[ "$errors" != "0" ]]; then
+            jq -r '.problems[]? | "\(.level): \(.text)"' vulnerable-packages.json
+            echo "::error::dotnet list package --vulnerable reported problems."
+            exit 1
+          fi
+          found="$(jq -r '.projects[]? | .path as $project | .frameworks[]? | .framework as $framework
+            | ((.topLevelPackages // []) + (.transitivePackages // []))[]
+            | select((.vulnerabilities // []) | length > 0)
+            | "\($project) [\($framework)] \(.id) \(.resolvedVersion): \([.vulnerabilities[].severity] | join(", ")) \([.vulnerabilities[].advisoryurl] | join(" "))"' \
+            vulnerable-packages.json)"
+          if [[ -n "$found" ]]; then
+            printf '%s\n' "$found"
+            echo "::error::Vulnerable NuGet packages found; update them in Directory.Packages.props."
+            exit 1
+          fi
+          echo "No vulnerable NuGet packages."
+
       - name: Build
         run: dotnet build AegisOps.slnx --no-restore
 
@@ -56,6 +80,11 @@ jobs:
 
       - name: Install
         run: npm ci
+
+      # Runtime dependencies only: they are what the built SPA ships. Dev tooling (Vite, ESLint, Playwright) never
+      # reaches the nginx image; Dependabot still raises updates for it.
+      - name: npm audit (runtime, high and critical)
+        run: npm audit --audit-level=high --omit=dev
 
       - name: Lint
         run: npm run lint
@@ -92,7 +121,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Writes every finding (all severities) to SARIF; the "Semgrep gate" step at the end fails the job on ERROR ones.
       - name: Semgrep
+        id: semgrep
         run: |
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/src" \
@@ -103,6 +134,7 @@ jobs:
             --config p/default \
             --config p/security-audit \
             --config p/csharp \
+            --config p/owasp-top-ten \
             --metrics=off \
             --sarif \
             --output security-reports/semgrep.sarif
@@ -132,3 +164,22 @@ jobs:
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: security-reports
+
+      # Runs last so a Semgrep failure never skips the SARIF uploads above. ERROR severity is SARIF level "error" (per result or
+      # from the rule's default configuration); WARNING/INFO findings are reported but do not fail the build.
+      - name: Semgrep gate (ERROR findings)
+        if: always() && steps.semgrep.outcome == 'success'
+        run: |
+          set -euo pipefail
+          errors="$(jq -r '.runs[]?
+            | ((.tool.driver.rules // []) | map({key: .id, value: (.defaultConfiguration.level // "warning")}) | from_entries) as $levels
+            | .results[]?
+            | select((.level // $levels[.ruleId] // "warning") == "error")
+            | "\(.ruleId) \(.locations[0].physicalLocation.artifactLocation.uri // "?"):\(.locations[0].physicalLocation.region.startLine // "?")"' \
+            security-reports/semgrep.sarif)"
+          if [[ -n "$errors" ]]; then
+            printf '%s\n' "$errors"
+            echo "::error::Semgrep reported ERROR-severity findings."
+            exit 1
+          fi
+          echo "No ERROR-severity Semgrep findings."

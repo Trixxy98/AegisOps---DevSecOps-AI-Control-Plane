@@ -48,13 +48,23 @@ Ordered by impact. None is exploitable from outside the host now that Compose bi
    developer exception page is served (now loopback-only). *Resolved in v1.1: unhandled exceptions return Problem
    Details with a `traceId` in every environment, and the production profile runs as `Production`.*
 4. **Regex hardening:** policy branch globs have no `NonBacktracking`/timeout; AI `BlockedPatterns` use a
-   100 ms timeout but backtracking.
+   100 ms timeout but backtracking. *Resolved in v1.1 (roadmap item 7): globs and blocked patterns are compiled with
+   `RegexOptions.NonBacktracking` and a 100 ms timeout and validated when the policy is saved (400 Problem Details for
+   invalid patterns or unsupported constructs such as backreferences and lookarounds); evaluation fails closed
+   (docs/17 §3).*
 5. **CI scope:** Semgrep has no `p/owasp-top-ten` and never fails the build; Trivy scans the file system only
    (no image scan of AegisOps images); no `npm audit --audit-level=high`; NuGet audit relies on the SDK's
-   restore-time audit.
+   restore-time audit. *Resolved in v1.1 (roadmap item 10): Semgrep adds `p/owasp-top-ten` and fails on
+   ERROR-severity findings (SARIF still uploaded); `npm audit --audit-level=high --omit=dev`; an explicit
+   `dotnet list package --vulnerable --include-transitive` gate; release images are Trivy-scanned (amd64) before
+   multi-arch amd64/arm64 images are pushed (docs/17 §7). The first CI run with the new gates and the first
+   multi-arch release are still to be observed.*
 6. **Repudiation details:** approvals and audit rows carry no client IP; policy changes are audited without a
    before/after diff; the "policy changed N minutes ago" banner is not built.
 7. **Stored AI content is not encrypted at rest** (it is now redacted, off by default and deleted after 30 days).
+   *Resolved in v1.1 (roadmap item 7): content is stored only AES-256-GCM encrypted with the `AiContent` key ring,
+   bound to the request ID and column; without a key nothing is stored (`content_skipped`). Rows written as plaintext
+   before the upgrade are not re-encrypted; they expire with retention (docs/17 §5, operations.md §5.6).*
 8. **Doc drift corrected in docs/17:** validation is hand-written (no FluentValidation); deny-by-default is
    enforced by the route-table test rather than a fallback policy; webhook secrets use an AES-256-GCM key ring,
    not ASP.NET Data Protection.

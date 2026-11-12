@@ -24,7 +24,7 @@ This document is the threat model and control list for the platform.
 | **Tampering** | Policy weakened before a risky deploy | Policy changes audited with diff; policy version frozen into each evaluation; `Security`/`Admin` only; UI shows "policy changed 3 min ago" banner on evaluation panel |
 | **Repudiation** | "I never approved that" | Approvals tied to authenticated user id + IP + timestamp; audit event in same transaction |
 | **Information disclosure** | Findings/report paths leak to wrong team | Team scoping on every read; 404 instead of 403 for invisible resources; raw reports served only through authorized endpoint |
-| **Information disclosure** | Prompts stored with secrets | `StoreContent = false` default; previews are post-redaction; response secret scan |
+| **Information disclosure** | Prompts stored with secrets | `StoreContent = false` default; previews are post-redaction; response secret scan; stored content AES-256-GCM encrypted (`AiContent` key ring) |
 | **Denial of service** | Flooding scan uploads / AI requests | Body size limits (20 MB), per-principal rate limits, Redis-backed AI limits, job queue back-pressure (`MaxConcurrency`) |
 | **Elevation of privilege** | Developer approves own production deploy | Resource-based authorization handler: requester ≠ approver, role in policy roles |
 | **Elevation of privilege** | Worker compromised → host takeover via Docker socket | See §4 |
@@ -42,7 +42,7 @@ This document is the threat model and control list for the platform.
 | Authorization | Deny by default: every endpoint requires authorization unless explicitly `AllowAnonymous`. Enforced by `AuthorizationMatrixTests`, which compares the real `Program.cs` endpoint table with the docs/09 matrix and allows only login/refresh anonymously (no ASP.NET fallback policy) |
 | Input validation | Hand-written checks in handlers and domain factories (no FluentValidation); max lengths; strict enum parsing; SARIF JSON depth limit 64; Docker targets restricted to `aegisops-<name>` networks, names `^[a-z0-9][a-z0-9-]{2,62}$`, host ports ≥ 1024 |
 | Output encoding | JSON only; React escapes by default; no `dangerouslySetInnerHTML` |
-| Injection | EF Core parameterization; raw SQL only for job claiming/completion/leases and webhook counters, always via `FromSqlInterpolated`/`ExecuteSqlInterpolated`, plus the `migrate` role provisioning (bind parameters, identifiers and the password quoted with `format('%I'/'%L')` in a DO block); detector and AI blocked-pattern regexes have timeouts (policy branch globs: see §8) |
+| Injection | EF Core parameterization; raw SQL only for job claiming/completion/leases and webhook counters, always via `FromSqlInterpolated`/`ExecuteSqlInterpolated`, plus the `migrate` role provisioning (bind parameters, identifiers and the password quoted with `format('%I'/'%L')` in a DO block); detector regexes have timeouts. **User-supplied patterns** (v1.1 item 7): policy branch globs (`*` is the only wildcard, everything else literal; at most 50 per rule, 255 characters, no control characters) and AI `BlockedPatterns` (at most 20, 256 characters) are compiled with `RegexOptions.NonBacktracking` (linear in the input length, so no catastrophic backtracking) plus `CultureInvariant` and a 100 ms match timeout, and are validated when the policy is saved: an invalid glob or pattern, or one using a construct NonBacktracking does not support (backreferences, lookarounds, atomic groups, conditionals), is a 400 Problem Details instead of an evaluation failure. Evaluation still fails closed: a branch rule that cannot be evaluated denies, and an AI pattern that times out or cannot be compiled (for example one stored before v1.1) blocks the request with 503 `PolicyInvalid` |
 | File handling | Reports saved under server-generated paths only; original filenames never used; content-type sniffed |
 | Secrets | Env vars / user-secrets / Docker secrets; `.env` ignored; Gitleaks on every commit; secrets never logged (Serilog destructuring policy) |
 | Errors | Handlers return RFC 9457 Problem Details; unhandled exceptions go through `AddProblemDetails` + `UseExceptionHandler` and return a generic 500 Problem Details with `traceId` and no exception text, in every environment (the exception is logged). The developer exception page is never used in Production |
@@ -50,7 +50,7 @@ This document is the threat model and control list for the platform.
 | First Admin | No seed outside Development. `bootstrap-admin` creates the first Admin with a random 24-character temporary password printed once (never logged or audited), `MustChangePassword`, audited as `user.bootstrapped` by System/`bootstrap-admin`; refused once any Admin exists |
 | Rate limiting | ASP.NET rate limiter (`ApiRateLimiting`, roadmap v1.1 item 4), after authentication and before authorization so rejected floods never reach handlers or authorization audit. **Global**: token bucket per principal on `/api/*` — JWT `sub` for users, the key id for API keys, the client IP for anonymous requests — 300 tokens, 50 back every 10 s (`RateLimits:Global:*`); `/hubs/*` has its own bucket per principal so realtime cannot be starved by API use (or the reverse); `/health/*` and `/metrics` are never limited. **`uploads`** (`POST /api/v1/artifacts/{id}/scans`): 30 tokens, 5 every 10 s per principal (`RateLimits:Uploads:*`), on top of the global bucket. **`auth`** (`/auth/login`, `/auth/refresh`): 10 per minute per client IP, fixed window (`RateLimits:Auth:*`; the real client behind the TLS proxy). Every rejection is `429` Problem Details with `Retry-After` in seconds from the limiter (60 when unknown). State is in memory per API instance (one instance in v1). AI: Redis limits per user, unchanged (`RateLimitingTests`) |
 | Audit integrity | Production profile: the api and worker connect as the LOGIN role `aegisops_app`; only the one-shot `migrate` command connects as the owner (`POSTGRES_USER`). `migrate` creates or updates the role (`AppDatabaseRole`, password from `AppDatabase:Password` = `APP_DB_PASSWORD`, passed as a bind parameter and quoted with `format('%L')`, never logged), grants USAGE and `SELECT/INSERT/UPDATE/DELETE` on every owner schema except `audit`, resets `audit.*` to `SELECT, INSERT` only, sets `ALTER DEFAULT PRIVILEGES` for future tables, leaves `__EFMigrationsHistory` read-only, and refuses a role with superuser/CREATEROLE/CREATEDB/replication/BYPASSRLS or membership in the owner. No code updates or deletes audit rows (there is no audit retention), so nothing loses functionality. Tested against PostgreSQL by `AppDatabaseRoleTests` (`AEGISOPS_TEST_POSTGRES`). Residual: the owner password (in `.env` on the host) can still rewrite history; the Development stack connects as the owner; the API does not check its own role at startup |
-| Dependency hygiene | `dotnet list package --vulnerable` in CI; `npm audit --audit-level=high` |
+| Dependency hygiene | CI (v1.1 item 10): restore-time NuGet audit (direct + transitive, NU190x are errors through `TreatWarningsAsErrors`) plus an explicit `dotnet list package --vulnerable --include-transitive --format json` step that fails on any listed package; `npm audit --audit-level=high --omit=dev` (runtime dependencies are what the SPA ships; dev tooling never reaches the image and is covered by Dependabot); Dependabot for NuGet, npm, Docker and Actions |
 | Time & replay | Idempotency keys; JWT `jti` tracked for logout-all (V2) |
 
 ## 4. Docker socket exposure
@@ -79,7 +79,7 @@ Residual risk is documented in the README: the demo is intended for a single tru
 | Refresh tokens | SHA-256 hash |
 | Webhook secrets | Encrypted with an AES-256-GCM key ring bound to the team (AAD); the plain value is needed to compute the HMAC and is never logged |
 | Environment secret variables | Encrypted at rest with the `EnvironmentSecrets` AES-256-GCM key ring (`Enabled`, `CurrentKeyId`, `Keys:<id>`; generated by `scripts/gen-secrets.sh`). The associated data binds each ciphertext to its environment ID and variable name, so a row copied to another environment or variable does not decrypt. **Write-only**: the API never returns a secret value (the list shows `value: null`), audit rows (`environment.variable_set`/`_removed`) record only actor, action and environment, and request logging records the route template only. Without a configured key, saving a secret returns 409 "Secret storage is not configured" and plain variables still work. Old keys stay in `Keys` for decryption after rotation; a missing key fails the deployment with the variable name only. The Worker decrypts at deploy time and passes the value as container `Env`, so `docker inspect` on the host shows it: Docker host administrators are trusted (§4) |
-| AI content | Off by default; when on, the post-redaction prompt and the redacted response are stored and deleted after `Ai:ContentRetentionDays` (default 30). Column encryption is a known gap (§8) |
+| AI content | Off by default; when an AI policy enables `StoreContent`, the post-redaction prompt and the inspected response are stored **encrypted** with the `AiContent` AES-256-GCM key ring (`Enabled`, `CurrentKeyId`, `Keys:<id>`; api only; generated by `scripts/gen-secrets.sh`). The associated data binds each ciphertext to the request ID and column (`prompt`/`response`). Without a configured key nothing is stored (never plaintext) and the row is marked `content_skipped`; a misconfigured ring (enabled without its current key, bad key length) stops the API at startup. No endpoint returns stored content. Content is cleared after `Ai:ContentRetentionDays` (default 30) by the Worker, which needs no key. Rotation as for environment secrets ([operations.md §5.6](operations.md#56-stored-ai-content-encryption-keys-ai_content_)) |
 | Backups | `pg_dump` files contain hashes only for credentials; still treated as sensitive |
 
 ## 6. Audit coverage checklist
@@ -103,9 +103,16 @@ an expected audit action there, and each action is asserted against the real han
 
 ## 7. Security testing
 
-- Unit tests for detectors/regex timeouts, API key hashing, JWT validation edge cases.
+- Unit tests for detectors/regex timeouts, NonBacktracking globs and blocked patterns (catastrophic-backtracking
+  inputs complete quickly, unsupported constructs rejected at save, fail-closed on timeout), AI content encryption
+  (round trip, associated-data binding, not stored without a key), API key hashing, JWT validation edge cases.
 - Integration tests for authorization matrix (each permission × role → expected status).
-- CI: Semgrep `p/csharp` + `p/owasp-top-ten`, Trivy fs/image, Gitleaks.
+- CI (`ci.yml`): Gitleaks; Semgrep `p/default` + `p/security-audit` + `p/csharp` + `p/owasp-top-ten` with every
+  finding in SARIF and the job failing on ERROR-severity findings (SARIF level `error`); Trivy fs (CRITICAL fails);
+  `npm audit --audit-level=high --omit=dev`; `dotnet list package --vulnerable --include-transitive`.
+- Release (`release.yml`): Trivy image scan of each amd64 image (CRITICAL with a fix fails, nothing is pushed), then
+  multi-arch (linux/amd64 + linux/arm64) images are pushed to GHCR. The arm64 variant is built from the same sources
+  but is not scanned separately (a multi-platform build cannot be loaded locally).
 - Manual pre-release checklist: OWASP ASVS L1 subset (auth, session, access control,
   validation, error handling, logging).
 
@@ -115,9 +122,11 @@ an expected audit action there, and each action is asserted against the real han
 - No image signature verification (V2: cosign + `RequireSignedImage` rule).
 - Audit log integrity is role-based, not cryptographic (V2: hash chain / WORM export).
 - Single JWT signing key; rotation requires restart (V2: key ring with `kid`).
-- Open v1 items from the [v1 security review](security-review-v1.md): policy branch globs without `NonBacktracking`;
-  Semgrep without `p/owasp-top-ten` and not failing; no Trivy image scan or `npm audit` in CI; no client IP on
-  approvals, no policy diff in audit, no "policy changed" banner; stored AI content not encrypted at rest. (Done in
-  v1.1: forwarded headers, Problem Details for unhandled exceptions, per-principal/upload rate limits with
-  `Retry-After`, and the `SELECT`/`INSERT`-only database role on `audit.*` in the production profile; the demo
-  Compose stack still runs as `Development` on loopback with the owner connection.)
+- Open v1 items from the [v1 security review](security-review-v1.md): no client IP on approvals, no policy diff in
+  audit, no "policy changed" banner. (Done in v1.1: forwarded headers, Problem Details for unhandled exceptions,
+  per-principal/upload rate limits with `Retry-After`, the `SELECT`/`INSERT`-only database role on `audit.*` in the
+  production profile, NonBacktracking globs and blocked patterns validated at save, encrypted stored AI content, and
+  the wider CI gates; the demo Compose stack still runs as `Development` on loopback with the owner connection.)
+- Left from v1.1 items 7 and 10: AI content rows stored as plaintext before v1.1 are not re-encrypted (they expire
+  with retention; see operations.md §5.6); the arm64 release image is not scanned separately; no image scan in the
+  pull-request CI (only at release).

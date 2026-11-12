@@ -46,7 +46,7 @@ public sealed class AiContentRetentionServiceTests {
             Assert.Equal(old.ResponsePreview, rows[old.Id].ResponsePreview);
             Assert.Equal(old.DetectedSensitiveTypesJson, rows[old.Id].DetectedSensitiveTypesJson);
             Assert.Equal(old.PromptTokens, rows[old.Id].PromptTokens);
-            Assert.Equal("recent private prompt", rows[recent.Id].PromptContent);
+            Assert.Equal("recent private prompt", Protector.Unprotect(recent.Id, AiContentProtector.PromptField, rows[recent.Id].PromptContent!));
             Assert.NotNull(rows[recent.Id].ResponseContent);
             Assert.Equal(oldPreviewOnly.PromptPreview, rows[oldPreviewOnly.Id].PromptPreview);
         }
@@ -77,9 +77,18 @@ public sealed class AiContentRetentionServiceTests {
         return policy;
     }
 
+    // Stored content is always encrypted (docs/08); retention clears the envelopes like plaintext before.
+    private static readonly AiContentProtector Protector = new(new ConfigurationBuilder().AddInMemoryCollection(
+        new Dictionary<string, string?> {
+            ["AiContent:Enabled"] = "true",
+            ["AiContent:CurrentKeyId"] = "key1",
+            ["AiContent:Keys:key1"] = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)),
+        }).Build());
+
     private static AiRequest Request(AiPolicy policy, string prompt, DateTimeOffset at) =>
         AiRequest.Record(Guid.NewGuid(), null, null, policy, AiRequestStatus.Completed, null, prompt, prompt,
-            "full private response", ["EMAIL"], 1, 12, 34, 5, "corr", at, safeResponse: "safe response");
+            "full private response", ["EMAIL"], 1, 12, 34, 5, "corr", at, safeResponse: "safe response",
+            protectContent: Protector.Protect);
 
     private static ServiceProvider Services(SqliteConnection connection, int? retentionDays) {
         var settings = new Dictionary<string, string?>();

@@ -85,8 +85,12 @@ public sealed class AiRequest {
     public string PromptHash { get; private set; } = "";
     public string? PromptPreview { get; private set; }
     public string? ResponsePreview { get; private set; }
+    /// <summary>AES-GCM envelope of the redacted prompt (docs/08); never plaintext. Null unless the policy stores content.</summary>
     public string? PromptContent { get; private set; }
+    /// <summary>AES-GCM envelope of the inspected response; never plaintext.</summary>
     public string? ResponseContent { get; private set; }
+    /// <summary>True when the policy asked to store content but no content key was configured, so nothing was stored.</summary>
+    public bool ContentSkipped { get; private set; }
     public string CorrelationId { get; private set; } = "";
     public DateTimeOffset CreatedAt { get; private set; }
 
@@ -94,19 +98,33 @@ public sealed class AiRequest {
         string? reason, string rawPrompt, string safePrompt, string? response, string[] detections, int redactions,
         int? promptTokens, int? completionTokens, long latencyMs, string correlationId, DateTimeOffset now,
         AiPurpose purpose = AiPurpose.Chat, string? safeResponse = null, bool storePromptContent = true, long? promptChars = null,
-        string? promptHash = null) {
-        return new AiRequest {
+        string? promptHash = null, Func<Guid, string, string, string>? protectContent = null) {
+        var request = new AiRequest {
             Id = Guid.CreateVersion7(), UserId = userId, TeamId = teamId, AiModelId = modelId, AiPolicyId = policy?.Id,
             Status = status, Purpose = purpose, BlockReason = reason, PromptChars = (int)Math.Min(promptChars ?? rawPrompt.Length, int.MaxValue),
             PromptHash = promptHash ?? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawPrompt))),
             PromptPreview = safePrompt[..Math.Min(500, safePrompt.Length)],
             ResponsePreview = safeResponse?[..Math.Min(500, safeResponse.Length)],
-            // Stored content is post-inspection like the previews (docs/08, docs/17 §2): never the raw secret-bearing prompt.
-            PromptContent = policy?.StoreContent == true && storePromptContent ? safePrompt : null,
-            ResponseContent = policy?.StoreContent == true ? response : null,
             ResponseChars = response?.Length ?? 0, DetectedSensitiveTypesJson = JsonSerializer.Serialize(detections),
             RedactionsApplied = redactions, PromptTokens = promptTokens, CompletionTokens = completionTokens,
             LatencyMs = latencyMs, CorrelationId = correlationId[..Math.Min(64, correlationId.Length)], CreatedAt = now,
         };
+        // Stored content is post-inspection like the previews (docs/08, docs/17 §2): never the raw secret-bearing prompt.
+        // It is only ever stored encrypted (protectContent: request ID, field, plaintext -> envelope); without a
+        // protector the content is skipped, never stored as plaintext.
+        var prompt = storePromptContent ? safePrompt : null;
+        if (policy?.StoreContent == true && (prompt is not null || response is not null)) {
+            if (protectContent is null) {
+                request.ContentSkipped = true;
+            } else {
+                request.PromptContent = prompt is null ? null : protectContent(request.Id, PromptContentField, prompt);
+                request.ResponseContent = response is null ? null : protectContent(request.Id, ResponseContentField, response);
+            }
+        }
+        return request;
     }
+
+    /// <summary>Associated-data field names for the stored content envelopes.</summary>
+    public const string PromptContentField = "prompt";
+    public const string ResponseContentField = "response";
 }

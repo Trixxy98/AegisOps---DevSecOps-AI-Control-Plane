@@ -25,7 +25,10 @@ public interface IAiRateLimiter {
 public sealed record AiGatewayResult(int StatusCode, AiRequest Request, string? Content, RateLimitDecision? RateLimit);
 
 public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimiter limiter,
-    ISensitiveDataDetector detector, TimeProvider time, IAuditWriter audit) {
+    ISensitiveDataDetector detector, TimeProvider time, IAuditWriter audit,
+    AiContentProtector? contentProtector = null, IBlockedPatternMatcher? blockedPatterns = null) {
+    private readonly IBlockedPatternMatcher matcher = blockedPatterns ?? new AiBlockedPatterns();
+
     public async Task<AiGatewayResult> Chat(Guid userId, Guid? teamId, string? modelName,
         IReadOnlyList<LlmMessage>? messages, string correlationId, CancellationToken ct, AiPurpose purpose = AiPurpose.Chat) {
         var now = time.GetUtcNow();
@@ -60,12 +63,14 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
         if (messages is null || messages.Count is < 1 or > 32 || messages.Any(m =>
                 m is null || m.Content is null || m.Role is not ("user" or "assistant" or "system")) ||
             raw.Length == 0) return await Finish(400, "PromptRejected", null);
+        // Fail closed: a pattern that times out or cannot be compiled (e.g. a construct saved before NonBacktracking
+        // validation existed) blocks the request instead of letting it through.
         try {
-            if (policy.BlockedPatterns.Any(pattern => Regex.IsMatch(raw, pattern,
-                    RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100))))
+            if (matcher.IsBlocked(raw, policy.BlockedPatterns))
                 return await Finish(400, "PromptRejected", null);
-        } catch (ArgumentException) { return await Finish(503, "PolicyInvalid", null); }
-          catch (RegexMatchTimeoutException) { return await Finish(503, "PolicyInvalid", null); }
+        } catch (RegexMatchTimeoutException) { return await Finish(503, "PolicyInvalid", null); }
+          catch (ArgumentException) { return await Finish(503, "PolicyInvalid", null); }
+          catch (NotSupportedException) { return await Finish(503, "PolicyInvalid", null); }
         if (inspection.Redactions > 0 && policy.SensitiveDataAction == SensitiveDataAction.Block)
             return await Finish(422, "SensitiveData", null);
         IReadOnlyList<LlmMessage> forwarded;
@@ -95,7 +100,8 @@ public sealed class AiGateway(AegisOpsDbContext db, ILlmClient llm, IAiRateLimit
                 status == 200 ? AiRequestStatus.Completed : status == 503 ? AiRequestStatus.Failed : AiRequestStatus.Blocked,
                 reason, raw, safePreviewOrEmpty(), reply?.Content, inspectionOrEmpty().Types, inspectionOrEmpty().Redactions,
                 reply?.PromptTokens, reply?.CompletionTokens, watch.ElapsedMilliseconds, correlationId, now, purpose, safeReply,
-                storePromptContent, promptChars, promptHash);
+                storePromptContent, promptChars, promptHash,
+                contentProtector is { CanProtect: true } ? contentProtector.Protect : null);
             db.AiRequests.Add(request);
             audit.Write(AuditEvent.Record(now, "User", userId, "AI user", "ai.request", "AiRequest", request.Id,
                 status == 200 ? "Succeeded" : "Denied", correlationId[..Math.Min(64, correlationId.Length)]));

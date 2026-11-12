@@ -22,9 +22,9 @@ how to rotate keys and passwords, what to watch and how big the machine should b
 
 | What | Where | In `scripts/backup.sh`? | If you lose it |
 | --- | --- | --- | --- |
-| **Database**: users, teams, projects, policies, artifacts, scans and findings, deployments, approvals, audit log, jobs, API key hashes, encrypted webhook and environment secrets | Docker volume `<project>_pgdata` (PostgreSQL 17) | **Yes** (`database.dump`) | Everything is gone. |
+| **Database**: users, teams, projects, policies, artifacts, scans and findings, deployments, approvals, audit log, jobs, API key hashes, encrypted webhook and environment secrets, encrypted stored AI content (only when an AI policy stores content) | Docker volume `<project>_pgdata` (PostgreSQL 17) | **Yes** (`database.dump`) | Everything is gone. |
 | **Scan reports**: the original SARIF files behind every scan | Docker volume `<project>_reports`, mounted at `/app/reports` in api and worker | **Yes** (`reports.tar.gz`) | Findings stay in the database, but the "download original report" files are gone. |
-| **`.env`**: database passwords, JWT signing key, the keys that encrypt webhook and environment secrets, domain settings | the AegisOps folder | **No, on purpose** | Encrypted secrets in the database **cannot be decrypted** any more and must be re-entered; everyone must sign in again. |
+| **`.env`**: database passwords, JWT signing key, the keys that encrypt webhook and environment secrets and stored AI content, domain settings | the AegisOps folder | **No, on purpose** | Encrypted secrets in the database **cannot be decrypted** any more and must be re-entered; everyone must sign in again. |
 | Ollama models (optional) | Docker volume `<project>_ollama` | No | Download again with `aegis --profile ai up -d` (a few GB). |
 | Redis | in memory only (`--save ""`) | No | Nothing: it is a cache and realtime channel. |
 | Caddy certificates (HTTPS) | volumes `caddy_data`, `caddy_config` | No | Caddy requests new certificates on start (mind Let's Encrypt rate limits if this happens often). |
@@ -33,7 +33,7 @@ how to rotate keys and passwords, what to watch and how big the machine should b
 `<project>` is the Compose project name, by default the folder name (for example `aegisops`).
 
 > **The one rule to remember.** A database backup without the matching `.env` is only half a backup. Webhook
-> signing secrets and secret environment variables are stored **encrypted** (AES-256-GCM) with keys that live
+> signing secrets, secret environment variables and stored AI content are stored **encrypted** (AES-256-GCM) with keys that live
 > only in `.env`. Keep every `.env` version for as long as you keep backups that were made with it.
 
 ## 2. Making backups
@@ -283,7 +283,7 @@ To generate values:
 
 ```bash
 openssl rand -base64 48 | tr -d '\n'; echo                    # JWT signing key
-openssl rand -base64 32 | tr -d '\n'; echo                    # a 32-byte AES key (webhook / environment secrets)
+openssl rand -base64 32 | tr -d '\n'; echo                    # a 32-byte AES key (webhook / environment secrets / AI content)
 openssl rand -base64 48 | tr -d '\n/+=' | cut -c1-32; echo    # a database password
 ```
 
@@ -377,6 +377,38 @@ aegis up -d api worker          # reconnect with it (a few seconds of errors in 
 - **Development demo passwords:** `scripts/demo-reset-passwords.sh` (laptop only; see the user manual).
 - **`GRAFANA_ADMIN_PASSWORD`:** Grafana keeps the password it first started with; change it in Grafana itself.
 
+### 5.6 Stored AI content encryption keys (`AI_CONTENT_*`)
+
+Only matters when an AI policy has **Store content** on. The redacted prompt and the inspected response are then
+stored encrypted with the `AiContent` key ring (api only; the Worker's retention job just clears the columns and needs
+no key). `scripts/gen-secrets.sh` creates `AI_CONTENT_ENABLED=true`, `AI_CONTENT_CURRENT_KEY_ID=key1` and
+`AI_CONTENT_KEY_1`; for an existing `.env`, `scripts/gen-secrets.sh --upgrade` adds them, then `aegis up -d api`.
+Without a key the API never stores content (the request row is marked `content_skipped`); with
+`AI_CONTENT_ENABLED=true` but no current key, the API refuses to start.
+
+Rotation works like environment secrets (§5.3): no content is rewritten, and old content simply expires.
+
+1. Add `AI_CONTENT_KEY_2=<new key>` and set `AI_CONTENT_CURRENT_KEY_ID=key2`. Keep `KEY_1`.
+2. `aegis up -d api`. New content uses `key2`.
+3. Wait until content written with `key1` has expired (`Ai:ContentRetentionDays`, default 30 days). To check:
+
+   ```bash
+   aegis exec -T postgres psql -U aegisops -d aegisops -At -c \
+     "SELECT count(*) FROM ai.ai_requests WHERE prompt_content LIKE 'v1.key1.%' OR response_content LIKE 'v1.key1.%'"
+   ```
+
+4. When that prints `0`, empty `AI_CONTENT_KEY_1` and `aegis up -d api`.
+
+**Upgrading from v1.0 with Store content on.** Rows written before the upgrade hold plaintext (redacted) content;
+they are not re-encrypted and are cleared by retention like any other content. To remove them at once instead:
+
+```bash
+aegis exec -T postgres psql -U aegisops -d aegisops -c \
+  "UPDATE ai.ai_requests SET prompt_content = NULL, response_content = NULL
+   WHERE (prompt_content IS NOT NULL AND prompt_content NOT LIKE 'v1.%')
+      OR (response_content IS NOT NULL AND response_content NOT LIKE 'v1.%')"
+```
+
 ## 6. Monitoring and housekeeping
 
 ### 6.1 Health
@@ -463,7 +495,8 @@ interactive AI use, prefer a machine with a GPU or Apple silicon.
 ## 9. What this guide does not cover yet
 
 - Point-in-time recovery (WAL archiving) and replicas: backups are nightly snapshots, so you can lose up to a day.
-- Automatic re-encryption of environment secrets, and a JWT key ring with overlapping keys.
+- Automatic re-encryption of environment secrets (and of stored AI content, which expires instead), and a JWT key
+  ring with overlapping keys.
 - High availability: one server, one copy of each service.
 
 Related: [deploy-production.md](deploy-production.md) (installation), [docs/14](14-devops-and-infrastructure.md)

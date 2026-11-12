@@ -2,7 +2,7 @@
 # Generate a .env with random local secrets for Docker Compose.
 # Usage: scripts/gen-secrets.sh [--output PATH] [--force | --upgrade]
 # Refuses to overwrite an existing file unless --force is given; --upgrade appends only missing newer keys
-# (APP_DB_PASSWORD) to an existing file. Never prints secrets.
+# (APP_DB_PASSWORD, AI_CONTENT_*) to an existing file. Never prints secrets.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 output=".env"
@@ -37,10 +37,21 @@ if [[ "$upgrade" == true ]]; then
     } >> "$output"
     added+=("APP_DB_PASSWORD")
   fi
+  if ! grep -q '^AI_CONTENT_KEY_1=' "$output"; then
+    if [[ -s "$output" && "$(tail -c 1 "$output")" != "" ]]; then printf '\n' >> "$output"; fi
+    # An existing AI_CONTENT_ENABLED/CURRENT_KEY_ID line is kept; only missing lines are added.
+    {
+      echo "# Stored AI content encryption (docs/08; added by --upgrade; restart api afterwards)."
+      grep -q '^AI_CONTENT_ENABLED=' "$output" || echo "AI_CONTENT_ENABLED=true"
+      grep -q '^AI_CONTENT_CURRENT_KEY_ID=' "$output" || echo "AI_CONTENT_CURRENT_KEY_ID=key1"
+      echo "AI_CONTENT_KEY_1=$(openssl rand -base64 32 | tr -d '\n')"
+    } >> "$output"
+    added+=("AI_CONTENT_KEY_1")
+  fi
   if [[ ${#added[@]} -eq 0 ]]; then
     echo "$output already has every generated key; nothing changed."
   else
-    echo "Added to $output: ${added[*]}. Run the migrate command, then restart api and worker."
+    echo "Added to $output: ${added[*]}. Run the migrate command (production), then restart api and worker."
   fi
   exit 0
 fi
@@ -67,6 +78,10 @@ trap 'rm -f "$tmp"' EXIT
   echo "ENVIRONMENT_SECRETS_ENABLED=true"
   echo "ENVIRONMENT_SECRETS_CURRENT_KEY_ID=key1"
   echo "ENVIRONMENT_SECRETS_KEY_1=$(openssl rand -base64 32 | tr -d '\n')"
+  # Stored AI content (AI policy StoreContent, docs/08): AES-256-GCM encrypted with this key.
+  echo "AI_CONTENT_ENABLED=true"
+  echo "AI_CONTENT_CURRENT_KEY_ID=key1"
+  echo "AI_CONTENT_KEY_1=$(openssl rand -base64 32 | tr -d '\n')"
 } > "$tmp"
 chmod 600 "$tmp"
 mv "$tmp" "$output"

@@ -21,6 +21,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using System.Text.Encodings.Web;
@@ -599,7 +600,9 @@ public sealed class AiGatewayTests {
         fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
         await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         const string secret = "AKIA1234567890ABCDEF";
-        var gateway = new AiGateway(fixture.Db, new FakeLlm(), new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
+        var protector = ContentProtector();
+        var gateway = new AiGateway(fixture.Db, new FakeLlm(), new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System,
+            new EfAuditWriter(fixture.Db), protector);
 
         var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "deploy failed with key " + secret)],
             "content-redaction", TestContext.Current.CancellationToken);
@@ -607,7 +610,9 @@ public sealed class AiGatewayTests {
         Assert.Equal(200, result.StatusCode);
         var row = await fixture.Db.AiRequests.SingleAsync(TestContext.Current.CancellationToken);
         Assert.NotNull(row.PromptContent);
-        Assert.Contains("[REDACTED:AWS_ACCESS_KEY]", row.PromptContent);
+        var prompt = protector.Unprotect(row.Id, AiContentProtector.PromptField, row.PromptContent);
+        Assert.Contains("[REDACTED:AWS_ACCESS_KEY]", prompt);
+        Assert.DoesNotContain(secret, prompt);
         Assert.DoesNotContain(secret, row.PromptContent);
     }
 
@@ -800,6 +805,272 @@ public sealed class AiGatewayTests {
             await database.KeyDeleteAsync($"ai:rl:m:{userId:N}");
             await database.KeyDeleteAsync($"ai:rl:d:{userId:N}");
         }
+    }
+
+    // ---------- Blocked patterns (docs/17 §3) ----------
+
+    [Theory]
+    [InlineData("(a)\\1", "construct")]
+    [InlineData("(?=secret)", "construct")]
+    [InlineData("(?<=x)y", "construct")]
+    [InlineData("(?!x)y", "construct")]
+    [InlineData("(?>a+)b", "construct")]
+    [InlineData("[unclosed", "not a valid regular expression")]
+    [InlineData("(", "not a valid regular expression")]
+    [InlineData("", "is empty")]
+    public async Task Save_policy_rejects_invalid_or_non_linear_blocked_patterns_with_problem_details(string pattern, string message) {
+        await using var fixture = new GatewayFixture();
+        var (principal, http) = await AdminCaller(fixture);
+
+        var result = await AiEndpoints.SavePolicy(new AiPolicyRequest(null, "patterns", PolicyScope.Global, null, [],
+            20, 100, 4000, SensitiveDataAction.Redact, ["harmless", pattern], true, false, true),
+            principal, fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), http);
+
+        var problem = Assert.IsType<ProblemHttpResult>(result);
+        Assert.Equal(StatusCodes.Status400BadRequest, problem.StatusCode);
+        Assert.Equal("Blocked patterns are invalid.", problem.ProblemDetails.Title);
+        Assert.Contains("Blocked pattern 2", problem.ProblemDetails.Detail, StringComparison.Ordinal);
+        Assert.Contains(message, problem.ProblemDetails.Detail, StringComparison.Ordinal);
+        Assert.Equal(0, await fixture.Db.AiPolicies.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Save_policy_limits_blocked_pattern_count_and_length_and_accepts_linear_patterns() {
+        await using var fixture = new GatewayFixture();
+        var (principal, http) = await AdminCaller(fixture);
+        async Task<IResult> Save(string[] patterns) => await AiEndpoints.SavePolicy(new AiPolicyRequest(null, "patterns",
+            PolicyScope.Global, null, [], 20, 100, 4000, SensitiveDataAction.Redact, patterns, true, false, true),
+            principal, fixture.Users, fixture.Db, new EfAuditWriter(fixture.Db), http);
+
+        Assert.Equal(400, Assert.IsType<ProblemHttpResult>(await Save([new string('a', AiBlockedPatterns.MaxPatternLength + 1)])).StatusCode);
+        Assert.Equal(400, Assert.IsType<ProblemHttpResult>(await Save(Enumerable.Repeat("x", AiBlockedPatterns.MaxPatterns + 1).ToArray())).StatusCode);
+        var saved = await Save(["(a+)+$", "internal[-_ ]?only", "\\bproject\\s+zeus\\b", "(?i)CONFIDENTIAL"]);
+        Assert.Equal(StatusCodes.Status200OK, Assert.IsAssignableFrom<IStatusCodeHttpResult>(saved).StatusCode);
+        var stored = await fixture.Db.AiPolicies.AsNoTracking().SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(4, stored.BlockedPatterns.Length);
+    }
+
+    [Fact]
+    public void Blocked_pattern_matcher_is_case_insensitive_and_linear_on_catastrophic_input() {
+        var matcher = new AiBlockedPatterns();
+        Assert.True(matcher.IsBlocked("Project ZEUS launch", ["project\\s+zeus"]));
+        Assert.False(matcher.IsBlocked("project apollo", ["project\\s+zeus"]));
+        Assert.Null(AiBlockedPatterns.Validate(["(a+)+$", "(x+x+)+y"]));
+
+        // (a+)+$ / (x+x+)+y against a long non-matching run backtrack exponentially in a backtracking engine.
+        var input = new string('a', 15_000) + "!";
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.False(matcher.IsBlocked(input, ["^(a+)+$", "(x+x+)+y", "^(a|aa)+$"]));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"Matching took {watch.Elapsed}.");
+    }
+
+    [Fact]
+    public async Task Gateway_evaluates_catastrophic_blocked_patterns_quickly_and_still_blocks_matches() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("redos-model"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("redos-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, ["^(a+)+$", "codename\\s+orion"], false, false, true,
+            fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var fake = new FakeLlm();
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var allowed = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", new string('a', 15_000) + "!")],
+            "redos", TestContext.Current.CancellationToken);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"Gateway took {watch.Elapsed}.");
+        Assert.Equal(200, allowed.StatusCode);
+
+        var blocked = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "about Codename  ORION")],
+            "redos-match", TestContext.Current.CancellationToken);
+        Assert.Equal(400, blocked.StatusCode);
+        Assert.Equal("PromptRejected", blocked.Request.BlockReason);
+        Assert.Equal(1, fake.Calls);
+    }
+
+    [Fact]
+    public async Task Gateway_fails_closed_when_blocked_pattern_matching_times_out() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("pattern-timeout"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("pattern-timeout-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, ["anything"], false, false, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var fake = new FakeLlm();
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System,
+            new EfAuditWriter(fixture.Db), blockedPatterns: new TimeoutMatcher());
+
+        var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")], "pattern-timeout",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(503, result.StatusCode);
+        Assert.Equal("PolicyInvalid", result.Request.BlockReason);
+        Assert.Equal(AiRequestStatus.Failed, result.Request.Status);
+        Assert.Null(result.Content);
+        Assert.Equal(0, fake.Calls);
+    }
+
+    [Fact]
+    public async Task Gateway_fails_closed_for_a_stored_pattern_that_linear_matching_does_not_support() {
+        // A policy saved before save-time validation may hold a backreference; it still loads, and blocks every request.
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("legacy-pattern"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("legacy-pattern-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, ["(a)\\1"], false, false, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var fake = new FakeLlm();
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db));
+
+        var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")], "legacy",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(503, result.StatusCode);
+        Assert.Equal("PolicyInvalid", result.Request.BlockReason);
+        Assert.Equal(0, fake.Calls);
+        var listed = await AiEndpoints.Policies(fixture.Db, new DefaultHttpContext());
+        Assert.Equal(StatusCodes.Status200OK, Assert.IsAssignableFrom<IStatusCodeHttpResult>(listed).StatusCode);
+    }
+
+    // ---------- Stored content encryption (docs/08, docs/17 §5) ----------
+
+    [Fact]
+    public async Task Stored_content_is_encrypted_round_trips_and_is_bound_to_request_and_column() {
+        await using var fixture = new GatewayFixture();
+        var model = await StoringPolicy(fixture, "encrypted-content");
+        var protector = ContentProtector();
+        var gateway = new AiGateway(fixture.Db, new FakeLlm { Reply = "the build broke in stage two" }, new FakeLimiter(),
+            new RegexSensitiveDataDetector(), TimeProvider.System, new EfAuditWriter(fixture.Db), protector);
+        const string prompt = "why did release 42 of the payroll service fail";
+
+        var result = await gateway.Chat(fixture.UserId, null, model, [new LlmMessage("user", prompt)], "encrypted",
+            TestContext.Current.CancellationToken);
+        var other = await gateway.Chat(fixture.UserId, null, model, [new LlmMessage("user", "second prompt")], "encrypted-2",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(200, result.StatusCode);
+        var row = await fixture.Db.AiRequests.AsNoTracking().SingleAsync(item => item.Id == result.Request.Id, TestContext.Current.CancellationToken);
+        Assert.False(row.ContentSkipped);
+        Assert.StartsWith("v1.key1.", row.PromptContent, StringComparison.Ordinal);
+        Assert.StartsWith("v1.key1.", row.ResponseContent, StringComparison.Ordinal);
+        Assert.Equal(prompt, protector.Unprotect(row.Id, AiContentProtector.PromptField, row.PromptContent!));
+        Assert.Equal("the build broke in stage two", protector.Unprotect(row.Id, AiContentProtector.ResponseField, row.ResponseContent!));
+
+        // Associated data: another request's ID or the other column does not decrypt.
+        Assert.ThrowsAny<System.Security.Cryptography.CryptographicException>(() =>
+            protector.Unprotect(other.Request.Id, AiContentProtector.PromptField, row.PromptContent!));
+        Assert.ThrowsAny<System.Security.Cryptography.CryptographicException>(() =>
+            protector.Unprotect(row.Id, AiContentProtector.ResponseField, row.PromptContent!));
+        // A different key ring cannot read it either.
+        Assert.ThrowsAny<System.Security.Cryptography.CryptographicException>(() =>
+            ContentProtector().Unprotect(row.Id, AiContentProtector.PromptField, row.PromptContent!));
+
+        // Never plaintext in the columns, read back with raw SQL.
+        var raw = await fixture.Db.Database.SqlQueryRaw<string>(
+                "SELECT coalesce(prompt_content, '') || '|' || coalesce(response_content, '') AS \"Value\" FROM ai_requests")
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, raw.Count);
+        Assert.All(raw, value => {
+            Assert.DoesNotContain("payroll", value, StringComparison.Ordinal);
+            Assert.DoesNotContain("second prompt", value, StringComparison.Ordinal);
+            Assert.DoesNotContain("stage two", value, StringComparison.Ordinal);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Content_is_not_stored_and_marked_skipped_when_the_key_ring_is_not_configured(bool disabledRing) {
+        await using var fixture = new GatewayFixture();
+        var model = await StoringPolicy(fixture, $"skipped-content-{disabledRing}");
+        // Either no protector at all, or keys present but AiContent:Enabled=false.
+        var protector = disabledRing ? ContentProtector(enabled: false) : null;
+        var fake = new FakeLlm { Reply = "reply that must not be stored" };
+        var gateway = new AiGateway(fixture.Db, fake, new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System,
+            new EfAuditWriter(fixture.Db), protector);
+
+        var result = await gateway.Chat(fixture.UserId, null, model, [new LlmMessage("user", "prompt that must not be stored")],
+            "skipped", TestContext.Current.CancellationToken);
+
+        Assert.Equal(200, result.StatusCode);
+        Assert.Equal("reply that must not be stored", result.Content);
+        var row = await fixture.Db.AiRequests.AsNoTracking().SingleAsync(TestContext.Current.CancellationToken);
+        Assert.True(row.ContentSkipped);
+        Assert.Null(row.PromptContent);
+        Assert.Null(row.ResponseContent);
+        // Governance metadata is still recorded.
+        Assert.Equal(64, row.PromptHash.Length);
+        Assert.NotNull(row.PromptPreview);
+    }
+
+    [Fact]
+    public async Task Content_is_not_marked_skipped_when_the_policy_does_not_store_content() {
+        await using var fixture = new GatewayFixture();
+        var model = AiModel.Create("no-store"); model.SetEnabled(true);
+        var policy = AiPolicy.Create("no-store-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, [], false, false, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var gateway = new AiGateway(fixture.Db, new FakeLlm(), new FakeLimiter(), new RegexSensitiveDataDetector(), TimeProvider.System,
+            new EfAuditWriter(fixture.Db), ContentProtector());
+
+        var result = await gateway.Chat(fixture.UserId, null, model.Name, [new LlmMessage("user", "hello")], "no-store",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(200, result.StatusCode);
+        Assert.False(result.Request.ContentSkipped);
+        Assert.Null(result.Request.PromptContent);
+        Assert.Null(result.Request.ResponseContent);
+    }
+
+    [Fact]
+    public void Content_key_ring_rotates_and_rejects_incomplete_configuration() {
+        var key1 = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var key2 = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var requestId = Guid.CreateVersion7();
+        var before = ContentProtector(keys: new() { ["key1"] = key1 });
+        var envelope = before.Protect(requestId, AiContentProtector.PromptField, "rotate me");
+        var after = ContentProtector(currentKeyId: "key2", keys: new() { ["key1"] = key1, ["key2"] = key2 });
+
+        Assert.Equal("key1", after.ReadKeyId(envelope));
+        Assert.Equal("rotate me", after.Unprotect(requestId, AiContentProtector.PromptField, envelope));
+        Assert.Equal("key2", after.ReadKeyId(after.Protect(requestId, AiContentProtector.PromptField, "new")));
+        Assert.Throws<InvalidOperationException>(() => ContentProtector(keys: new()));
+        Assert.Throws<InvalidOperationException>(() => ContentProtector(keys: new() { ["key1"] = Convert.ToBase64String(new byte[16]) }));
+        Assert.False(new AiContentProtector(new ConfigurationBuilder().Build()).CanProtect);
+    }
+
+    private static AiContentProtector ContentProtector(bool enabled = true, string currentKeyId = "key1", Dictionary<string, string>? keys = null) {
+        var settings = new Dictionary<string, string?> {
+            ["AiContent:Enabled"] = enabled ? "true" : "false",
+            ["AiContent:CurrentKeyId"] = currentKeyId,
+        };
+        keys ??= new() { ["key1"] = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)) };
+        foreach (var (id, value) in keys) settings[$"AiContent:Keys:{id}"] = value;
+        return new AiContentProtector(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+    }
+
+    private static async Task<string> StoringPolicy(GatewayFixture fixture, string name) {
+        var model = AiModel.Create(name); model.SetEnabled(true);
+        var policy = AiPolicy.Create(name + "-policy", PolicyScope.Global, null, fixture.UserId, DateTimeOffset.UtcNow);
+        policy.Configure([model.Id], 20, 500, 16000, SensitiveDataAction.Redact, [], false, true, true, fixture.UserId, DateTimeOffset.UtcNow);
+        fixture.Db.AiModels.Add(model); fixture.Db.AiPolicies.Add(policy);
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return model.Name;
+    }
+
+    private static async Task<(ClaimsPrincipal Principal, HttpContext Http)> AdminCaller(GatewayFixture fixture) {
+        var adminRole = new IdentityRole<Guid> { Id = Guid.NewGuid(), Name = "Admin", NormalizedName = "ADMIN" };
+        fixture.Db.Roles.Add(adminRole);
+        fixture.Db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = fixture.UserId, RoleId = adminRole.Id });
+        await fixture.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return (new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", fixture.UserId.ToString())], "test")), new DefaultHttpContext());
+    }
+
+    private sealed class TimeoutMatcher : IBlockedPatternMatcher {
+        public bool IsBlocked(string input, IReadOnlyList<string> patterns) =>
+            throw new System.Text.RegularExpressions.RegexMatchTimeoutException(input, patterns[0], TimeSpan.FromMilliseconds(100));
     }
 
     private sealed class FakeLlm : ILlmClient {

@@ -187,7 +187,7 @@ Migrations only move forward; to go back to an older version, restore the backup
 `Set APP_DB_PASSWORD in .env`. Add it, create the role, then restart:
 
 ```bash
-scripts/gen-secrets.sh --upgrade     # appends a random APP_DB_PASSWORD to .env; prints only the key name
+scripts/gen-secrets.sh --upgrade     # appends missing keys (APP_DB_PASSWORD, AI_CONTENT_*) to .env; prints only key names
 aegis run --rm migrate               # creates aegisops_app and its grants
 aegis up -d                          # api and worker now connect as aegisops_app
 ```
