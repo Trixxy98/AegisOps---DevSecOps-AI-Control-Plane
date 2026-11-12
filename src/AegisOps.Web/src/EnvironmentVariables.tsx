@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
+import { Alert } from "./ui";
 
 /** GET /api/v1/projects/{slug}/environments/{envId}/variables (EnvironmentVariableEndpoints.cs). Secret values are always null. */
 type EnvironmentVariable = { name: string; isSecret: boolean; value: string | null; updatedAt: string };
@@ -79,24 +80,35 @@ export function EnvironmentVariables({
   }
 
   return (
-    <div className="environment-variables" aria-label={`${environmentName} variables`} role="group">
-      <p className="environment-title">
-        Variables <span>{variables.length} configured</span>
-      </p>
+    <div className="subsection" aria-label={`${environmentName} variables`} role="group">
+      <div className="subsection-head">
+        <h3 className="section-title">Variables</h3>
+        <span className="card-meta">{variables.length}</span>
+      </div>
       {variables.length === 0 ? (
-        <p className="empty-state">
+        <p className="field-hint">
           No variables. The container only receives DOTNET_ENVIRONMENT and ASPNETCORE_ENVIRONMENT.
         </p>
       ) : (
-        <ul className="variable-list" aria-label={`${environmentName} variable list`}>
+        <ul className="list inset-list" aria-label={`${environmentName} variable list`}>
           {variables.map((variable) => (
-            <li key={variable.name} className="list-row">
-              <span>
-                <code>{variable.name}</code> = <code>{variable.isSecret ? "••••• (secret)" : variable.value}</code>
+            <li key={variable.name}>
+              <span className="variable">
+                <code className="variable-name" title={variable.name}>
+                  {variable.name}
+                </code>
+                <span className="subtle">=</span>
+                {variable.isSecret ? (
+                  <code className="mono">••••• (secret)</code>
+                ) : (
+                  <code className="mono" title={variable.value ?? undefined}>
+                    {variable.value}
+                  </code>
+                )}
               </span>
               {canEdit && (
                 <button
-                  className="secondary-button"
+                  className="btn btn-ghost btn-sm"
                   type="button"
                   aria-label={`Delete ${variable.name}`}
                   onClick={() => void remove(variable.name)}
@@ -110,45 +122,37 @@ export function EnvironmentVariables({
       )}
       {canEdit && (
         <form className="variable-form" onSubmit={(event) => void save(event)}>
-          <div className="form-grid">
-            <label className="field-label">
-              Variable name
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="ConnectionStrings__Default"
-                required
-                maxLength={128}
-                pattern="[A-Za-z_][A-Za-z0-9_]*"
-              />
-            </label>
-            <label className="field-label">
-              Value
-              <input
-                value={value}
-                onChange={(event) => setValue(event.target.value)}
-                type={isSecret ? "password" : "text"}
-                autoComplete="off"
-                maxLength={8192}
-              />
-            </label>
-          </div>
-          <div className="action-row">
-            <label className="checkbox-label">
-              <input type="checkbox" checked={isSecret} onChange={(event) => setIsSecret(event.target.checked)} />
-              Secret (write-only, encrypted)
-            </label>
-            <button className="primary-button" type="submit" disabled={saving || name.trim() === ""}>
-              Save variable
-            </button>
-          </div>
+          <label className="field">
+            Variable name
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="ConnectionStrings__Default"
+              required
+              maxLength={128}
+              pattern="[A-Za-z_][A-Za-z0-9_]*"
+            />
+          </label>
+          <label className="field">
+            Value
+            <input
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              type={isSecret ? "password" : "text"}
+              autoComplete="off"
+              maxLength={8192}
+            />
+          </label>
+          <label className="checkbox variable-secret">
+            <input type="checkbox" checked={isSecret} onChange={(event) => setIsSecret(event.target.checked)} />
+            Secret (write-only, encrypted)
+          </label>
+          <button className="btn btn-secondary" type="submit" disabled={saving || name.trim() === ""}>
+            Save variable
+          </button>
         </form>
       )}
-      {error && (
-        <p role="alert" className="inline-error">
-          {error}
-        </p>
-      )}
+      {error && <Alert>{error}</Alert>}
     </div>
   );
 }

@@ -95,7 +95,10 @@ Copy the passwords somewhere safe. If you lose them, see [Troubleshooting](#8-tr
 2. Sign in as `admin@aegisops.local` with the temporary password.
 3. AegisOps asks you to **choose a new password** (at least 12 characters). This is required for every account
    the first time; until you do it, the system refuses all other actions.
-4. You now see the **Overview** page. A green **"Live updates"** dot (top right) means the page updates by itself.
+4. You now see the **Overview** page. A green **"Live"** dot next to the AegisOps logo (top left) means the page
+   updates by itself; **"Reconnecting…"** means it refreshes every 10 seconds until the live connection is back.
+   The buttons at the bottom of the menu switch between the **System**, **Light** and **Dark** theme, next to
+   **Sign out**.
 
 > A yellow **"System degraded — Ollama unavailable"** banner is normal if you have not started the AI part
 > (section 6). Everything else still works.
@@ -113,7 +116,7 @@ Copy the passwords somewhere safe. If you lose them, see [Troubleshooting](#8-tr
 | **AI Governance** | History of AI requests (what was detected, redacted or blocked) and the AI policy (allowed models, limits, Redact/Block). |
 | **AI Playground** | Chat with the local AI model, safely, through the governance rules. |
 | **Audit log** | The logbook: who did what, when, with what result. |
-| **Administration** | Users (add, activate/deactivate, roles, reset password), teams (members and webhooks) and background jobs (Admin only). |
+| **Administration** | Tabs for **Users** (add, activate/deactivate, roles, reset password), **Teams** (webhooks) and **Jobs** (background jobs; Admin only). |
 
 ### Configuration and secrets (Projects screen)
 

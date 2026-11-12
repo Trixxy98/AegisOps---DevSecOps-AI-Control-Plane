@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "./api";
 import { GovernancePanel, type GovernanceState, type RateLimitRemaining } from "./GovernancePanel";
+import { IconInfo, IconSparkles } from "./icons";
+import { Alert, CardHeader, Spinner } from "./ui";
 
 type AiModel = { id: string; name: string; displayName?: string | null; provider: string };
 type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -122,53 +124,63 @@ export function AiPlayground({ token }: { token: string }) {
 
   const canSend = !!model && !!draft.trim() && !sending;
   return (
-    <div className="ai-playground">
-      <section className="panel playground-panel" aria-labelledby="playground-heading">
-        <div className="panel-heading">
-          <h2 id="playground-heading">Chat</h2>
-          <span>{messages.length} message(s)</span>
-        </div>
-        <p className="key-notice playground-notice" role="note">
-          Prompts are inspected for sensitive data before they reach the model and may be logged as redacted previews in
-          the AI request log. This conversation is kept only on this page and is not saved in your browser.
-        </p>
-        <label className="field-label" htmlFor="ai-model-select">
-          Model
-          {modelsLoading ? (
-            <span role="status">Loading allowed models…</span>
-          ) : (
-            <select
-              id="ai-model-select"
-              value={model}
-              disabled={!models.length || sending}
-              onChange={(event) => setModel(event.target.value)}
-            >
-              {models.map((item) => (
-                <option key={item.id} value={item.name}>
-                  {item.displayName || item.name} · {item.provider}
-                </option>
-              ))}
-            </select>
+    <div className="split split-aside">
+      <section className="card chat-card" aria-labelledby="playground-heading">
+        <CardHeader
+          id="playground-heading"
+          title="Chat"
+          meta={messages.length === 1 ? "1 message" : `${messages.length} messages`}
+        />
+        <div className="chat-toolbar">
+          <label className="field" htmlFor="ai-model-select">
+            Model
+            {modelsLoading ? (
+              <span role="status" className="subtle">
+                Loading allowed models…
+              </span>
+            ) : (
+              <select
+                id="ai-model-select"
+                value={model}
+                disabled={!models.length || sending}
+                onChange={(event) => setModel(event.target.value)}
+              >
+                {models.map((item) => (
+                  <option key={item.id} value={item.name}>
+                    {item.displayName || item.name} · {item.provider}
+                  </option>
+                ))}
+              </select>
+            )}
+          </label>
+          {modelsError && <Alert>Could not load allowed models: {modelsError}</Alert>}
+          {!modelsLoading && !modelsError && !models.length && (
+            <Alert tone="warning">No models are allowed by your AI policy. Ask an administrator to allow one.</Alert>
           )}
-        </label>
-        {modelsError && (
-          <p className="ai-error" role="alert">
-            Could not load allowed models: {modelsError}
+          <p className="note" role="note">
+            <IconInfo size={14} />
+            <span>
+              Prompts are inspected for sensitive data before they reach the model and may be logged as redacted
+              previews in the AI request log. This conversation is kept only on this page and is not saved in your
+              browser.
+            </span>
           </p>
-        )}
-        {!modelsLoading && !modelsError && !models.length && (
-          <p className="empty-state">No models are allowed by your AI policy. Ask an administrator to allow one.</p>
-        )}
+        </div>
 
         <ol className="chat-history" aria-label="Conversation" aria-live="polite">
           {messages.map((message, index) => (
             <li key={index} className={`chat-message chat-message-${message.role}`}>
-              <strong>{message.role === "user" ? "You" : "Assistant"}</strong>
+              <span className="chat-author">{message.role === "user" ? "You" : "Assistant"}</span>
               <p>{message.content}</p>
-              {message.role === "assistant" && <small>AI-generated — verify before acting.</small>}
+              {message.role === "assistant" && (
+                <small className="ai-label">
+                  <IconSparkles size={12} />
+                  AI-generated — verify before acting.
+                </small>
+              )}
             </li>
           ))}
-          {!messages.length && <li className="empty-state">No messages yet.</li>}
+          {!messages.length && <li className="chat-empty">No messages yet. Ask something below.</li>}
         </ol>
 
         <form
@@ -178,26 +190,22 @@ export function AiPlayground({ token }: { token: string }) {
             void send();
           }}
         >
-          <label className="field-label" htmlFor="ai-prompt">
+          <label className="field" htmlFor="ai-prompt">
             Prompt
             <textarea
               id="ai-prompt"
-              rows={4}
+              rows={3}
               value={draft}
               disabled={sending}
               onChange={(event) => setDraft(event.target.value)}
             />
           </label>
-          {sendError && (
-            <p className="ai-error" role="alert">
-              {sendError}
-            </p>
-          )}
-          <div className="action-row">
-            <button className="primary-button" type="submit" disabled={!canSend} aria-busy={sending}>
+          {sendError && <Alert>{sendError}</Alert>}
+          <div className="form-actions">
+            <button className="btn btn-primary" type="submit" disabled={!canSend} aria-busy={sending}>
               {sending ? (
                 <>
-                  <span className="button-spinner" aria-hidden="true" />
+                  <Spinner />
                   Sending…
                 </>
               ) : (
@@ -205,7 +213,7 @@ export function AiPlayground({ token }: { token: string }) {
               )}
             </button>
             <button
-              className="secondary-button"
+              className="btn btn-ghost"
               type="button"
               disabled={sending || (!messages.length && !governance)}
               onClick={() => {

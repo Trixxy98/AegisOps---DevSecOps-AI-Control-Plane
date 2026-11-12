@@ -1,3 +1,5 @@
+import { StatusBadge } from "./ui";
+
 export type RateLimitRemaining = { remainingMinute: number; remainingDay: number };
 
 /** Governance metadata for the most recent AI playground request, allowed or blocked. */
@@ -17,19 +19,17 @@ export type GovernanceState = {
 
 export function GovernancePanel({ governance }: { governance: GovernanceState | null }) {
   return (
-    <section className="panel governance-panel" aria-labelledby="governance-heading">
-      <div className="panel-heading">
-        <h2 id="governance-heading">Governance</h2>
-        {governance && (
-          <span className={`ai-status ai-status-${governance.outcome === "Allowed" ? "completed" : "blocked"}`}>
-            {governance.outcome}
-          </span>
-        )}
+    <section className="card governance-panel" aria-labelledby="governance-heading">
+      <div className="card-header">
+        <div className="card-title">
+          <h2 id="governance-heading">Governance</h2>
+        </div>
+        {governance && <StatusBadge status={governance.outcome} className="ai-status" />}
       </div>
       {!governance ? (
-        <p className="empty-state">Send a prompt to see how the AI policy handled it.</p>
+        <p className="empty-row">Send a prompt to see how the AI policy handled it.</p>
       ) : (
-        <dl className="governance-list">
+        <dl className="dl governance-list">
           <div>
             <dt>HTTP status</dt>
             <dd>{governance.status}</dd>

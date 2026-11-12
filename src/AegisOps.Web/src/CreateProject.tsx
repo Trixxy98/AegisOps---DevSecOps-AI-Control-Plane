@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
+import { Alert } from "./ui";
 
 /** GET /api/v1/teams (ListTeams.cs). `myRole` is null for Admins, who see every team. */
 type Team = { id: string; name: string; slug: string; description?: string | null; myRole?: string | null };
@@ -86,16 +87,15 @@ export function CreateProject({ token, onCreated }: { token: string; onCreated: 
 
   if (teams !== null && teams.length === 0 && error === null) {
     return (
-      <p className="empty-state">
+      <p className="field-hint">
         To create a project you must be an Owner of a team. Ask an Admin to make you one (Administration → Teams).
       </p>
     );
   }
 
   return (
-    <form className="create-project-form" aria-label="Create project" onSubmit={(event) => void submit(event)}>
-      <p className="environment-title">Create project</p>
-      <label className="field-label">
+    <form className="form" aria-label="Create project" onSubmit={(event) => void submit(event)}>
+      <label className="field">
         Team
         <select value={teamId} onChange={(event) => setTeamId(event.target.value)} required>
           {(teams ?? []).map((team) => (
@@ -105,7 +105,7 @@ export function CreateProject({ token, onCreated }: { token: string; onCreated: 
           ))}
         </select>
       </label>
-      <label className="field-label">
+      <label className="field">
         Name
         <input
           value={name}
@@ -118,9 +118,10 @@ export function CreateProject({ token, onCreated }: { token: string; onCreated: 
           maxLength={200}
         />
       </label>
-      <label className="field-label">
-        Slug
+      <div className="field">
+        <label htmlFor="create-project-slug">Slug</label>
         <input
+          id="create-project-slug"
           value={slug}
           onChange={(event) => {
             setSlug(event.target.value);
@@ -131,26 +132,24 @@ export function CreateProject({ token, onCreated }: { token: string; onCreated: 
           maxLength={100}
           aria-describedby="create-project-slug-hint"
         />
-      </label>
-      <p id="create-project-slug-hint" className="field-hint">
-        Lowercase letters, digits and hyphens. CI uses it in API calls; it cannot be changed later.
-      </p>
-      <label className="field-label">
+        <p id="create-project-slug-hint" className="field-hint">
+          Lowercase letters, digits and hyphens. CI uses it in API calls; it cannot be changed later.
+        </p>
+      </div>
+      <label className="field">
         Description (optional)
         <input value={description} onChange={(event) => setDescription(event.target.value)} maxLength={2000} />
       </label>
-      <button
-        className="primary-button"
-        type="submit"
-        disabled={saving || teamId === "" || name.trim() === "" || slug.trim() === ""}
-      >
-        Create project
-      </button>
-      {error && (
-        <p role="alert" className="inline-error">
-          {error}
-        </p>
-      )}
+      {error && <Alert>{error}</Alert>}
+      <div className="form-actions">
+        <button
+          className="btn btn-primary"
+          type="submit"
+          disabled={saving || teamId === "" || name.trim() === "" || slug.trim() === ""}
+        >
+          Create project
+        </button>
+      </div>
     </form>
   );
 }

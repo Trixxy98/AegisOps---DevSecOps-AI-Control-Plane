@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { api } from "./api";
+import { Alert, SeverityBadge, StatusBadge } from "./ui";
 
 export type Finding = {
   id: string;
@@ -95,91 +96,99 @@ export function FindingDetail({
   }
 
   return (
-    <section className="panel finding-detail" aria-labelledby="finding-detail-heading">
-      <div className="panel-heading">
-        <h2 id="finding-detail-heading">{finding.title}</h2>
-        <button className="secondary-button" type="button" onClick={onClose}>
+    <section className="card finding-detail" aria-labelledby="finding-detail-heading">
+      <div className="card-header finding-detail-header">
+        <div className="stack stack-tight">
+          <h2 id="finding-detail-heading" className="finding-title">
+            {finding.title}
+          </h2>
+          <div className="row">
+            <SeverityBadge severity={finding.severity} />
+            <StatusBadge status={finding.status} className="finding-status" />
+            <span className="tag">{finding.scanner}</span>
+          </div>
+        </div>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onClose}>
           Back to findings
         </button>
       </div>
-      <p className="finding-badges">
-        <span className={`severity-badge severity-${finding.severity.toLowerCase()}`}>{finding.severity}</span>
-        <span className="finding-status">{finding.status}</span>
-        <span>{finding.scanner}</span>
-      </p>
-      <dl className="governance-list finding-fields">
-        <Field label="Rule">{finding.ruleId}</Field>
-        <Field label="Description">
-          <span className="finding-description">{finding.description || "No description provided."}</span>
-        </Field>
-        <Field label="Location">{fileLocation ?? "—"}</Field>
-        <Field label="Package">
-          {finding.packageName
-            ? `${finding.packageName} ${finding.installedVersion ?? ""}`.trim() +
-              (finding.fixedVersion ? ` → fixed in ${finding.fixedVersion}` : " · no fix version reported")
-            : "—"}
-        </Field>
-        <Field label="CVE">{finding.cve ?? "—"}</Field>
-        <Field label="Help">
-          {helpUrl ? (
-            <a href={helpUrl} target="_blank" rel="noopener noreferrer">
-              {helpUrl}
-            </a>
-          ) : (
-            (finding.helpUri ?? "—")
-          )}
-        </Field>
-        <Field label="Artifact">{finding.artifactVersion}</Field>
-        <Field label="Fingerprint">
-          <code className="governance-id">{finding.fingerprint}</code>
-        </Field>
-        <Field label="Suppression">
-          {finding.suppression ? (
-            <span data-testid="suppression-info">
-              {finding.suppression.reason} · since {new Date(finding.suppression.createdAt).toLocaleString()} ·{" "}
-              {finding.suppression.expiresAt
-                ? `expires ${new Date(finding.suppression.expiresAt).toLocaleString()}`
-                : "no expiry"}
-            </span>
-          ) : finding.suppressionReason ? (
-            <span data-testid="suppression-info">{finding.suppressionReason}</span>
-          ) : (
-            "Not suppressed"
-          )}
-        </Field>
-      </dl>
+      <div className="card-body">
+        <dl className="dl">
+          <Field label="Rule">
+            <code className="mono">{finding.ruleId}</code>
+          </Field>
+          <Field label="Description">
+            <span className="finding-description">{finding.description || "No description provided."}</span>
+          </Field>
+          <Field label="Location">{fileLocation ? <code className="mono">{fileLocation}</code> : "—"}</Field>
+          <Field label="Package">
+            {finding.packageName
+              ? `${finding.packageName} ${finding.installedVersion ?? ""}`.trim() +
+                (finding.fixedVersion ? ` → fixed in ${finding.fixedVersion}` : " · no fix version reported")
+              : "—"}
+          </Field>
+          <Field label="CVE">{finding.cve ?? "—"}</Field>
+          <Field label="Help">
+            {helpUrl ? (
+              <a href={helpUrl} target="_blank" rel="noopener noreferrer">
+                {helpUrl}
+              </a>
+            ) : (
+              (finding.helpUri ?? "—")
+            )}
+          </Field>
+          <Field label="Artifact">{finding.artifactVersion}</Field>
+          <Field label="Fingerprint">
+            <code className="mono governance-id">{finding.fingerprint}</code>
+          </Field>
+          <Field label="Suppression">
+            {finding.suppression ? (
+              <span data-testid="suppression-info">
+                {finding.suppression.reason} · since {new Date(finding.suppression.createdAt).toLocaleString()} ·{" "}
+                {finding.suppression.expiresAt
+                  ? `expires ${new Date(finding.suppression.expiresAt).toLocaleString()}`
+                  : "no expiry"}
+              </span>
+            ) : finding.suppressionReason ? (
+              <span data-testid="suppression-info">{finding.suppressionReason}</span>
+            ) : (
+              "Not suppressed"
+            )}
+          </Field>
+        </dl>
 
-      {canSuppress && (
-        <form
-          className="suppress-form"
-          aria-label="Suppress finding"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void suppress();
-          }}
-        >
-          <h3 className="subheading">Suppress by fingerprint</h3>
-          <p className="empty-state">
-            Suppression applies to this fingerprint in every artifact of {projectSlug}, including later scans.
-          </p>
-          <label className="field-label">
-            Reason (required)
-            <textarea rows={3} value={reason} required onChange={(event) => setReason(event.target.value)} />
-          </label>
-          <label className="field-label">
-            Expires (optional)
-            <input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} />
-          </label>
-          {error && (
-            <p className="ai-error" role="alert">
-              {error}
-            </p>
-          )}
-          <button className="primary-button" type="submit" disabled={!reason.trim() || saving} aria-busy={saving}>
-            {saving ? "Suppressing…" : "Suppress"}
-          </button>
-        </form>
-      )}
+        {canSuppress && (
+          <form
+            className="form subsection"
+            aria-label="Suppress finding"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void suppress();
+            }}
+          >
+            <div className="stack stack-tight">
+              <h3 className="section-title">Suppress by fingerprint</h3>
+              <p className="field-hint">
+                Applies to this fingerprint in every artifact of {projectSlug}, including later scans.
+              </p>
+            </div>
+            <label className="field">
+              Reason (required)
+              <textarea rows={3} value={reason} required onChange={(event) => setReason(event.target.value)} />
+            </label>
+            <label className="field">
+              Expires (optional)
+              <input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} />
+            </label>
+            {error && <Alert>{error}</Alert>}
+            <div className="form-actions">
+              <button className="btn btn-primary" type="submit" disabled={!reason.trim() || saving} aria-busy={saving}>
+                {saving ? "Suppressing…" : "Suppress"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
     </section>
   );
 }
