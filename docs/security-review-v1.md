@@ -34,11 +34,16 @@ complete audit coverage enforced by `AuditCoverageTests`.
 Ordered by impact. None is exploitable from outside the host now that Compose binds to loopback.
 
 1. **Audit tamper protection is not role-based yet.** The API and Worker share one owner role; no
-   `INSERT`/`SELECT`-only role on `audit.*`.
+   `INSERT`/`SELECT`-only role on `audit.*`. *Resolved in v1.1 (roadmap item 6) for the production profile: the
+   api and worker connect as `aegisops_app`, created by `migrate` with only `SELECT`/`INSERT` on `audit.*` (also for
+   future tables); only `migrate` uses the owner. Nothing in the code updated or deleted audit rows. The Development
+   stack still connects as the owner; integrity remains role-based, not cryptographic (docs/17 §2–3).*
 2. **No per-principal or upload rate limiting.** Only `/auth/login` and `/auth/refresh` (10/min per client IP)
    and the Redis AI limits exist. Behind nginx all browser users share one IP bucket (no forwarded-headers
    handling); the auth limiter sends no `Retry-After`. *v1.1: forwarded headers from known proxies are honoured
-   behind the TLS proxy, so the auth limiter sees real client IPs; per-principal/upload limits remain open.*
+   behind the TLS proxy, so the auth limiter sees real client IPs. Resolved in v1.1 (roadmap item 4): a global token
+   bucket per user/API key (client IP when anonymous) on `/api` and `/hubs`, an `uploads` policy for scan uploads,
+   and every 429 is Problem Details with `Retry-After` (docs/17 §3). Limits are in memory per API instance.*
 3. **Errors:** no `AddProblemDetails`/`UseExceptionHandler`; Compose runs the API as `Development`, so the
    developer exception page is served (now loopback-only). *Resolved in v1.1: unhandled exceptions return Problem
    Details with a `traceId` in every environment, and the production profile runs as `Production`.*

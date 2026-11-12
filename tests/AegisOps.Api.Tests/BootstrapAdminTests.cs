@@ -60,6 +60,8 @@ public sealed class BootstrapAdminTests : IAsyncLifetime {
         using var first = new StringWriter();
         Assert.Equal(0, await MigrateAsync(first));
         Assert.Contains("Created roles: Admin, Developer, Security, Approver.", first.ToString(), StringComparison.Ordinal);
+        // Without APP_DB_PASSWORD the restricted database role is left alone (Development keeps the owner connection).
+        Assert.Contains("AppDatabase:Password (APP_DB_PASSWORD) is not set", first.ToString(), StringComparison.Ordinal);
 
         using var second = new StringWriter();
         Assert.Equal(0, await MigrateAsync(second));

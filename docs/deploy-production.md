@@ -21,6 +21,8 @@ should see. If you only want to try AegisOps on your laptop, use the [user manua
 | Address | `http://127.0.0.1:3000` | `https://aegisops.example.com` (Caddy, automatic certificate, HSTS) |
 | Published ports | 3000, 8080, 5432, 6380 on loopback | **only 80 and 443** (Caddy); PostgreSQL, Redis, API and web are internal |
 | Unsafe settings | allowed | the API **refuses to start** with the `.env.example` JWT key or the Development database password |
+| Database user of api and worker | the owner `aegisops` | the restricted role `aegisops_app` (`APP_DB_PASSWORD`): it can read and add audit rows but never change or delete them; only `migrate` uses the owner |
+| Rate limits | the same | 300 requests per user or API key (token bucket, 50 back every 10 s), 30 scan uploads, 10 sign-ins per minute per client address; `429` with `Retry-After` |
 
 ## 2. What you need
 
@@ -65,7 +67,8 @@ DOCKER_GID=988                         # output of: stat -c %g /var/run/docker.s
 
 `DOCKER_GID` lets the Worker use the Docker socket without running as root (see
 [docs/14](14-devops-and-infrastructure.md) for the socket-proxy alternative). **Keep `.env` private and backed up**:
-it holds the database password, the JWT signing key and the keys that encrypt webhook and environment secrets.
+it holds the database passwords (`POSTGRES_PASSWORD` for the owner, `APP_DB_PASSWORD` for the restricted role of
+the api and worker), the JWT signing key and the keys that encrypt webhook and environment secrets.
 Losing the encryption keys means re-entering every secret.
 
 > If you copied `.env.example` instead of running `gen-secrets.sh`, the API will refuse to start in Production
@@ -81,11 +84,19 @@ alias aegis='docker compose -f docker-compose.yml -f deploy/docker-compose.prod.
 
 ```bash
 aegis build                          # builds aegisops-api, aegisops-worker and aegisops-web (a few minutes)
-aegis run --rm migrate               # creates the tables and the four roles, then exits
+aegis run --rm migrate               # creates the tables, the four roles and the database role aegisops_app, then exits
 ```
 
-You should see `Database migrations are applied.` and `Created roles: Admin, Developer, Security, Approver.`
-Running `migrate` again is safe; it then prints `Roles already present: …`.
+You should see `Database migrations are applied.`, `Created roles: Admin, Developer, Security, Approver.` and
+`Database role aegisops_app is up to date (audit: SELECT and INSERT only).` Running `migrate` again is safe; it then
+prints `Roles already present: …` and re-applies the database grants (it also sets the role's password from
+`APP_DB_PASSWORD`, so changing that value and re-running `migrate` rotates it).
+
+`migrate` is the only service that connects as the database owner `aegisops`. The api and worker connect as
+`aegisops_app`, which has normal read/write rights on the application schemas but only `SELECT` and `INSERT` on
+`audit.*` (no `UPDATE`, `DELETE` or `TRUNCATE`; tables added by later migrations get the same grants). A bug or an
+attacker inside the API can therefore not rewrite the audit log; someone with the owner password still can (see
+[docs/17 §2](17-security-hardening.md)).
 
 ## 6. Create the first Admin
 
@@ -169,6 +180,15 @@ aegis up -d
 
 Take a backup first. Migrations only move forward; to go back to an older version, restore the backup.
 
+**Upgrading from a version without `APP_DB_PASSWORD`** (before the audit-role change): Compose stops with
+`Set APP_DB_PASSWORD in .env`. Add it, create the role, then restart:
+
+```bash
+scripts/gen-secrets.sh --upgrade     # appends a random APP_DB_PASSWORD to .env; prints only the key name
+aegis run --rm migrate               # creates aegisops_app and its grants
+aegis up -d                          # api and worker now connect as aegisops_app
+```
+
 ### Logs and health
 
 - `aegis logs api worker` shows JSON logs (one event per line, secrets masked). An error page or Problem Details
@@ -184,7 +204,8 @@ browser ──HTTPS──► caddy (80/443) ──HTTP──► web / nginx ─�
                     and X-Forwarded-Proto    address                the Docker network, two hops deep
 ```
 
-The API's login rate limit and the refresh-token records therefore see the **real client address**, not nginx's.
+The API's login rate limit (and the per-address limit of anonymous requests) and the refresh-token records therefore
+see the **real client address**, not nginx's.
 The trust is configured in `deploy/docker-compose.tls.yml`:
 
 | Setting | Value | Meaning |
@@ -211,6 +232,9 @@ proxy (nginx, Traefik, a load balancer) at it, terminate TLS there, send HSTS, a
 | `api` keeps restarting; log says `Refusing to start in the Production environment` | The message names the setting: run `scripts/gen-secrets.sh` (or fix `.env`) and `aegis up -d`. |
 | `Automatic migrations are only supported in Development` | Something sets `Database__MigrateOnStartup=true`; remove it and use `aegis run --rm migrate`. |
 | API errors like `relation … does not exist` | Migrations were not applied: `aegis run --rm migrate`. |
+| `password authentication failed for user "aegisops_app"` | The role does not exist yet or `APP_DB_PASSWORD` changed since the last `migrate`: run `aegis run --rm migrate`, then `aegis up -d`. |
+| `permission denied for table …` in the api/worker log | The grants are older than the table: run `aegis run --rm migrate` (it re-applies them). On `audit.*` an `UPDATE`/`DELETE` is denied on purpose. |
+| `429 Too Many Requests` | A user, API key or client address went over its budget; wait for `Retry-After` seconds. Limits are set with `RateLimits__*` ([docs/14](14-devops-and-infrastructure.md)). |
 | PostgreSQL rejects the password after you regenerated `.env` | An existing `pgdata` volume keeps its first password. Put the old `POSTGRES_PASSWORD` back, or change it inside PostgreSQL (`ALTER USER aegisops PASSWORD …`). |
 | Caddy log: certificate errors / `NXDOMAIN` / timeouts | DNS does not point at the server yet, or ports 80/443 are blocked by a firewall. Fix and `aegis restart caddy`. |
 | Browser shows a certificate warning | Caddy has not obtained the certificate yet; check `aegis logs caddy`. |
@@ -221,9 +245,9 @@ proxy (nginx, Traefik, a load balancer) at it, terminate TLS there, send HSTS, a
 ## 11. What is not covered yet
 
 - **High availability and multiple organisations**: one server, one organisation.
-- **Open security items** from the [v1 security review](security-review-v1.md): no INSERT/SELECT-only database role
-  for `audit.*`, no per-user or upload rate limits (only login/refresh and AI are limited), policy branch globs
-  without `NonBacktracking`, stored AI content not encrypted at rest. The Worker mounts the Docker socket, which is
+- **Open security items** from the [v1 security review](security-review-v1.md): policy branch globs without
+  `NonBacktracking`, stored AI content not encrypted at rest. Audit integrity is role-based, not cryptographic, and
+  rate limits are kept in memory per API instance. The Worker mounts the Docker socket, which is
   root-equivalent on the host ([docs/17 §4](17-security-hardening.md)).
 - **User management**: no self-service sign-up, invitation email or account deletion (deactivate instead); there
   is no screen to change team membership of existing users yet (API only).

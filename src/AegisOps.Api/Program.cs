@@ -71,7 +71,7 @@ builder.Services.AddOpenTelemetry()
         if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"])) traces.AddOtlpExporter();
     });
 builder.Services.AddSingleton<DeploymentConnections>();
-builder.Services.AddAuthRateLimiting();
+builder.Services.AddApiRateLimiting(builder.Configuration);
 builder.Services.AddAegisOpsForwardedHeaders(builder.Configuration);
 builder.Services.AddApiProblemDetails();
 var redis = builder.Configuration.GetConnectionString("Redis");
@@ -100,9 +100,10 @@ app.UseApiMetrics();
 app.UseApiRequestTracing();
 app.UseApiRequestLogging();
 app.UseAuthentication();
+// After authentication (partitions by user or API key), before authorization so rejected floods are cheap (docs/17).
+app.UseRateLimiter();
 app.UsePasswordChangeGate();
 app.UseAuthorization();
-app.UseRateLimiter();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions {
@@ -110,8 +111,8 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions {
     ResponseWriter = ReadinessResponse.WriteAsync,
 });
 app.MapHub<OpsHub>("/hubs/ops", options => options.CloseOnAuthenticationExpiration = true);
-app.MapPost("/api/v1/auth/login", Login.Handle).RequireRateLimiting(AuthRateLimitingExtensions.PolicyName);
-app.MapPost("/api/v1/auth/refresh", Refresh.Handle).RequireRateLimiting(AuthRateLimitingExtensions.PolicyName);
+app.MapPost("/api/v1/auth/login", Login.Handle).RequireRateLimiting(ApiRateLimiting.AuthPolicy);
+app.MapPost("/api/v1/auth/refresh", Refresh.Handle).RequireRateLimiting(ApiRateLimiting.AuthPolicy);
 app.MapPost("/api/v1/auth/logout", Logout.Handle).RequireAuthorization();
 app.MapGet("/api/v1/auth/me", CurrentUser.Handle).RequireAuthorization();
 app.MapGet("/api/v1/system/dependencies", SystemDependencyHealth.Handle).RequireAuthorization();
@@ -194,6 +195,7 @@ app.MapPatch("/api/v1/artifacts/{id:guid}", BackfillArtifactDigest.Handle)
     .RequireAuthorization(Permissions.ArtifactsWrite);
 app.MapPost("/api/v1/artifacts/{id:guid}/scans", UploadScan.Handle)
     .DisableAntiforgery()
+    .RequireRateLimiting(ApiRateLimiting.UploadsPolicy)
     .RequireAuthorization(Permissions.ScansWrite);
 app.MapGet("/api/v1/artifacts/{id:guid}/findings", ListFindings.Handle)
     .RequireAuthorization(Permissions.FindingsRead);
