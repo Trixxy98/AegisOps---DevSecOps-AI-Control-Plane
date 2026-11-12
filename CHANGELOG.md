@@ -12,6 +12,12 @@ Conventional Commit history (`git log --no-merges`).
 - Production profile can run the published release images: `AEGISOPS_IMAGE_PREFIX` and `AEGISOPS_IMAGE_TAG`
   (docs/deploy-production.md §5).
 
+### Changed
+
+- Release and example workflows use the current Docker actions (setup-qemu v4.4.0, setup-buildx v4.4.1,
+  build-push v7.4.0, login v4.8.0; Node 24, self-hosted runners need 2.327.1 or later). Inputs are unchanged.
+- Dependabot groups `eslint` with `@eslint/js` and defers ESLint 10 until `eslint-plugin-jsx-a11y` supports it.
+
 ## [1.1.0] — 2026-11-12
 
 Production readiness for a single server: environment secrets, self-service onboarding, a production

@@ -46,7 +46,8 @@ settings* → *Change visibility*). Private packages need credentials on the Aeg
 **About the network: why a self-hosted runner?** AegisOps v1 only listens on `127.0.0.1` (your own machine). The
 GitHub-hosted runners in the cloud cannot reach it. So the last job of the workflow, the one that talks to
 AegisOps, must run on a **self-hosted runner installed on the AegisOps machine**. Building and scanning still run
-on GitHub's free hosted runners.
+on GitHub's free hosted runners. The pinned actions use Node 24, so a self-hosted runner needs version 2.327.1 or
+later (runners update themselves by default).
 
 > **Security note for public repositories.** A self-hosted runner executes workflow code on your computer.
 > The example never runs the AegisOps job for pull requests, and you should also keep GitHub's default
@@ -209,16 +210,16 @@ jobs:
         name: Unique version and image name
         run: bash scripts/image-meta.sh
 
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: . # CHANGE ME if your Dockerfile is not at the repository root (also set "file:")
           push: true
@@ -253,7 +254,7 @@ jobs:
             --config p/default --metrics=off --sarif --output semgrep.sarif
 
       - name: Authenticate to GHCR for the image scan
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
