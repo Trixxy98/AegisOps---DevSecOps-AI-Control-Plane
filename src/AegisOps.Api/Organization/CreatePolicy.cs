@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using AegisOps.Application.PolicyEngine;
 using AegisOps.Domain.Identity;
 using AegisOps.Domain.Organization;
 using AegisOps.Domain.Policy;
@@ -148,6 +149,7 @@ public static class CreatePolicy {
                     ? null
                     : item.Parameters.Value.GetRawText();
 
+                BranchGlob.ValidateRuleParameters(type, parameters);
                 rules.Add(PolicyRule.Create(policy.Id, type, effect, item.Order, parameters));
             }
 

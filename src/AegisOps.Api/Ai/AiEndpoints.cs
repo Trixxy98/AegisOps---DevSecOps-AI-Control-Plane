@@ -305,6 +305,11 @@ public static class AiEndpoints {
         if (request.IsEnabled && await db.AiPolicies.AsNoTracking().AnyAsync(item => item.IsEnabled &&
             item.Scope == request.Scope && item.ScopeId == request.ScopeId && item.Id != (request.Id ?? Guid.Empty), http.RequestAborted))
             return Results.Problem(title: "An enabled AI policy already exists for this scope.", statusCode: StatusCodes.Status409Conflict);
+        // Compile every blocked pattern now (NonBacktracking) so an unsupported or invalid pattern is rejected here,
+        // not on every later AI request (docs/08, docs/17 §3).
+        var patternProblem = AiBlockedPatterns.Validate(request.BlockedPatterns);
+        if (patternProblem is not null)
+            return Results.Problem(title: "Blocked patterns are invalid.", detail: patternProblem, statusCode: StatusCodes.Status400BadRequest);
         var now = TimeProvider.System.GetUtcNow();
         try {
             if (policy is null) {

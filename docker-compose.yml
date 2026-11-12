@@ -48,6 +48,11 @@ services:
       EnvironmentSecrets__CurrentKeyId: ${ENVIRONMENT_SECRETS_CURRENT_KEY_ID:-key1}
       EnvironmentSecrets__Keys__key1: ${ENVIRONMENT_SECRETS_KEY_1:-}
       EnvironmentSecrets__Keys__key2: ${ENVIRONMENT_SECRETS_KEY_2:-}
+      # Stored AI content (AI policy StoreContent) is encrypted with this key ring; api only (docs/08).
+      AiContent__Enabled: ${AI_CONTENT_ENABLED:-false}
+      AiContent__CurrentKeyId: ${AI_CONTENT_CURRENT_KEY_ID:-key1}
+      AiContent__Keys__key1: ${AI_CONTENT_KEY_1:-}
+      AiContent__Keys__key2: ${AI_CONTENT_KEY_2:-}
       Database__MigrateOnStartup: "true"
       Storage__ReportsPath: /app/reports
     volumes:

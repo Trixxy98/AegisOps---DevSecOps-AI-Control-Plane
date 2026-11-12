@@ -168,7 +168,9 @@ CREATE TABLE ai.ai_requests (
   status text NOT NULL, purpose text NOT NULL, prompt_chars int NOT NULL, response_chars int,
   prompt_tokens int, completion_tokens int, latency_ms int, detected_sensitive_types text[] NOT NULL DEFAULT '{}',
   redactions_applied int NOT NULL DEFAULT 0, block_reason text, prompt_hash text NOT NULL,
-  prompt_preview text, response_preview text, prompt_content text, response_content text,
+  prompt_preview text, response_preview text,
+  prompt_content text, response_content text,          -- AES-256-GCM envelopes only (AiContent key ring, docs/08)
+  content_skipped boolean NOT NULL DEFAULT false,       -- StoreContent on but no key: nothing stored (v1.1)
   correlation_id text NOT NULL, created_at timestamptz NOT NULL);
 CREATE INDEX ix_ai_requests_user_created ON ai.ai_requests (user_id, created_at DESC);
 CREATE INDEX ix_ai_requests_created ON ai.ai_requests (created_at DESC);

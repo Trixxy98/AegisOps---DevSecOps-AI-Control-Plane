@@ -298,6 +298,44 @@ public sealed class ProjectAndPolicyEndpointTests {
         Assert.Equal("Deny", (await host.SimulateAsync(developer, artifact, production, mondayEarly)).GetProperty("decision").GetString());
     }
 
+    [Fact]
+    public async Task PolicySaveRejectsInvalidBranchGlobsWithProblemDetailsAndAcceptsValidOnes() {
+        await using var host = await OrgHost.StartAsync();
+        var (_, admin) = await host.CreateUserAsync("admin@example.test", "Admin");
+
+        static CreatePolicyRequest Request(string parameters) => new("Branches", null, "Global", null, ["Production"],
+            [new CreatePolicyRuleRequest("AllowedBranches", "Deny", 0, JsonDocument.Parse(parameters).RootElement.Clone())]);
+
+        foreach (var (parameters, message) in new[] {
+            ("""{"patterns":[]}""", "patterns"),
+            ("""{}""", "patterns"),
+            ("""{"patterns":"main"}""", "patterns"),
+            ("""{"patterns":[""]}""", "must not be empty"),
+            ("""{"patterns":["   "]}""", "must not be empty"),
+            ($$"""{"patterns":["{{new string('a', 256)}}"]}""", "at most 255"),
+            ("""{"patterns":["main\u0000"]}""", "control characters"),
+            ($$"""{"patterns":[{{string.Join(",", Enumerable.Repeat("\"main\"", 51))}}]}""", "at most 50"),
+        }) {
+            using var response = await host.SendAsync(HttpMethod.Post, "/api/v1/policies", admin, Request(parameters));
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+            var problem = await response.Content.ReadFromJsonAsync<JsonElement>(Token);
+            Assert.Contains(message, problem.GetProperty("title").GetString(), StringComparison.Ordinal);
+        }
+        await host.WithDbAsync(async db => Assert.Equal(0, await db.Policies.CountAsync(Token)));
+
+        using var created = await host.SendAsync(HttpMethod.Post, "/api/v1/policies", admin,
+            Request("""{"patterns":["main","release/*","hotfix/*-urgent","(a+)+$"]}"""));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var policy = await created.Content.ReadFromJsonAsync<PolicyResponse>(Token);
+
+        // Replacing the rules is validated the same way, and a rejected replace keeps the stored rules.
+        using var replaced = await host.SendAsync(HttpMethod.Put, $"/api/v1/policies/{policy!.Id}", admin, Request("""{"patterns":[""]}"""));
+        Assert.Equal(HttpStatusCode.BadRequest, replaced.StatusCode);
+        await host.WithDbAsync(async db => Assert.Contains("release/*",
+            (await db.PolicyRules.AsNoTracking().SingleAsync(rule => rule.PolicyId == policy.Id, Token)).Parameters, StringComparison.Ordinal));
+    }
+
     private sealed class OrgHost : IAsyncDisposable {
         private static readonly JwtOptions Jwt = new() {
             Issuer = "aegisops-tests",
@@ -356,6 +394,14 @@ public sealed class ProjectAndPolicyEndpointTests {
                 ClaimsPrincipal user, UserManager<User> users, AegisOpsDbContext db, IAuditWriter audit, HttpContext http) =>
                 UpdateEnvironment.Handle(slug, envId, body, user, users, db, audit, http))
                 .RequireAuthorization(Permissions.EnvironmentsWrite);
+            app.MapPost("/api/v1/policies", (CreatePolicyRequest body, ClaimsPrincipal user, UserManager<User> users,
+                AegisOpsDbContext db, IAuditWriter audit, TimeProvider time, HttpContext http) =>
+                CreatePolicy.Handle(body, user, users, db, audit, time, http))
+                .RequireAuthorization(Permissions.PoliciesWrite);
+            app.MapPut("/api/v1/policies/{id:guid}", (Guid id, CreatePolicyRequest body, ClaimsPrincipal user, UserManager<User> users,
+                AegisOpsDbContext db, IAuditWriter audit, TimeProvider time, HttpContext http) =>
+                PolicyPhase1Endpoints.Replace(id, body, user, users, db, audit, time, http))
+                .RequireAuthorization(Permissions.PoliciesWrite);
             app.MapGet("/api/v1/policies/rule-types", () => PolicyPhase1Endpoints.RuleTypes())
                 .RequireAuthorization(Permissions.PoliciesRead);
             app.MapPost("/api/v1/policies/simulate", (SimulatePolicyRequest body, AegisOpsDbContext db, TimeProvider time,

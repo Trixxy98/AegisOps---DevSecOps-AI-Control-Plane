@@ -92,6 +92,23 @@ Conventional Commit history (`git log --no-merges`).
   `scripts/gen-secrets.sh` generates `APP_DB_PASSWORD`; `--upgrade` appends it (and only it) to an existing `.env`,
   adding a missing final newline first. **Upgrade:** run `scripts/gen-secrets.sh --upgrade`, `migrate`, then
   `up -d`. The Development stack is unchanged (owner connection).
+- Regex hardening (item 7): policy branch globs and AI `BlockedPatterns` are compiled with
+  `RegexOptions.NonBacktracking` (linear-time matching) and a 100 ms timeout. Both are validated when the policy is
+  saved: an `AllowedBranches` rule needs 1–50 non-empty globs of at most 255 characters without control characters,
+  and blocked patterns must compile without constructs NonBacktracking does not support (backreferences,
+  lookarounds, atomic groups, conditionals); violations return 400 Problem Details naming the problem. Evaluation
+  fails closed: an AI pattern that times out or no longer compiles (stored before this change) blocks the request
+  with 503 `PolicyInvalid`; a branch rule that cannot be evaluated denies.
+- Stored AI content encrypted at rest (item 7): `ai.ai_requests.prompt_content`/`response_content` hold only
+  AES-256-GCM envelopes from the new `AiContent` key ring (`Enabled`, `CurrentKeyId`, `Keys:<id>`; Compose
+  `AI_CONTENT_*` on the api), bound to the request ID and column. With `StoreContent` on but no key, nothing is
+  stored and the new column `content_skipped` is set (migration `AiContentSkipped`); a ring enabled without its
+  current key stops the API at startup. `scripts/gen-secrets.sh` generates the key, and `--upgrade` now also adds
+  `AI_CONTENT_*` when missing. **Upgrade:** content stored as plaintext before this release is not re-encrypted; it
+  expires with retention, or can be cleared at once (docs/operations.md §5.6).
+- CI scope (item 10): Semgrep also runs `p/owasp-top-ten` and the Security job fails on ERROR-severity findings
+  (all findings still go to SARIF); the Frontend job runs `npm audit --audit-level=high --omit=dev`; the Backend job
+  lists vulnerable NuGet packages (`dotnet list package --vulnerable --include-transitive`) and fails on any.
 
 - API and Worker containers run as the unprivileged `app` user (UID 1654) instead of root.
 - nginx forwards only `websocket` upgrades to the API (no h2c upgrade smuggling) and the CSP allows
@@ -102,6 +119,9 @@ Conventional Commit history (`git log --no-merges`).
 ### Changed
 
 - `react` and `react-dom` 19.3.1.
+- Release images are multi-arch (linux/amd64 + linux/arm64, item 10): the Trivy CRITICAL gate scans the amd64 image
+  before anything is pushed. The API, Worker and Web Dockerfiles run their build stage on `$BUILDPLATFORM`
+  (architecture-neutral output), so only the runtime stages are emulated.
 
 ## [1.0.0] — 2026-11-11
 

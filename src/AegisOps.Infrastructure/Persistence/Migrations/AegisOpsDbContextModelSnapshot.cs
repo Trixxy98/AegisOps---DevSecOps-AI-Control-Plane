@@ -189,6 +189,10 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("completion_tokens");
 
+                    b.Property<bool>("ContentSkipped")
+                        .HasColumnType("boolean")
+                        .HasColumnName("content_skipped");
+
                     b.Property<string>("CorrelationId")
                         .IsRequired()
                         .HasMaxLength(64)

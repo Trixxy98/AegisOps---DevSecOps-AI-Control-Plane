@@ -286,11 +286,17 @@ public static class PolicyEngine {
             return (false, "No branch patterns are configured.", 0);
         }
 
-        var matched = patterns.Any(pattern => Regex.IsMatch(
-            branch,
-            "^" + Regex.Escape(pattern).Replace("\\*", ".*") + "$",
-            RegexOptions.CultureInvariant
-        ));
+        bool matched;
+        try {
+            matched = patterns.Any(pattern => !string.IsNullOrEmpty(pattern) && BranchGlob.IsMatch(branch, pattern));
+        } catch (RegexMatchTimeoutException) {
+            // Fail closed: a pattern that cannot be evaluated in time never allows a branch.
+            return (false, "Branch pattern evaluation timed out.", 0);
+        } catch (ArgumentException) {
+            return (false, "Branch patterns are invalid.", 0);
+        } catch (NotSupportedException) {
+            return (false, "Branch patterns are invalid.", 0);
+        }
         return matched
             ? (true, $"Branch {branch} is allowed.", 0)
             : (false, $"Branch {branch} is not allowed.", 0);

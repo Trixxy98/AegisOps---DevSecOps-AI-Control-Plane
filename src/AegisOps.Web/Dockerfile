@@ -1,4 +1,5 @@
-FROM node:22-alpine AS build
+# The build stage runs on the build machine's platform (static output); only the nginx stage is per-architecture.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /web
 COPY src/AegisOps.Web/package*.json ./
 RUN npm ci

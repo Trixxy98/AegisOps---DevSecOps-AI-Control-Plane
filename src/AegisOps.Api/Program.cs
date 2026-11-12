@@ -49,6 +49,8 @@ builder.Services.AddIdentityStore(builder.Configuration);
 builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
 builder.Services.AddSingleton<TeamWebhookSecretProtector>();
 builder.Services.AddSingleton<EnvironmentSecretProtector>();
+builder.Services.AddSingleton<AiContentProtector>();
+builder.Services.AddSingleton<IBlockedPatternMatcher>(_ => new AiBlockedPatterns());
 builder.Services.AddSingleton<ISensitiveDataDetector, RegexSensitiveDataDetector>();
 builder.Services.AddSingleton<IAiRateLimiter>(services => new RedisAiRateLimiter(
     services.GetService<IConnectionMultiplexer>(), services.GetRequiredService<TimeProvider>()));
@@ -91,6 +93,8 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(optio
 });
 
 var app = builder.Build();
+// Fail at startup, not on the first AI request, when the AiContent key ring is misconfigured (docs/08).
+_ = app.Services.GetRequiredService<AiContentProtector>();
 // First: logging, metrics, authentication and the auth rate limiter must see the real client (docs/17).
 app.UseAegisOpsForwardedHeaders(app.Configuration);
 app.UseApiExceptionHandler();
