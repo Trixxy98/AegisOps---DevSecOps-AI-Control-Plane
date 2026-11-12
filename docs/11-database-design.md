@@ -262,8 +262,13 @@ emit noise for JSON/array columns).
 | ai_requests | 10⁴–10⁵ | GIN on `detected_sensitive_types` for security review filters |
 | jobs | small, self-cleaning | |
 
-## 6. Backup & restore (demo)
+## 6. Backup & restore
 
-`scripts/db-backup.sh` → `pg_dump -Fc` into `./backups/`; `scripts/db-restore.sh`. Reports
-directory backed up alongside. Documented in the README for completeness; no scheduled
-backups in v1.
+`scripts/backup.sh` → `pg_dump --format=custom` (inside the `postgres` container, as the owner) plus a
+tarball of the `reports` volume, the applied migrations, per-table row counts, a manifest and SHA-256
+checksums in `./backups/aegisops-<UTC time>/`. `scripts/restore.sh` verifies the checksums, restores
+into a temporary database with `pg_restore --no-owner --no-privileges --single-transaction`, compares
+the row counts and only then replaces the live database; in production the `migrate` command then
+re-applies the `aegisops_app` grants (they are deliberately not restored from the dump). Scheduling,
+off-host copies, encryption and restore drills: [operations.md](operations.md). There is no
+point-in-time recovery (WAL archiving) in v1.1.

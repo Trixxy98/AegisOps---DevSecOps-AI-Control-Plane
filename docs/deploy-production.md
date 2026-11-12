@@ -160,25 +160,28 @@ The production profile starts **empty**: no demo team, projects or policies. As 
 ### Backups
 
 Everything important is in the `pgdata` volume (database) and the `reports` volume (uploaded scan reports), plus
-your `.env`. A simple nightly database backup:
+your `.env`. Back up the first two with one command:
 
 ```bash
-aegis exec -T postgres pg_dump -U aegisops -d aegisops --format=custom > aegisops-$(date +%F).dump
+scripts/backup.sh --tls              # writes backups/aegisops-<UTC time>/ (dump, reports, manifest, checksums)
 ```
 
-Copy the dump and `.env` off the server. Restore into an empty database with `pg_restore`. A fuller
-operations guide (restore drill, sizing, key rotation) is roadmap v1.1 item 9.
+`.env` is **not** in the backup: keep an encrypted copy elsewhere. Restoring (`scripts/restore.sh`), a quarterly
+restore drill, off-site storage, encryption at rest and a cron example are in the
+[operations guide](operations.md).
 
 ### Upgrading
 
 ```bash
+scripts/backup.sh --tls              # first: a backup to roll back to
 git pull                             # or check out the release tag you want
 aegis build
 aegis run --rm migrate               # always before starting the new version
 aegis up -d
 ```
 
-Take a backup first. Migrations only move forward; to go back to an older version, restore the backup.
+Migrations only move forward; to go back to an older version, restore the backup
+([operations guide §4](operations.md#4-upgrading-aegisops), which also covers GHCR images and key rotation).
 
 **Upgrading from a version without `APP_DB_PASSWORD`** (before the audit-role change): Compose stops with
 `Set APP_DB_PASSWORD in .env`. Add it, create the role, then restart:
@@ -252,4 +255,5 @@ proxy (nginx, Traefik, a load balancer) at it, terminate TLS there, send HSTS, a
 - **User management**: no self-service sign-up, invitation email or account deletion (deactivate instead); there
   is no screen to change team membership of existing users yet (API only).
 - **Single sign-on, MFA, email**: accounts are local; temporary passwords are handed over by an Admin.
-- **Operations guide** (restore drills, key rotation, sizing): [roadmap v1.1](roadmap-v1.1.md) item 9.
+- **Point-in-time recovery and high availability**: backups are snapshots ([operations guide](operations.md)); a
+  restore loses what was written after the last backup.

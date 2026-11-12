@@ -27,6 +27,17 @@ Conventional Commit history (`git log --no-merges`).
 - HTTPS (item 3): `deploy/docker-compose.tls.yml` and `deploy/caddy/Caddyfile` put Caddy in front (automatic
   certificates for `AEGISOPS_DOMAIN`, HTTP→HTTPS, HSTS); only ports 80/443 are published in that mode.
 - Unhandled API exceptions return RFC 9457 Problem Details with a `traceId` (item 5).
+- Backup and restore (item 9): `scripts/backup.sh [--output DIR] [--project-name NAME] [--prod] [--tls] [--dry-run]`
+  writes `aegisops-<UTC time>/` with a `pg_dump` custom-format dump, a tarball of the `reports` volume (read-only
+  mount), the applied migrations, per-table row counts, `manifest.json` and `checksums.sha256` (private files; `.env`
+  is never read or copied). `scripts/restore.sh BACKUP_DIR [--project-name NAME] [--prod] [--tls] [--yes]
+  [--dry-run]` verifies the checksums, asks for a typed `restore`, stops api/worker/web, restores into a temporary
+  database that replaces the current one only after `pg_restore` and the row-count check succeed, restores the
+  reports volume, runs `migrate` in production and waits for `/health/ready`; `--verify-only` restores into a
+  throw-away PostgreSQL container instead. `deploy/docker-compose.drill.yml` runs an isolated restore drill next to
+  the real stack (own network, other loopback ports, no Worker).
+- Compose passes `ENVIRONMENT_SECRETS_KEY_2` to api and worker (`EnvironmentSecrets__Keys__key2`) so the environment
+  secret key can be rotated without editing `docker-compose.yml`.
 
 - Environment configuration and secrets: Owners and Admins set per-environment variables
   (`GET/PUT/DELETE /api/v1/projects/{slug}/environments/{envId}/variables[/{name}]`) that the Worker injects into
@@ -44,6 +55,12 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Documentation
 
+- `docs/operations.md` (item 9): what AegisOps state consists of, backups (schedule, off-host copies, encryption
+  at rest with age/gpg, retention, cron), restore and a quarterly restore drill, upgrades and rollback, the
+  forward-only migration policy, rotating the JWT key, the webhook and environment-secret key rings, database
+  passwords and API keys, health, logs and disk housekeeping, sizing estimates and troubleshooting. Linked from the
+  README, docs index, deploy-production guide and user manual; deploy-production's backup section now uses the
+  scripts.
 - `docs/deploy-production.md`: beginner-friendly guide for one server with HTTPS (requirements, DNS, `.env`,
   `migrate`, `bootstrap-admin`, start, first steps, backups, upgrades, troubleshooting, what is not covered).
   README limits, docs/14, docs/17, the user manual and roadmap v1.1 updated accordingly.
