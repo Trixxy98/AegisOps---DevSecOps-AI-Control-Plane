@@ -30,15 +30,20 @@ services:
     ports: !reset []
     restart: unless-stopped
 
+  # Images: by default they are built from this checkout and tagged aegisops-*:local. To run the published,
+  # Trivy-scanned multi-arch release images instead, set in .env:
+  #   AEGISOPS_IMAGE_PREFIX=ghcr.io/trixxy98/
+  #   AEGISOPS_IMAGE_TAG=v1.1.0
+  # then `docker compose ... pull` and start with `up -d --no-build`.
   api:
-    image: aegisops-api:${AEGISOPS_IMAGE_TAG:-local}
+    image: ${AEGISOPS_IMAGE_PREFIX:-}aegisops-api:${AEGISOPS_IMAGE_TAG:-local}
     environment:
       <<: *production-env
       Database__MigrateOnStartup: "false"
     restart: unless-stopped
 
   worker:
-    image: aegisops-worker:${AEGISOPS_IMAGE_TAG:-local}
+    image: ${AEGISOPS_IMAGE_PREFIX:-}aegisops-worker:${AEGISOPS_IMAGE_TAG:-local}
     environment:
       <<: *production-env
     # Deployment health checks reach published target ports through the Docker host (DOCKER_HEALTH_HOST).
@@ -48,14 +53,14 @@ services:
     restart: unless-stopped
 
   web:
-    image: aegisops-web:${AEGISOPS_IMAGE_TAG:-local}
+    image: ${AEGISOPS_IMAGE_PREFIX:-}aegisops-web:${AEGISOPS_IMAGE_TAG:-local}
     restart: unless-stopped
 
   # One-shot: apply database migrations, create the four application roles and the restricted database role
   # aegisops_app, then exit. Same image as the API; the only service that connects as the owner.
   #   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml run --rm migrate
   migrate:
-    image: aegisops-api:${AEGISOPS_IMAGE_TAG:-local}
+    image: ${AEGISOPS_IMAGE_PREFIX:-}aegisops-api:${AEGISOPS_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: src/AegisOps.Api/Dockerfile

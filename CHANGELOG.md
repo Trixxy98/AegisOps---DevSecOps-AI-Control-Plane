@@ -7,6 +7,11 @@ Conventional Commit history (`git log --no-merges`).
 
 ## [Unreleased]
 
+### Added
+
+- Production profile can run the published release images: `AEGISOPS_IMAGE_PREFIX` and `AEGISOPS_IMAGE_TAG`
+  (docs/deploy-production.md §5).
+
 ## [1.1.0] — 2026-11-12
 
 Production readiness for a single server: environment secrets, self-service onboarding, a production
