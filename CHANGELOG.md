@@ -7,6 +7,12 @@ Conventional Commit history (`git log --no-merges`).
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-11-12
+
+Production readiness for a single server: environment secrets, self-service onboarding, a production
+profile with HTTPS, user management, per-principal rate limits, an audit-restricted database role,
+backup and restore, hardened regexes, encrypted AI content and multi-arch release images.
+
 ### Added
 
 - Production profile (roadmap v1.1 item 1): `deploy/docker-compose.prod.yml` runs api and worker as `Production`

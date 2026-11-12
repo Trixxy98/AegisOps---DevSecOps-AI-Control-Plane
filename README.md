@@ -1,6 +1,6 @@
 # AegisOps — DevSecOps & AI Control Plane
 
-> **Status:** v1.0.0 — for evaluation and demos on one machine (see [Intended use and limits](#intended-use-and-limits-v1)). All four v1 journeys run end to end on the local Compose stack:
+> **Status:** v1.1.0 — runs on a single server with HTTPS (see [deploy-production](docs/deploy-production.md)); evaluation and demos work on any machine (see [Intended use and limits](#intended-use-and-limits-v1)).
 > CI-registered artifacts with Gitleaks/Semgrep/Trivy evidence, policy-gated Docker deployments with
 > two-person Production approvals, live updates over SignalR, and a governed local LLM gateway. Progress
 > against the roadmap is tracked in [`docs/v1-progress-audit.md`](docs/v1-progress-audit.md); the design is in
