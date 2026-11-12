@@ -22,6 +22,16 @@ updates:
       # react and react-dom must move together (separate PRs fail CI on a version mismatch).
       react:
         patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      # eslint and @eslint/js must move together (separate PRs fail CI).
+      eslint:
+        patterns: ["eslint", "@eslint/js"]
+    ignore:
+      # ESLint 10 is blocked until eslint-plugin-jsx-a11y declares support (6.10.2 peers eslint <= 9).
+      # Remove this rule when it does, and upgrade eslint and @eslint/js together.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directories:
       - "/src/AegisOps.Api"
