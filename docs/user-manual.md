@@ -113,7 +113,7 @@ Copy the passwords somewhere safe. If you lose them, see [Troubleshooting](#8-tr
 | **AI Governance** | History of AI requests (what was detected, redacted or blocked) and the AI policy (allowed models, limits, Redact/Block). |
 | **AI Playground** | Chat with the local AI model, safely, through the governance rules. |
 | **Audit log** | The logbook: who did what, when, with what result. |
-| **Administration** | Users, teams (members and webhooks) and background jobs (Admin only). |
+| **Administration** | Users (add, activate/deactivate, roles, reset password), teams (members and webhooks) and background jobs (Admin only). |
 
 ### Configuration and secrets (Projects screen)
 
@@ -131,6 +131,21 @@ plain (non-secret) values. `DOTNET_ENVIRONMENT`, `ASPNETCORE_ENVIRONMENT` and na
 are set by AegisOps and cannot be used. If saving a secret says **"Secret storage is not configured"**, your
 `.env` has no encryption key yet: an `.env` made by an older `scripts/gen-secrets.sh` lacks the
 `ENVIRONMENT_SECRETS_*` lines (see `.env.example`). Plain variables still work without it.
+
+### Adding users (Administration screen)
+
+As an Admin, open **Administration → Users**:
+
+1. In **Add user**, type the person's **Email** and **Display name**, tick one or more **Roles** (Developer,
+   Security, Approver, Admin) and, if you like, pick a **Team** and whether they are its **Member** or **Owner**.
+2. Click **Add user**. A yellow box shows a **temporary password, only once**. Click **Copy** (or select it) and
+   give it to the person privately, then click **Dismiss**. At their first sign-in AegisOps makes them choose
+   their own password.
+3. Each user row has buttons: **Deactivate** / **Activate** (a deactivated user cannot sign in), **Edit roles**
+   and **Reset password** (shows a new temporary password once). Role changes apply at the user's next sign-in.
+
+AegisOps protects you from locking yourself out: you cannot deactivate yourself or remove your own Admin role, and
+the last active Admin always keeps Admin. A red message explains why when an action is refused.
 
 ## 5. Hands-on tutorials (no GitHub account needed)
 
@@ -254,7 +269,7 @@ approval. AI answers are labelled *"AI-generated — verify before acting"*: alw
 The setup in this manual is for **learning, evaluation and demos on one computer**: it runs in development mode,
 only on `127.0.0.1`, without HTTPS, with demo accounts. To run AegisOps for a team on a server with a real domain
 and HTTPS, follow [run AegisOps on a server](deploy-production.md) instead. Even then it is one server (not highly
-available), there is no screen to create more user accounts yet, and some security items are still open (see the
+available), and some security items are still open (see the
 [security review](security-review-v1.md) and [roadmap v1.1](roadmap-v1.1.md)).
 
 ## 10. Where to go next

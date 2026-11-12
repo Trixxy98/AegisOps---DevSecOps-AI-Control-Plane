@@ -82,6 +82,9 @@ public sealed partial class AuditCoverageTests {
         new("POST", "/api/v1/auth/refresh", "auth.refreshed", nameof(RefreshRotationIsAudited)),
         new("POST", "/api/v1/auth/logout", "auth.logout", nameof(LoginLogoutAndPasswordChangeAreAudited)),
         new("POST", "/api/v1/auth/change-password", "auth.password_changed", nameof(LoginLogoutAndPasswordChangeAreAudited)),
+        new("POST", "/api/v1/admin/users", "user.created", nameof(UserCreationIsAuditedWithoutTheTemporaryPassword)),
+        new("PATCH", "/api/v1/admin/users/{id:guid}", "user.updated|user.deactivated|user.activated", nameof(UserUpdateDeactivationAndActivationAreAudited)),
+        new("PUT", "/api/v1/admin/users/{id:guid}/roles", "user.roles_changed", nameof(UserRoleChangeIsAudited)),
         new("POST", "/api/v1/admin/users/{id:guid}/reset-password", "user.password_reset", nameof(AdminPasswordResetIsAuditedWithoutThePassword)),
         new("POST", "/api/v1/ai/chat", "ai.request", nameof(AiChatIsAuditedWhenCompletedAndWhenBlocked)),
         new("PUT", "/api/v1/ai/policies", "ai.policy_updated", nameof(AiPolicySaveIsAudited)),
@@ -283,6 +286,83 @@ public sealed partial class AuditCoverageTests {
             ResetUserPassword.Handle(Guid.NewGuid(), admin.Principal, Users(services), Db(services), Audit(services), TimeProvider.System, http));
         Assert.Equal(StatusCodes.Status404NotFound, missing.Status);
         Assert.Empty(missing.Rows);
+    }
+
+    [Fact]
+    public async Task UserCreationIsAuditedWithoutTheTemporaryPassword() {
+        await using var host = await AuditHost.StartAsync();
+        var admin = await host.CreateUserAsync("admin@example.test", "Admin");
+        await host.CreateUserAsync("existing-dev@example.test", "Developer");
+        var team = await host.CreateTeamAsync(admin, "platform");
+
+        CreateUserResponse? response = null;
+        var created = await host.CallAsync(async (services, http) => {
+            var result = await CreateUser.Handle(new CreateUserRequest("new-dev@example.test", "New Dev", ["Developer"],
+                new CreateUserTeamRequest(team, null, "Member")), admin.Principal, Users(services), Db(services), Audit(services),
+                TimeProvider.System, http);
+            response = Assert.IsType<Created<CreateUserResponse>>(result).Value;
+            return result;
+        });
+
+        Assert.Equal(StatusCodes.Status201Created, created.Status);
+        Assert.Equal("no-store", created.Http.Response.Headers.CacheControl.ToString());
+        var temporary = Assert.IsType<string>(response?.TemporaryPassword);
+        var row = AssertSingleAudit(created.Rows, "user.created", "User", admin.Id, admin.Email, "User", response!.Id, "Succeeded");
+        Assert.DoesNotContain(temporary, row.ActorDisplay + row.Action + row.ResourceType + row.Outcome + row.CorrelationId, StringComparison.Ordinal);
+
+        var duplicate = await host.CallAsync((services, http) => CreateUser.Handle(
+            new CreateUserRequest("NEW-DEV@example.test", "Again", ["Developer"], null), admin.Principal, Users(services), Db(services),
+            Audit(services), TimeProvider.System, http));
+        Assert.Equal(StatusCodes.Status409Conflict, duplicate.Status);
+        Assert.Empty(duplicate.Rows);
+    }
+
+    [Fact]
+    public async Task UserUpdateDeactivationAndActivationAreAudited() {
+        await using var host = await AuditHost.StartAsync();
+        var admin = await host.CreateUserAsync("admin@example.test", "Admin");
+        var user = await host.CreateUserAsync("dev@example.test", "Developer");
+        Task<Call> PatchAsync(UpdateUserRequest request) => host.CallAsync((services, http) => UpdateUser.Handle(user.Id, request,
+            admin.Principal, Users(services), Db(services), Audit(services), TimeProvider.System, http));
+
+        var renamed = await PatchAsync(new UpdateUserRequest("Dev Renamed", null));
+        Assert.Equal(StatusCodes.Status200OK, renamed.Status);
+        AssertSingleAudit(renamed.Rows, "user.updated", "User", admin.Id, admin.Email, "User", user.Id, "Succeeded");
+
+        await host.LoginCookieAsync(user);
+        var deactivated = await PatchAsync(new UpdateUserRequest(null, false));
+        Assert.Equal(StatusCodes.Status200OK, deactivated.Status);
+        AssertSingleAudit(deactivated.Rows, "user.deactivated", "User", admin.Id, admin.Email, "User", user.Id, "Succeeded");
+        Assert.False(await host.WithDbAsync(db => db.RefreshTokens.AnyAsync(token => token.UserId == user.Id && token.RevokedAt == null, Token)));
+
+        var activated = await PatchAsync(new UpdateUserRequest(null, true));
+        Assert.Equal(StatusCodes.Status200OK, activated.Status);
+        AssertSingleAudit(activated.Rows, "user.activated", "User", admin.Id, admin.Email, "User", user.Id, "Succeeded");
+
+        var self = await host.CallAsync((services, http) => UpdateUser.Handle(admin.Id, new UpdateUserRequest(null, false),
+            admin.Principal, Users(services), Db(services), Audit(services), TimeProvider.System, http));
+        Assert.Equal(StatusCodes.Status409Conflict, self.Status);
+        Assert.Empty(self.Rows);
+    }
+
+    [Fact]
+    public async Task UserRoleChangeIsAudited() {
+        await using var host = await AuditHost.StartAsync();
+        var admin = await host.CreateUserAsync("admin@example.test", "Admin");
+        var user = await host.CreateUserAsync("dev@example.test", "Developer");
+        await host.CreateUserAsync("security@example.test", "Security");
+        await host.LoginCookieAsync(user);
+
+        var changed = await host.CallAsync((services, http) => SetUserRoles.Handle(user.Id, new SetUserRolesRequest(["Developer", "Security"]),
+            admin.Principal, Users(services), Db(services), Audit(services), TimeProvider.System, http));
+        Assert.Equal(StatusCodes.Status200OK, changed.Status);
+        AssertSingleAudit(changed.Rows, "user.roles_changed", "User", admin.Id, admin.Email, "User", user.Id, "Succeeded");
+        Assert.False(await host.WithDbAsync(db => db.RefreshTokens.AnyAsync(token => token.UserId == user.Id && token.RevokedAt == null, Token)));
+
+        var ownAdmin = await host.CallAsync((services, http) => SetUserRoles.Handle(admin.Id, new SetUserRolesRequest(["Security"]),
+            admin.Principal, Users(services), Db(services), Audit(services), TimeProvider.System, http));
+        Assert.Equal(StatusCodes.Status409Conflict, ownAdmin.Status);
+        Assert.Empty(ownAdmin.Rows);
     }
 
     [Fact]

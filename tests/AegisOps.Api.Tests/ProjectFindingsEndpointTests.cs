@@ -220,7 +220,7 @@ public sealed class ProjectFindingsEndpointTests {
             });
             builder.Services.AddDbContext<AegisOpsDbContext>(options => options.UseSqlite(connection)
                 .UseSnakeCaseNamingConvention().ReplaceService<IModelCustomizer, SqliteModelCustomizer>());
-            builder.Services.AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
+            builder.Services.AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
             builder.Services.AddJwtAuthentication(builder.Configuration);
 
             var app = builder.Build();

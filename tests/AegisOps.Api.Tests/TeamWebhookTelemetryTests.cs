@@ -27,6 +27,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Npgsql;
 using ProjectEnvironment = AegisOps.Domain.Organization.Environment;
+using AegisOps.Infrastructure.Identity;
 
 namespace AegisOps.Api.Tests;
 
@@ -279,7 +280,7 @@ public sealed class TeamWebhookTelemetryTests {
             collection.AddSingleton(TimeProvider.System);
             collection.AddDbContext<AegisOpsDbContext>(options => options.UseSqlite(connection).UseSnakeCaseNamingConvention()
                 .ReplaceService<IModelCustomizer, SqliteModelCustomizer>().EnableServiceProviderCaching(false));
-            collection.AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
+            collection.AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
             collection.AddSingleton<JobCleanupService>();
             services = collection.BuildServiceProvider();
         }

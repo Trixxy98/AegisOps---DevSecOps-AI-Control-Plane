@@ -476,7 +476,7 @@ public sealed class TeamMembershipEndpointTests {
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddDbContext<AegisOpsDbContext>(options => options.UseSqlite(connection)
                 .UseSnakeCaseNamingConvention().ReplaceService<IModelCustomizer, SqliteModelCustomizer>());
-            builder.Services.AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
+            builder.Services.AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
             builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
             builder.Services.AddJwtAuthentication(builder.Configuration);
 

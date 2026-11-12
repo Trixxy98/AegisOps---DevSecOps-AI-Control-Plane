@@ -33,6 +33,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Diagnostics.Metrics;
 using StackExchange.Redis;
+using AegisOps.Infrastructure.Identity;
 
 namespace AegisOps.Api.Tests;
 
@@ -865,7 +866,7 @@ public sealed class AiGatewayTests {
             services = new ServiceCollection().AddLogging()
                 .AddDbContext<AegisOpsDbContext>(options => options.UseSqlite(connection)
                     .UseSnakeCaseNamingConvention().ReplaceService<IModelCustomizer, SqliteCustomizer>())
-                .AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>()
+                .AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>()
                 .Services.BuildServiceProvider();
             Db = services.GetRequiredService<AegisOpsDbContext>();
             Users = services.GetRequiredService<UserManager<User>>();

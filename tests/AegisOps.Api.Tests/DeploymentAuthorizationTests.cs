@@ -32,6 +32,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ProjectEnvironment = AegisOps.Domain.Organization.Environment;
+using AegisOps.Infrastructure.Identity;
 
 namespace AegisOps.Api.Tests;
 
@@ -51,7 +52,7 @@ public sealed class DeploymentAuthorizationTests {
         builder.Services.AddSingleton<DeploymentConnections>();
         builder.Services.AddDbContext<AegisOpsDbContext>(options => options.UseSqlite(connectionString)
             .UseSnakeCaseNamingConvention().ReplaceService<IModelCustomizer, SqliteModelCustomizer>());
-        builder.Services.AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
+        builder.Services.AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
         await using var app = builder.Build();
         app.UseAuthentication();
         app.UseAuthorization();
@@ -705,7 +706,7 @@ public sealed class DeploymentAuthorizationTests {
             var collection = new ServiceCollection();
             collection.AddLogging();
             collection.AddDbContext<AegisOpsDbContext>(options => options.UseSqlite(connection).UseSnakeCaseNamingConvention().ReplaceService<IModelCustomizer, SqliteModelCustomizer>());
-            collection.AddIdentityCore<User>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
+            collection.AddIdentityCore<User>(IdentityStoreExtensions.ConfigureIdentity).AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AegisOpsDbContext>();
             services = collection.BuildServiceProvider();
             Db = services.GetRequiredService<AegisOpsDbContext>();
             Users = services.GetRequiredService<UserManager<User>>();

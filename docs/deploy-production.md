@@ -127,20 +127,22 @@ Optional extras use the same command with a profile, for example the local AI mo
 
 The production profile starts **empty**: no demo team, projects or policies. As the Admin:
 
-1. **Teams**: create your team on the Teams screen. Adding members is an API call today
-   (`PUT /api/v1/teams/{slug}/members/{userId}`, [docs/10](10-api-specification.md)).
-2. **Policies**: create at least a Global policy for Production (for example "tests must pass" and "two approvals")
+1. **Teams**: create your team on the Teams screen.
+2. **Users**: add your team in **Administration → Users → Add user** (email, display name, roles, and optionally
+   the team as Member or Owner). Each new user gets a temporary password shown once; give it to them privately,
+   and they choose their own at first sign-in. Consider a second Admin so a lost Admin password can be reset.
+   Existing users join further teams with `PUT /api/v1/teams/{slug}/members/{userId}` ([docs/10](10-api-specification.md)).
+3. **Policies**: create at least a Global policy for Production (for example "tests must pass" and "two approvals")
    on the Policies screen; the [policy engine doc](05-policy-engine.md) lists every rule.
-3. **AI** (only if you run Ollama): sync models, enable one and save a Global AI policy. Without an enabled AI policy
+4. **AI** (only if you run Ollama): sync models, enable one and save a Global AI policy. Without an enabled AI policy
    the gateway answers `503 PolicyUnavailable`.
-4. **Connect a repository**: follow [connect your repository](connect-your-repository.md), with
+5. **Connect a repository**: follow [connect your repository](connect-your-repository.md), with
    `AEGISOPS_URL=https://aegisops.example.com` instead of `http://127.0.0.1:8080`. With HTTPS, GitHub-hosted runners
    can reach AegisOps directly; a self-hosted runner is no longer required (keep API keys scoped and rotate them).
 
-> **Known gap: more user accounts.** v1.1 has no "create user" screen or endpoint yet; `bootstrap-admin` only
-> creates the first Admin. Until user management lands ([roadmap v1.1](roadmap-v1.1.md), item 2 follow-up), this
-> installation has a single account. An Admin can reset a user's password with
-> `POST /api/v1/admin/users/{id}/reset-password` (API only).
+> **Lost passwords.** An Admin resets a user's password in Administration → Users (**Reset password**); the new
+> temporary password is shown once. Deactivate people who leave instead of deleting them, so the audit log keeps
+> their history. The last active Admin cannot be deactivated or lose the Admin role.
 
 ## 9. Day-two operations
 
@@ -212,7 +214,7 @@ proxy (nginx, Traefik, a load balancer) at it, terminate TLS there, send HSTS, a
 | PostgreSQL rejects the password after you regenerated `.env` | An existing `pgdata` volume keeps its first password. Put the old `POSTGRES_PASSWORD` back, or change it inside PostgreSQL (`ALTER USER aegisops PASSWORD …`). |
 | Caddy log: certificate errors / `NXDOMAIN` / timeouts | DNS does not point at the server yet, or ports 80/443 are blocked by a firewall. Fix and `aegis restart caddy`. |
 | Browser shows a certificate warning | Caddy has not obtained the certificate yet; check `aegis logs caddy`. |
-| `bootstrap-admin: refused. An Admin already exists` | Sign in as that Admin. A second Admin can reset a lost password (`POST /api/v1/admin/users/{id}/reset-password`). With a single Admin and no data yet, start over as in [step 6](#6-create-the-first-admin); with data, there is no supported recovery path yet. |
+| `bootstrap-admin: refused. An Admin already exists` | Sign in as that Admin. A second Admin can reset a lost password (Administration → Users → **Reset password**). With a single Admin and no data yet, start over as in [step 6](#6-create-the-first-admin); with data, there is no supported recovery path yet. |
 | Scan upload fails with `413` | The report is over 20 MiB. |
 | Sign-in works on the server but the session ends at every reload | The refresh cookie is `Secure`; it needs HTTPS. Use the `https://` address, not `http://server-ip:3000`. |
 
@@ -223,6 +225,7 @@ proxy (nginx, Traefik, a load balancer) at it, terminate TLS there, send HSTS, a
   for `audit.*`, no per-user or upload rate limits (only login/refresh and AI are limited), policy branch globs
   without `NonBacktracking`, stored AI content not encrypted at rest. The Worker mounts the Docker socket, which is
   root-equivalent on the host ([docs/17 §4](17-security-hardening.md)).
-- **User management**: no endpoint or screen creates further accounts yet (see [section 8](#8-first-steps-after-signing-in)).
+- **User management**: no self-service sign-up, invitation email or account deletion (deactivate instead); there
+  is no screen to change team membership of existing users yet (API only).
 - **Single sign-on, MFA, email**: accounts are local; temporary passwords are handed over by an Admin.
 - **Operations guide** (restore drills, key rotation, sizing): [roadmap v1.1](roadmap-v1.1.md) item 9.

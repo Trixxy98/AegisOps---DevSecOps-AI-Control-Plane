@@ -50,6 +50,27 @@ selected by the `aok_` prefix via a policy scheme (`"Smart"` scheme forwards to 
 | `POST /api/v1/auth/change-password` | Requires current password |
 | `POST /api/v1/admin/users/{id}/reset-password` | Admin (`users:manage`): sets a random temporary password returned once (`Cache-Control: no-store`), sets `MustChangePassword`, clears lockout, revokes the user's refresh tokens; audited as `user.password_reset` without the password |
 
+### User lifecycle (Admin)
+
+Outside Development there is no seed: `bootstrap-admin` creates only the first Admin, who then manages everyone
+else in **Administration → Users** (or the API below, [10](10-api-specification.md) §2.2).
+
+| Endpoint | Behaviour |
+| --- | --- |
+| `POST /api/v1/admin/users` (`users:manage`) | Creates an active user with one or more of the four roles and, optionally, a membership (`Owner`/`Member`) in one team (by `teamId` or `slug`). The password is a random 24-character temporary password (same generator as reset and `bootstrap-admin`), returned once in the `201` body with `Cache-Control: no-store`; `MustChangePassword` and `LockoutEnabled` are set, so the first sign-in goes through the password-change gate above. User, roles, membership and the `user.created` audit row are written in one transaction; the password is never logged or audited. `400` for an invalid email (max 256), display name (1–100 characters), empty or unknown role, unknown team or team role; `409` when the email is taken (case-insensitive) |
+| `PATCH /api/v1/admin/users/{id}` (`users:manage`) | `{ displayName?, isActive? }`. Deactivation locks the account (`IsActive = false`, lockout end = max) and revokes every active refresh token, so the user cannot sign in or refresh; an access token already issued stays valid until it expires (at most 15 min). Reactivation clears the lockout. Audited as `user.updated` (rename), `user.deactivated`, `user.activated`; a request that changes nothing writes no audit row |
+| `PUT /api/v1/admin/users/{id}/roles` (`roles:manage`) | `{ roles: [...] }` replaces the user's roles with a non-empty subset of Admin, Developer, Security, Approver. Because access tokens carry the roles, a change revokes the user's refresh tokens; the new roles apply at the next sign-in. Audited as `user.roles_changed`; an unchanged set writes nothing |
+
+Guard rails (all `409` Problem Details, nothing is changed or audited):
+
+- An Admin cannot deactivate their own account or remove their own Admin role.
+- The last **active** Admin cannot be deactivated and cannot lose the Admin role (an inactive Admin does not
+  count), so an installation always keeps one Admin who can sign in. The check reads roles from the database,
+  not from the caller's token.
+
+The SPA hides actions the caller lacks (`users:manage` for add/activate/deactivate/reset password, `roles:manage`
+for role editing) and does not offer "Deactivate" on the caller's own row; the API enforces both regardless.
+
 Rate limiting on `login`/`refresh`: 10 req/min per IP (ASP.NET rate limiter, fixed window).
 
 ## 4. Roles and permissions
