@@ -82,6 +82,20 @@ alias aegis='docker compose -f docker-compose.yml -f deploy/docker-compose.prod.
 
 ## 5. Build and prepare the database
 
+**Option A, published images (recommended).** Each release publishes Trivy-scanned images for `linux/amd64` and
+`linux/arm64` on GHCR. Add to `.env`:
+
+```bash
+AEGISOPS_IMAGE_PREFIX=ghcr.io/trixxy98/
+AEGISOPS_IMAGE_TAG=v1.1.0            # a release tag, never "latest"
+```
+
+Then run `aegis pull api worker web` instead of `aegis build`, and add `--no-build` to `aegis up -d` (section 7) so
+Compose never replaces them with a local build. Keep the checkout on the same tag as the images
+(`git checkout v1.1.0`): the Compose files and scripts come from the checkout.
+
+**Option B, build from source** (without the two variables above):
+
 ```bash
 aegis build                          # builds aegisops-api, aegisops-worker and aegisops-web (a few minutes)
 aegis run --rm migrate               # creates the tables, the four roles and the database role aegisops_app, then exits
@@ -175,7 +189,7 @@ restore drill, off-site storage, encryption at rest and a cron example are in th
 ```bash
 scripts/backup.sh --tls              # first: a backup to roll back to
 git pull                             # or check out the release tag you want
-aegis build
+aegis build                          # published images: set AEGISOPS_IMAGE_TAG to the new tag, then aegis pull api worker web
 aegis run --rm migrate               # always before starting the new version
 aegis up -d
 ```
