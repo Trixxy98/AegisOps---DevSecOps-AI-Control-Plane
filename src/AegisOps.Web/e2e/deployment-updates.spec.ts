@@ -50,7 +50,7 @@ test("both signed-in browser sessions refresh after a deployment update", async 
     );
 
     for (const page of pages) {
-      await expect(page.getByRole("status").filter({ hasText: "Live updates" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: /^Live$/ })).toBeVisible();
       await expect(page.locator(".stat-card").filter({ hasText: "Succeeded" }).locator("strong")).toHaveText("1");
     }
     await expect.poll(() => sendUpdate.filter((send) => send !== undefined).length).toBe(2);
@@ -131,7 +131,7 @@ test("approvers can generate a deployment summary and explain findings", async (
   await page.getByLabel("Password").fill("not-a-real-password");
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Deployments", exact: true }).click();
-  await page.getByRole("button", { name: /AwaitingApproval/ }).click();
+  await page.getByRole("button", { name: /Awaiting approval/ }).click();
 
   await page.getByRole("button", { name: "Generate AI summary" }).click();
   await expect(page.getByText("Review the high-severity dependency before approval.")).toBeVisible();
@@ -220,7 +220,7 @@ test("AI governance shows request history and saves policy controls", async ({ p
   await page.getByLabel("Password").fill("not-a-real-password");
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "AI Governance", exact: true }).click();
-  await expect(page.getByText("Block reason: SensitiveData", { exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "SensitiveData", exact: true })).toBeVisible();
   await page.getByLabel("Requests per minute").fill("25");
   await page.getByRole("button", { name: "Save AI policy" }).click();
   await expect.poll(() => savedPolicy?.requestsPerMinute).toBe(25);
@@ -310,9 +310,9 @@ test("production policy can add and configure the weekend deployment window", as
     ],
   };
   await page
-    .getByLabel("Production baseline DeploymentWindow parameters")
+    .getByLabel("Production baseline Deployment window parameters")
     .fill(JSON.stringify(windowParameters, null, 2));
-  await page.getByRole("button", { name: "Save DeploymentWindow parameters" }).click();
+  await page.getByRole("button", { name: "Save Deployment window parameters" }).click();
 
   await expect.poll(() => writes.length).toBe(2);
   expect(writes[0]).toMatchObject({

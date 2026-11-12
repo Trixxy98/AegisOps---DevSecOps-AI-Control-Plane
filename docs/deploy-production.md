@@ -262,9 +262,8 @@ proxy (nginx, Traefik, a load balancer) at it, terminate TLS there, send HSTS, a
 ## 11. What is not covered yet
 
 - **High availability and multiple organisations**: one server, one organisation.
-- **Open security items** from the [v1 security review](security-review-v1.md): policy branch globs without
-  `NonBacktracking`, stored AI content not encrypted at rest. Audit integrity is role-based, not cryptographic, and
-  rate limits are kept in memory per API instance. The Worker mounts the Docker socket, which is
+- **Open security items** from the [v1 security review](security-review-v1.md): audit integrity is role-based, not
+  cryptographic (the database owner can still change rows), and rate limits are kept in memory per API instance. The Worker mounts the Docker socket, which is
   root-equivalent on the host ([docs/17 §4](17-security-hardening.md)).
 - **User management**: no self-service sign-up, invitation email or account deletion (deactivate instead); there
   is no screen to change team membership of existing users yet (API only).

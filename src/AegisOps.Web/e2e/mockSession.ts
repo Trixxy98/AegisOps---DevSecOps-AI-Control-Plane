@@ -5,6 +5,12 @@ import type { Page } from "@playwright/test";
  * the SignalR hub. Each spec adds the routes for the feature it exercises. No real backend is involved.
  */
 export async function signInWithPermissions(page: Page, permissions: string[]) {
+  await mockSession(page, permissions);
+  await signIn(page);
+}
+
+/** Registers the session routes only. Routes a spec registers afterwards take precedence over these. */
+export async function mockSession(page: Page, permissions: string[], me: Record<string, unknown> = {}) {
   await page.route("**/api/v1/auth/login", (route) =>
     route.fulfill({ json: { accessToken: "e2e-session", expiresAt: "2030-01-01T00:00:00Z" } }),
   );
@@ -17,6 +23,7 @@ export async function signInWithPermissions(page: Page, permissions: string[]) {
         mustChangePassword: false,
         roles: [],
         permissions,
+        ...me,
       },
     }),
   );
@@ -40,7 +47,10 @@ export async function signInWithPermissions(page: Page, permissions: string[]) {
       if (String(message).includes('"protocol":"json"')) socket.send("{}\u001e");
     });
   });
+}
 
+/** Opens the app and submits the sign-in form (the mocked login accepts any password). */
+export async function signIn(page: Page) {
   await page.goto("/");
   await page.getByLabel("Password").fill("not-a-real-password");
   await page.getByRole("button", { name: "Continue" }).click();

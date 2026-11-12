@@ -88,9 +88,9 @@ async function signIn(page: Page) {
   await page.getByRole("button", { name: "Continue" }).click();
 }
 
-const liveBadge = (page: Page) => page.getByRole("status").filter({ hasText: "Live updates" });
-const pollingBadge = (page: Page) => page.getByRole("status").filter({ hasText: "Polling (10s)" });
-const timeline = (page: Page) => page.locator("ol.item-list > li.detail-row");
+const liveBadge = (page: Page) => page.getByRole("status").filter({ hasText: /^Live$/ });
+const pollingBadge = (page: Page) => page.getByRole("status").filter({ hasText: "Reconnecting…" });
+const timeline = (page: Page) => page.locator("ol.timeline > li");
 
 test("live hub replaces polling; disconnect falls back to polling and reconnect catches up once", async ({ page }) => {
   await page.clock.install();
@@ -99,7 +99,7 @@ test("live hub replaces polling; disconnect falls back to polling and reconnect 
   await expect(liveBadge(page)).toBeVisible();
   await page.getByRole("button", { name: "Deployments", exact: true }).click();
   await page.getByRole("button", { name: /Deploying/ }).click();
-  await expect(timeline(page)).toHaveText(["DeployStarted: Docker executor started for web."]);
+  await expect(timeline(page)).toHaveText(["Deploy started: Docker executor started for web."]);
 
   // Connected: 25 s of app time (two and a half polling periods) sends no REST reads at all.
   let before = { ...hits };
@@ -111,8 +111,8 @@ test("live hub replaces polling; disconnect falls back to polling and reconnect 
   state.events = [...state.events, { sequence: 2, type: "ImagePulled", message: "example/app:1.0.0" }];
   state.socket?.send(deploymentChanged);
   await expect(timeline(page)).toHaveText([
-    "DeployStarted: Docker executor started for web.",
-    "ImagePulled: example/app:1.0.0",
+    "Deploy started: Docker executor started for web.",
+    "Image pulled: example/app:1.0.0",
   ]);
   await expect.poll(() => hits.events).toBe(before.events + 1);
 
@@ -162,12 +162,13 @@ test("intermediate Docker steps appear one by one from successive hub notificati
   await page.getByRole("button", { name: /Deploying/ }).click();
   await expect(timeline(page)).toHaveCount(1);
 
-  const steps: Array<[string, string]> = [
-    ["ImagePulled", "example/app:1.0.0"],
-    ["ContainerStarted", "web"],
-    ["HealthCheckPassed", "GET /health returned 200."],
+  // [event type from the API, label the timeline shows, message]
+  const steps: Array<[string, string, string]> = [
+    ["ImagePulled", "Image pulled", "example/app:1.0.0"],
+    ["ContainerStarted", "Container started", "web"],
+    ["HealthCheckPassed", "Health check passed", "GET /health returned 200."],
   ];
-  for (const [type, message] of steps) {
+  for (const [type, label, message] of steps) {
     // The Worker commits one step and publishes one hint; nothing else is visible until the hint arrives.
     state.events = [...state.events, { sequence: state.events.length + 1, type, message }];
     await page.clock.runFor(5_000);
@@ -175,17 +176,17 @@ test("intermediate Docker steps appear one by one from successive hub notificati
     await expect(timeline(page)).toHaveCount(state.events.length - 1);
     state.socket?.send(deploymentChanged);
     await expect(timeline(page)).toHaveCount(state.events.length);
-    await expect(timeline(page).last()).toHaveText(`${type}: ${message}`);
+    await expect(timeline(page).last()).toHaveText(`${label}: ${message}`);
   }
 
   state.status = "Succeeded";
   state.events = [...state.events, { sequence: 5, type: "Succeeded", message: "Container is healthy." }];
   state.socket?.send(deploymentChanged);
   await expect(timeline(page)).toHaveText([
-    "DeployStarted: Docker executor started for web.",
-    "ImagePulled: example/app:1.0.0",
-    "ContainerStarted: web",
-    "HealthCheckPassed: GET /health returned 200.",
+    "Deploy started: Docker executor started for web.",
+    "Image pulled: example/app:1.0.0",
+    "Container started: web",
+    "Health check passed: GET /health returned 200.",
     "Succeeded: Container is healthy.",
   ]);
 });

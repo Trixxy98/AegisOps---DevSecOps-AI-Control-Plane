@@ -14,6 +14,13 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Changed
 
+- Redesigned web UI with light and dark themes: design tokens, a System/Light/Dark switch in the sidebar
+  (stored only as a preference, applied before first paint), grouped navigation with icons and an approvals
+  count, one live-connection indicator, tables for lists, consistent status badges, alerts, empty states and
+  buttons, and a minimal sign-in page. Visible labels changed: the connection indicator shows "Live" /
+  "Reconnecting…", statuses are shown as words ("Awaiting approval"), and Administration has Users, Teams and
+  Jobs tabs. API calls, permissions and live-update rules are unchanged. `e2e/visual-tour.spec.ts` checks every
+  page in both themes. The README demo GIF predates this design.
 - Release and example workflows use the current Docker actions (setup-qemu v4.4.0, setup-buildx v4.4.1,
   build-push v7.4.0, login v4.8.0; Node 24, self-hosted runners need 2.327.1 or later). Inputs are unchanged.
 - Dependabot groups `eslint` with `@eslint/js` and defers ESLint 10 until `eslint-plugin-jsx-a11y` supports it.

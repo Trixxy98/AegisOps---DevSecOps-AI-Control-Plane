@@ -29,8 +29,8 @@ export default defineConfig([
         projectService: {
           // e2e specs and root config files are outside tsconfig.json's "src" include.
           allowDefaultProject: ["e2e/*.ts", "e2e-live/*.ts", "*.config.ts"],
-          // Default limit is 8; the e2e, e2e-live and config files together exceed it.
-          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 16,
+          // Default limit is 8; the e2e, e2e-live and config files together exceed it (about 20 files).
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 32,
         },
         tsconfigRootDir: import.meta.dirname,
       },

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { FindingDetail, type Finding } from "./FindingDetail";
+import { IconChevronLeft, IconChevronRight, IconFindings } from "./icons";
+import { Alert, CardHeader, EmptyState, Loading, SeverityBadge, StatusBadge } from "./ui";
 
 type Project = { slug: string; name: string };
 type ArtifactOption = { id: string; version: string; branch: string };
@@ -117,20 +119,27 @@ export function Findings({ token, permissions }: { token: string; permissions: s
   const pageCount = Math.max(1, Math.ceil((result?.total ?? 0) / pageSize));
 
   if (!projectsLoading && !projects.length && !error) {
-    return <p className="empty-state">No projects available.</p>;
+    return (
+      <section className="card">
+        <EmptyState icon={<IconFindings />}>No projects yet. Findings appear once CI uploads scan results.</EmptyState>
+      </section>
+    );
   }
 
   return (
-    <div className="split-layout findings-layout">
-      <section className="panel" aria-labelledby="findings-heading">
-        <div className="panel-heading">
-          <h2 id="findings-heading">Findings</h2>
-          <span>
-            {result?.total ?? 0} total · page {query.page} of {pageCount}
-          </span>
-        </div>
-        <div className="form-grid findings-filters">
-          <label className="field-label">
+    <div className={selected ? "split split-detail" : "stack"}>
+      <section className="card" aria-labelledby="findings-heading">
+        <CardHeader
+          id="findings-heading"
+          title="Findings"
+          meta={
+            <>
+              {result?.total ?? 0} total · page {query.page} of {pageCount}
+            </>
+          }
+        />
+        <div className="filters">
+          <label className="field">
             Project
             <select value={query.slug} onChange={(event) => update({ slug: event.target.value })}>
               {projects.map((project) => (
@@ -140,7 +149,7 @@ export function Findings({ token, permissions }: { token: string; permissions: s
               ))}
             </select>
           </label>
-          <label className="field-label">
+          <label className="field">
             Artifact
             <select value={query.artifactId} onChange={(event) => update({ artifactId: event.target.value })}>
               <option value="">All artifacts</option>
@@ -151,7 +160,7 @@ export function Findings({ token, permissions }: { token: string; permissions: s
               ))}
             </select>
           </label>
-          <label className="field-label">
+          <label className="field">
             Severity
             <select value={query.severity} onChange={(event) => update({ severity: event.target.value })}>
               <option value="">All severities</option>
@@ -160,7 +169,7 @@ export function Findings({ token, permissions }: { token: string; permissions: s
               ))}
             </select>
           </label>
-          <label className="field-label">
+          <label className="field">
             Scanner
             <select value={query.scanner} onChange={(event) => update({ scanner: event.target.value })}>
               <option value="">All scanners</option>
@@ -169,7 +178,7 @@ export function Findings({ token, permissions }: { token: string; permissions: s
               ))}
             </select>
           </label>
-          <label className="field-label">
+          <label className="field">
             Status
             <select value={query.status} onChange={(event) => update({ status: event.target.value })}>
               <option value="">All statuses</option>
@@ -179,64 +188,72 @@ export function Findings({ token, permissions }: { token: string; permissions: s
             </select>
           </label>
         </div>
-        {error && (
-          <p className="ai-error" role="alert">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p className="policy-message" role="status">
-            {message}
-          </p>
+        {(error || message) && (
+          <div className="card-body">
+            {error && <Alert>{error}</Alert>}
+            {message && (
+              <Alert tone="success" role="status">
+                {message}
+              </Alert>
+            )}
+          </div>
         )}
         {loading || projectsLoading ? (
-          <p className="empty-state" role="status">
-            Loading findings…
-          </p>
+          <Loading>Loading findings…</Loading>
         ) : (
-          <ul className="item-list findings-list" aria-label="Findings list">
+          <ul className="list findings-list" aria-label="Findings list">
             {items.map((finding) => (
               <li key={finding.id}>
                 <button
                   type="button"
-                  className={`list-button ${selectedId === finding.id ? "is-selected" : ""}`}
+                  className={`list-button finding-button ${selectedId === finding.id ? "is-selected" : ""}`}
                   onClick={() => setSelectedId(finding.id)}
                 >
-                  <strong>
-                    <span className={`severity-badge severity-${finding.severity.toLowerCase()}`}>
-                      {finding.severity}
-                    </span>{" "}
-                    {finding.title}
-                  </strong>
-                  <span>
-                    {finding.ruleId} · {finding.scanner} · {finding.artifactVersion} · {finding.status}
+                  <SeverityBadge severity={finding.severity} />
+                  <span className="finding-text">
+                    <span className="list-primary">
+                      <span className="text">{finding.title}</span>
+                    </span>
+                    <span className="list-secondary">
+                      <code className="mono">{finding.ruleId}</code>
+                      <span className="dot-sep">{finding.scanner}</span>
+                      <span className="dot-sep">{finding.artifactVersion}</span>
+                    </span>
                   </span>
+                  <StatusBadge status={finding.status} />
                 </button>
               </li>
             ))}
-            {!items.length && <li className="empty-state">No findings match these filters.</li>}
+            {!items.length && <li className="empty-row">No findings match these filters.</li>}
           </ul>
         )}
-        <div className="action-row ai-pagination">
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={query.page <= 1 || loading}
-            onClick={() => update({ page: query.page - 1 })}
-          >
-            Previous
-          </button>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={query.page >= pageCount || loading}
-            onClick={() => update({ page: query.page + 1 })}
-          >
-            Next
-          </button>
+        <div className="card-footer">
+          <span className="tabular">
+            Page {query.page} of {pageCount}
+          </span>
+          <span className="row">
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              disabled={query.page <= 1 || loading}
+              onClick={() => update({ page: query.page - 1 })}
+            >
+              <IconChevronLeft size={14} />
+              Previous
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              disabled={query.page >= pageCount || loading}
+              onClick={() => update({ page: query.page + 1 })}
+            >
+              Next
+              <IconChevronRight size={14} />
+            </button>
+          </span>
         </div>
       </section>
-      {selected ? (
+      {selected && (
         <FindingDetail
           key={selected.id}
           token={token}
@@ -251,10 +268,6 @@ export function Findings({ token, permissions }: { token: string; permissions: s
             setReload((value) => value + 1);
           }}
         />
-      ) : (
-        <div className="panel selection-placeholder">
-          <p className="empty-state">Select a finding to see its rule, location, package fix and suppression.</p>
-        </div>
       )}
     </div>
   );

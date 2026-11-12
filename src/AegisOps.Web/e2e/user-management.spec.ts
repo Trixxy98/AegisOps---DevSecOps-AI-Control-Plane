@@ -125,7 +125,7 @@ test("deactivates, edits roles and resets a password", async ({ page }) => {
 
   const dev = page.getByRole("listitem", { name: "dev@aegisops.local" });
   await dev.getByRole("button", { name: "Deactivate" }).click();
-  await expect(dev).toContainText("inactive");
+  await expect(dev).toContainText("Inactive");
   await expect(dev.getByRole("button", { name: "Activate" })).toBeVisible();
 
   await dev.getByRole("button", { name: "Edit roles" }).click();
