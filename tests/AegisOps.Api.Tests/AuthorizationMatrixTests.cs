@@ -79,7 +79,12 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
     private static readonly string[] DocApiKeyScopes = ["artifacts:write", "scans:write", "deployments:request"];
     private static readonly string[] ProductionTier = ["Production"];
     private static readonly string[] DeployScope = ["deployments:request"];
-    private static readonly string[] ExpectedAnonymousRoutes = ["POST /api/v1/auth/login => <anonymous>", "POST /api/v1/auth/refresh => <anonymous>"];
+    // The GitHub webhook authenticates with its X-Hub-Signature-256 HMAC inside the handler (docs/github-deployment-gate.md).
+    private static readonly string[] ExpectedAnonymousRoutes = [
+        "POST /api/v1/auth/login => <anonymous>",
+        "POST /api/v1/auth/refresh => <anonymous>",
+        "POST /api/v1/integrations/github/webhook => <anonymous>",
+    ];
     private static readonly string[] ExpectedNonApiPatterns = ["/health/live", "/health/ready"];
     private static readonly string[] ExpectedApiKeyRoutes = [
         "PATCH /api/v1/artifacts/{id:guid}",
@@ -143,6 +148,7 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
     private static readonly RouteRule[] Routes = [
         new("POST", "/api/v1/auth/login", null, "anonymous", ""),
         new("POST", "/api/v1/auth/refresh", null, "anonymous", ""),
+        new("POST", "/api/v1/integrations/github/webhook", null, "anonymous (HMAC signature)", ""),
         new("POST", "/api/v1/auth/logout", "", "authenticated", AllRoles),
         new("GET", "/api/v1/auth/me", "", "authenticated", AllRoles),
         new("GET", "/api/v1/system/dependencies", "", "authenticated", AllRoles),
@@ -291,11 +297,11 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
         Assert.True(missing.Length == 0 && unexpected.Length == 0,
             "Program.cs endpoints differ from the authorization matrix. Add new routes to Routes with their docs/09 permission.\n" +
             $"Not in Program.cs: {string.Join("; ", missing)}\nNot in matrix: {string.Join("; ", unexpected)}");
-        Assert.Equal(74, actual.Length);
+        Assert.Equal(75, actual.Length);
     }
 
     [Fact]
-    public void EveryApiRouteRequiresAuthorizationExceptLoginAndRefresh_AndHubIsAuthorized() {
+    public void EveryApiRouteRequiresAuthorizationExceptLoginRefreshAndGitHubWebhook_AndHubIsAuthorized() {
         var anonymous = api.ApiEndpoints.Where(endpoint => endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Count == 0)
             .Select(Describe).Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(ExpectedAnonymousRoutes, anonymous);
@@ -310,6 +316,14 @@ public sealed class AuthorizationMatrixTests(AuthorizationMatrixTests.RealApiFix
             .Where(pattern => !pattern.StartsWith("/api/v1/", StringComparison.Ordinal) && !pattern.StartsWith("/hubs/", StringComparison.Ordinal))
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(ExpectedNonApiPatterns, other);
+    }
+
+    [Fact]
+    public async Task GitHubWebhookIsAnonymousButInertWhileTheIntegrationIsDisabled() {
+        // No bearer and no signature: never a 401 challenge (GitHub cannot authenticate that way), and with GitHubApp
+        // disabled (the default) the route answers 404 before reading the body.
+        using var response = await api.SendAsync("POST", "/api/v1/integrations/github/webhook", null);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]

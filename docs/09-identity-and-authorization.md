@@ -16,6 +16,7 @@ Keeping them separate avoids the classic mistake of encoding release rules as ro
 | **User** | Email + password → JWT access token (15 min) + refresh token (httpOnly cookie, 7 days, rotating) | `sub`, `email`, `name`, `role[]`, `team:<teamId>:<Owner\|Member>[]`, `jti` |
 | **API key (CI)** | `Authorization: Bearer aok_<prefix>_<secret>` | `sub = apikey:<id>`, `project = <projectId>`, `scope[]`, `actor_type = ApiKey` |
 | **System** | Worker in-process | Used for audit attribution of automated transitions |
+| **GitHub App** (v1.2) | `X-Hub-Signature-256` HMAC on `POST /api/v1/integrations/github/webhook` (the only anonymous route besides login/refresh) | No claims and no permissions: it can only queue a protection-rule request. Deployments it creates have no user/API-key requester (any human approver satisfies approver ≠ requester; cancel is limited to team Owners and Admins); audit actor `System` / `github-app`. See [GitHub deployment gate](github-deployment-gate.md) |
 
 Authentication handlers: `JwtBearer` (default) and a custom `ApiKeyAuthenticationHandler`
 selected by the `aok_` prefix via a policy scheme (`"Smart"` scheme forwards to the right one).

@@ -178,6 +178,18 @@ See [08 AI gateway §6](08-ai-gateway.md#6-endpoints).
 | GET | `/metrics` | Prometheus exposition | internal network only |
 | GET | `/openapi/v1.json`, `/scalar` | API docs | anonymous in Development, authenticated otherwise |
 
+### 2.11 Integrations
+
+| Method | Path | Purpose | Auth |
+| --- | --- | --- | --- |
+| POST | `/integrations/github/webhook` | GitHub App webhook. Only `X-GitHub-Event: deployment_protection_rule` with `action: requested` does work: `202` (gate row + durable `GitHubGateEvaluate` job; a repeated `X-GitHub-Delivery` is a no-op `202`). `ping` and other events/actions: `204`. `401` bad or missing signature, `400` missing delivery id or a payload without installation, repository, environment, commit or a workflow-run `deployment_callback_url`, `413` body over 1 MiB, `404` while `GitHubApp` is disabled. Own rate-limit bucket per client address. See [GitHub deployment gate](github-deployment-gate.md) | anonymous; `X-Hub-Signature-256` HMAC-SHA256 of the raw body with `GitHubApp:WebhookSecret` |
+
+`GET /deployments` items and `GET /deployments/{id}` also carry `source` (`AegisOps` or `GitHub`); the list adds
+`gitHubRunUrl`, the detail adds `gitHub: { repository, environment, runUrl, status, decision, reportedAt }` (`null`
+for deployments not requested by GitHub). `POST /deployments` and `POST /deployments/{id}/rollback` answer `409`
+for an environment whose target type is `github`. `PATCH /projects/{slug}/environments/{envId}` accepts target type
+`noop`, `docker` or `github`.
+
 ## 3. Key payloads
 
 ### `POST /deployments` → `202`

@@ -557,6 +557,125 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                     b.ToTable("environment_runtime_snapshots", "deploy");
                 });
 
+            modelBuilder.Entity("AegisOps.Domain.Deploy.GitHubDeploymentGate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int?>("CallbackStatusCode")
+                        .HasColumnType("integer")
+                        .HasColumnName("callback_status_code");
+
+                    b.Property<string>("CallbackUrl")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("callback_url");
+
+                    b.Property<string>("CommitSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("commit_sha");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<string>("Decision")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("decision");
+
+                    b.Property<string>("DecisionComment")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("decision_comment");
+
+                    b.Property<string>("DeliveryId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("delivery_id");
+
+                    b.Property<Guid?>("DeploymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deployment_id");
+
+                    b.Property<string>("EnvironmentName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("environment_name");
+
+                    b.Property<long>("InstallationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("installation_id");
+
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("Ref")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("ref");
+
+                    b.Property<DateTimeOffset?>("ReportedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reported_at");
+
+                    b.Property<string>("RepositoryFullName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("repository_full_name");
+
+                    b.Property<long>("RunId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("run_id");
+
+                    b.Property<string>("RunUrl")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("run_url");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_github_deployment_gates");
+
+                    b.HasIndex("DeliveryId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_github_deployment_gates_delivery_id");
+
+                    b.HasIndex("DeploymentId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_github_deployment_gates_deployment_id");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("ix_github_deployment_gates_project_id");
+
+                    b.ToTable("github_deployment_gates", "deploy");
+                });
+
             modelBuilder.Entity("AegisOps.Domain.Identity.ApiKey", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2053,6 +2172,21 @@ namespace AegisOps.Infrastructure.Persistence.Migrations
                         });
 
                     b.Navigation("Containers");
+                });
+
+            modelBuilder.Entity("AegisOps.Domain.Deploy.GitHubDeploymentGate", b =>
+                {
+                    b.HasOne("AegisOps.Domain.Deploy.Deployment", null)
+                        .WithMany()
+                        .HasForeignKey("DeploymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_github_deployment_gates_deployments_deployment_id");
+
+                    b.HasOne("AegisOps.Domain.Organization.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_github_deployment_gates_projects_project_id");
                 });
 
             modelBuilder.Entity("AegisOps.Domain.Identity.ApiKey", b =>

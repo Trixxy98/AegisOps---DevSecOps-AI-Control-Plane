@@ -42,6 +42,39 @@ public sealed class Deployment {
             throw new ArgumentException("A user or an API key must request the deployment.");
         }
 
+        return Create(projectId, environmentId, artifactId, requestedAt, correlationId, requestedById, requestedByApiKeyId, reason, previousArtifactId);
+    }
+
+    /// <summary>
+    /// A deployment requested by the GitHub App deployment protection rule. It has no user or API key requester: the
+    /// linked <c>GitHubDeploymentGate</c> row is the source marker, so every human approver satisfies approver != requester
+    /// and audit rows name the <c>github-app</c> system actor.
+    /// </summary>
+    public static Deployment RequestFromGitHub(
+        Guid projectId,
+        Guid environmentId,
+        Guid artifactId,
+        DateTimeOffset requestedAt,
+        string correlationId,
+        string? reason,
+        Guid? previousArtifactId = null
+    ) => Create(projectId, environmentId, artifactId, requestedAt, correlationId, null, null, reason, previousArtifactId);
+
+    private static Deployment Create(
+        Guid projectId,
+        Guid environmentId,
+        Guid artifactId,
+        DateTimeOffset requestedAt,
+        string correlationId,
+        Guid? requestedById,
+        Guid? requestedByApiKeyId,
+        string? reason,
+        Guid? previousArtifactId
+    ) {
+        if (projectId == Guid.Empty || environmentId == Guid.Empty || artifactId == Guid.Empty) {
+            throw new ArgumentException("Project, environment, and artifact are required.");
+        }
+
         if (string.IsNullOrWhiteSpace(correlationId)) {
             throw new ArgumentException("Correlation ID is required.", nameof(correlationId));
         }

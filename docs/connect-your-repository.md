@@ -400,6 +400,15 @@ practise these calls without any CI, see [user manual, Tutorial 1](user-manual.m
    live timeline (*Requested → Policy evaluated → … → Succeeded*). **Findings** lists what the scanners found. The
    **Audit log** (Admin, Security) records every step. Your app is then at `http://127.0.0.1:8110`.
 
+### Let GitHub keep the deploy button (optional)
+
+Instead of asking AegisOps to deploy, a GitHub Actions job can target a GitHub **environment** protected by the
+AegisOps GitHub App: GitHub pauses the job, AegisOps evaluates its policies for the registered artifact (approvals
+happen in AegisOps as usual) and approves or rejects the job with the rule-by-rule reasons; GitHub then runs the
+deployment itself. Set the AegisOps environment's target type to `github`, register the artifact with
+`deploy-to: ''`, and follow [GitHub deployment gate](github-deployment-gate.md) to create the App and expose the
+webhook (Cloudflare Tunnel).
+
 ## 8. Checklist
 
 - [ ] The image builds and `GET <health path>` returns 200 locally.

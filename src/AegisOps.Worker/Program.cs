@@ -2,6 +2,7 @@ using AegisOps.Application.Audit;
 using AegisOps.Application.Observability;
 using AegisOps.Infrastructure.Audit;
 using AegisOps.Infrastructure.Deploy;
+using AegisOps.Infrastructure.GitHub;
 using AegisOps.Infrastructure.Identity;
 using AegisOps.Infrastructure.Health;
 using AegisOps.Infrastructure.Observability;
@@ -24,6 +25,15 @@ builder.Services.AddSingleton<WorkerPollHeartbeat>();
 builder.Services.AddIdentityStore(builder.Configuration);
 builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
 builder.Services.AddSingleton<EnvironmentSecretProtector>();
+// GitHub deployment protection rule callbacks (docs/github-deployment-gate.md); fails at startup when enabled and invalid.
+var gitHubApp = GitHubAppSettings.Load(builder.Configuration, requireWebhookSecret: false, requirePrivateKey: true);
+builder.Services.AddSingleton(gitHubApp);
+if (gitHubApp.CanCallGitHub) {
+    builder.Services.AddHttpClient("github-app", client => client.Timeout = TimeSpan.FromSeconds(15));
+    builder.Services.AddSingleton(services => new GitHubAppClient(gitHubApp,
+        () => services.GetRequiredService<IHttpClientFactory>().CreateClient("github-app"),
+        services.GetRequiredService<TimeProvider>()));
+}
 var redis = builder.Configuration.GetConnectionString("Redis");
 if (!string.IsNullOrWhiteSpace(redis)) builder.Services.AddSingleton<IConnectionMultiplexer>(_ => {
     var options = ConfigurationOptions.Parse(redis);

@@ -276,6 +276,7 @@ export function Projects({
                       <select defaultValue={environment.targetType} name="type">
                         <option value="noop">noop</option>
                         <option value="docker">docker</option>
+                        <option value="github">github (GitHub deploys, AegisOps decides)</option>
                       </select>
                     </label>
                     <label className="field">
