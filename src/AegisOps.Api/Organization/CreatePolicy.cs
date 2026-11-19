@@ -192,7 +192,7 @@ public static class CreatePolicy {
                     rule.Effect.ToString(),
                     rule.Order,
                     rule.IsEnabled,
-                    JsonDocument.Parse(rule.Parameters).RootElement.Clone()
+                    JsonElement.Parse(rule.Parameters)
                 ))
                 .ToArray()
         );

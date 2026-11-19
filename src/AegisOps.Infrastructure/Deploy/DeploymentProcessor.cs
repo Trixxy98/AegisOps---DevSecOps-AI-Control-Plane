@@ -56,15 +56,15 @@ public static class DeploymentProcessor {
         var webhookDelivered = false;
         try {
             if (job.Type == JobType.SendNotification) {
-                var eventId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("eventId").GetGuid();
+                var eventId = JsonElement.Parse(job.Payload).GetProperty("eventId").GetGuid();
                 await using var configScope = scopes.CreateAsyncScope();
                 webhookStarted = Stopwatch.GetTimestamp();
                 webhookDelivered = await TeamWebhookSender.SendAsync(db, configScope.ServiceProvider.GetRequiredService<IConfiguration>(), eventId, lost.Token);
             } else if (job.Type == JobType.ParseScanReport) {
-                var scanId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("scanId").GetGuid();
+                var scanId = JsonElement.Parse(job.Payload).GetProperty("scanId").GetGuid();
                 await ScanReportStore.ParseQueuedAsync(db, scanId, time.GetUtcNow(), lost.Token);
             } else {
-                var deploymentId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("deploymentId").GetGuid();
+                var deploymentId = JsonElement.Parse(job.Payload).GetProperty("deploymentId").GetGuid();
                 if (job.Type == JobType.EvaluateDeployment) {
                     await EvaluateAsync(db, audit, deploymentId, time, lost.Token);
                 } else if (job.Type == JobType.ExecuteDeployment) {
@@ -167,7 +167,7 @@ public static class DeploymentProcessor {
                     break;
                 }
 
-                var deploymentId = JsonDocument.Parse(candidate.Payload).RootElement.GetProperty("deploymentId").GetGuid();
+                var deploymentId = JsonElement.Parse(candidate.Payload).GetProperty("deploymentId").GetGuid();
                 var deployment = await db.Deployments.AsNoTracking().SingleAsync(item => item.Id == deploymentId, cancellationToken);
                 var environment = await db.Environments.AsNoTracking().SingleAsync(item => item.Id == deployment.EnvironmentId, cancellationToken);
                 var name = environment.Target.Type == "docker" ? environment.Target.ContainerName : null;
@@ -253,7 +253,7 @@ public static class DeploymentProcessor {
             throw new OperationCanceledException("Job lease was lost.");
         }
         if (error is null && job.Type == JobType.EvaluateDeployment) {
-            var id = JsonDocument.Parse(job.Payload).RootElement.GetProperty("deploymentId").GetGuid();
+            var id = JsonElement.Parse(job.Payload).GetProperty("deploymentId").GetGuid();
             var tracked = db.Deployments.Local.SingleOrDefault(d => d.Id == id);
             if (tracked is not null) {
                 var persisted = (await db.Deployments.FromSqlInterpolated($"SELECT * FROM deploy.deployments WHERE id = {id} FOR UPDATE")

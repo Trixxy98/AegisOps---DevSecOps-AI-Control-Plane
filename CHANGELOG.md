@@ -27,6 +27,15 @@ Conventional Commit history (`git log --no-merges`).
 - Release and example workflows use the current Docker actions (setup-qemu v4.4.0, setup-buildx v4.4.1,
   build-push v7.4.0, login v4.8.0; Node 24, self-hosted runners need 2.327.1 or later). Inputs are unchanged.
 - Dependabot groups `eslint` with `@eslint/js` and defers ESLint 10 until `eslint-plugin-jsx-a11y` supports it.
+- StackExchange.Redis 3.4 (RESP3 by default, separate pub/sub connection); Redis integration tests pass against
+  Redis 7.4.
+- Release workflow: a tag with a suffix (`v1.2.0-rc.1`) publishes only `:<tag>` images and a GitHub pre-release;
+  `:latest` moves only for final versions.
+
+### Fixed
+
+- Build with .NET SDK 10.0.404: `JsonElement.Parse` replaces `JsonDocument.Parse(...).RootElement` (analyzer
+  CA2026, an undisposed document), which failed every CI run on the newer SDK.
 
 ## [1.1.0] — 2026-11-12
 

@@ -208,7 +208,7 @@ public sealed class TracingTests {
             Assert.Equal(request.TraceId, worker.Links.Single().Context.TraceId);
             Assert.Equal(request.SpanId, worker.Links.Single().Context.SpanId);
             Assert.Equal("safe-correlation", worker.GetBaggageItem("correlationId"));
-            Assert.Equal("safe-correlation", JsonDocument.Parse(payload).RootElement.GetProperty("correlationId").GetString());
+            Assert.Equal("safe-correlation", JsonElement.Parse(payload).GetProperty("correlationId").GetString());
             Assert.DoesNotContain(worker.Tags, tag => tag.Key.Contains("deployment", StringComparison.OrdinalIgnoreCase));
         }
         using var legacy = JobTraceContext.StartJob(Job.Enqueue(JobType.ParseScanReport, "{\"scanId\":\"00000000-0000-0000-0000-000000000001\"}", DateTimeOffset.UtcNow, "old"));
