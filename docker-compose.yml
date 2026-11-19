@@ -53,6 +53,14 @@ services:
       AiContent__CurrentKeyId: ${AI_CONTENT_CURRENT_KEY_ID:-key1}
       AiContent__Keys__key1: ${AI_CONTENT_KEY_1:-}
       AiContent__Keys__key2: ${AI_CONTENT_KEY_2:-}
+      # GitHub deployment protection rule (docs/github-deployment-gate.md). Off unless GITHUB_APP_ENABLED=true; the api
+      # verifies webhook signatures, the worker signs the App JWT and answers GitHub.
+      GitHubApp__Enabled: ${GITHUB_APP_ENABLED:-false}
+      GitHubApp__AppId: ${GITHUB_APP_ID:-}
+      GitHubApp__WebhookSecret: ${GITHUB_APP_WEBHOOK_SECRET:-}
+      GitHubApp__PrivateKeyBase64: ${GITHUB_APP_PRIVATE_KEY_BASE64:-}
+      GitHubApp__ApiBaseUrl: ${GITHUB_APP_API_BASE_URL:-}
+      GitHubApp__PublicBaseUrl: ${GITHUB_APP_PUBLIC_BASE_URL:-}
       Database__MigrateOnStartup: "true"
       Storage__ReportsPath: /app/reports
     volumes:
@@ -83,6 +91,14 @@ services:
       EnvironmentSecrets__CurrentKeyId: ${ENVIRONMENT_SECRETS_CURRENT_KEY_ID:-key1}
       EnvironmentSecrets__Keys__key1: ${ENVIRONMENT_SECRETS_KEY_1:-}
       EnvironmentSecrets__Keys__key2: ${ENVIRONMENT_SECRETS_KEY_2:-}
+      # GitHub deployment protection rule (docs/github-deployment-gate.md). Off unless GITHUB_APP_ENABLED=true; the api
+      # verifies webhook signatures, the worker signs the App JWT and answers GitHub.
+      GitHubApp__Enabled: ${GITHUB_APP_ENABLED:-false}
+      GitHubApp__AppId: ${GITHUB_APP_ID:-}
+      GitHubApp__WebhookSecret: ${GITHUB_APP_WEBHOOK_SECRET:-}
+      GitHubApp__PrivateKeyBase64: ${GITHUB_APP_PRIVATE_KEY_BASE64:-}
+      GitHubApp__ApiBaseUrl: ${GITHUB_APP_API_BASE_URL:-}
+      GitHubApp__PublicBaseUrl: ${GITHUB_APP_PUBLIC_BASE_URL:-}
       DOCKER_HEALTH_HOST: host.docker.internal
       Storage__ReportsPath: /app/reports
       Storage__ReportRetentionDays: ${REPORT_RETENTION_DAYS:-90}

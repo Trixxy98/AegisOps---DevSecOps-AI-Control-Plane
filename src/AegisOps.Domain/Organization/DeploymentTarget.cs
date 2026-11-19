@@ -33,6 +33,19 @@ public sealed partial class DeploymentTarget {
         };
     }
 
+    /// <summary>GitHub runs the deployment; AegisOps only decides. Used by the GitHub App deployment protection rule
+    /// (docs/github-deployment-gate.md): the Worker answers GitHub's review instead of executing anything.</summary>
+    public static DeploymentTarget GitHub(bool allowApiKeyProduction = false) {
+        return new DeploymentTarget {
+            Type = GitHubType,
+            AllowApiKeyProduction = allowApiKeyProduction,
+        };
+    }
+
+    public const string GitHubType = "github";
+
+    public bool IsGitHub => string.Equals(Type, GitHubType, StringComparison.OrdinalIgnoreCase);
+
     public static DeploymentTarget Docker(
         string containerName,
         string? network,

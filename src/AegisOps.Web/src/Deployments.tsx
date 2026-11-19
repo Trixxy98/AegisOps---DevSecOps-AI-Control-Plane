@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useState } from "react";
 import { api } from "./api";
 import { pollingFallbackMs } from "./deploymentUpdates";
-import { formatDateTime, humanize, shortId } from "./format";
+import { formatDateTime, humanize, shortId, type Tone } from "./format";
 import { IconCheck, IconRocket, IconSparkles, IconX } from "./icons";
 import { Alert, CardHeader, EmptyState, Loading, SeverityBadge, Spinner, StatusBadge } from "./ui";
 
@@ -12,7 +12,49 @@ type DeploymentListItem = {
   approvalsRequired: number;
   requestedAt?: string | null;
   failureReason?: string;
+  /** "GitHub" when the GitHub App deployment protection rule requested it (docs/github-deployment-gate.md). */
+  source?: string;
+  gitHubRunUrl?: string | null;
 };
+
+type GitHubGate = {
+  repository: string;
+  environment: string;
+  runUrl: string;
+  status: string;
+  decision?: string | null;
+  reportedAt?: string | null;
+};
+
+/** Only https links to the workflow run are rendered as anchors. */
+function safeRunUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).protocol === "https:" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What GitHub has been told so far, for the deployment detail. */
+function gitHubAnswer(gate: GitHubGate): { label: string; tone: Tone } {
+  const approved = gate.decision === "approved";
+  if (gate.status === "Reported")
+    return approved
+      ? { label: "Approved on GitHub", tone: "success" }
+      : { label: "Rejected on GitHub", tone: "danger" };
+  if (gate.status === "CallbackFailed") return { label: "Refused by GitHub", tone: "danger" };
+  if (gate.decision) return { label: approved ? "Sending approval" : "Sending rejection", tone: "info" };
+  return { label: "Waiting for the AegisOps decision", tone: "info" };
+}
+
+function GitHubBadge() {
+  return (
+    <span className="tag" title="Requested by the GitHub deployment protection rule">
+      GitHub
+    </span>
+  );
+}
 
 function requestTime(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -52,6 +94,7 @@ export function Deployments({
   const [decision, setDecision] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [canRollback, setCanRollback] = useState(false);
+  const [gitHub, setGitHub] = useState<GitHubGate | null>(null);
   const [aiSummary, setAiSummary] = useState<{ deploymentId: string; text: string } | null>(null);
   const [summaryPendingId, setSummaryPendingId] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<{ deploymentId: string; message: string } | null>(null);
@@ -111,12 +154,14 @@ export function Deployments({
   }, [selected, token, polling]);
 
   function open(id: string) {
-    return api<{ artifactId: string; status: string; previousArtifactId?: string }>(
+    return api<{ artifactId: string; status: string; previousArtifactId?: string; gitHub?: GitHubGate | null }>(
       `/api/v1/deployments/${id}`,
       token,
     ).then(async (deployment) => {
       setSelected(id);
-      setCanRollback(deployment.status === "Succeeded" && Boolean(deployment.previousArtifactId));
+      setGitHub(deployment.gitHub ?? null);
+      // GitHub-gated deployments are released by re-running the workflow, not by an AegisOps rollback.
+      setCanRollback(deployment.status === "Succeeded" && Boolean(deployment.previousArtifactId) && !deployment.gitHub);
       const [timeline, evaluation, found] = await Promise.all([
         api<Array<{ sequence: number; type: string; message: string }>>(`/api/v1/deployments/${id}/events`, token),
         api<{ decision: string; ruleResults: Array<{ type: string; passed: boolean; message: string }> }>(
@@ -238,6 +283,7 @@ export function Deployments({
                   <code className="mono" title={item.id}>
                     {shortId(item.id)}
                   </code>
+                  {item.source === "GitHub" && <GitHubBadge />}
                   {index === 0 && timestamp !== null && <span className="latest-marker">Latest</span>}
                 </span>
                 <span className="list-secondary tabular">
@@ -321,6 +367,31 @@ export function Deployments({
                   <strong>Deployment summary</strong>
                   <p>{aiSummary.text}</p>
                   <AiLabel />
+                </div>
+              )}
+
+              {gitHub && (
+                <div className="stack">
+                  <h3 className="section-title">
+                    Source <GitHubBadge />
+                  </h3>
+                  <p className="subtle">
+                    Requested by the GitHub deployment protection rule for{" "}
+                    <code className="mono">{gitHub.repository}</code> (environment{" "}
+                    <code className="mono">{gitHub.environment}</code>). GitHub runs the deployment; AegisOps decides.
+                  </p>
+                  <p className="row">
+                    {safeRunUrl(gitHub.runUrl) ? (
+                      <a href={safeRunUrl(gitHub.runUrl) ?? undefined} target="_blank" rel="noopener noreferrer">
+                        Open workflow run
+                      </a>
+                    ) : (
+                      <span className="subtle">Workflow run link unavailable</span>
+                    )}
+                    <span className="dot-sep">
+                      GitHub answer: <StatusBadge status={gitHub.status} {...gitHubAnswer(gitHub)} />
+                    </span>
+                  </p>
                 </div>
               )}
 

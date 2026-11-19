@@ -11,6 +11,7 @@ using AegisOps.Domain.Organization;
 using AegisOps.Domain.Policy;
 using AegisOps.Domain.Security;
 using AegisOps.Infrastructure.Docker;
+using AegisOps.Infrastructure.GitHub;
 using AegisOps.Infrastructure.Persistence;
 using AegisOps.Infrastructure.Observability;
 using AegisOps.Infrastructure.Scanning;
@@ -60,6 +61,13 @@ public static class DeploymentProcessor {
                 await using var configScope = scopes.CreateAsyncScope();
                 webhookStarted = Stopwatch.GetTimestamp();
                 webhookDelivered = await TeamWebhookSender.SendAsync(db, configScope.ServiceProvider.GetRequiredService<IConfiguration>(), eventId, lost.Token);
+            } else if (job.Type == JobType.GitHubGateEvaluate) {
+                var gateId = JsonElement.Parse(job.Payload).GetProperty("gateId").GetGuid();
+                await GitHubGateProcessor.EvaluateAsync(db, audit, gateId, time, lost.Token);
+            } else if (job.Type == JobType.GitHubGateCallback) {
+                var gateId = JsonElement.Parse(job.Payload).GetProperty("gateId").GetGuid();
+                await GitHubGateProcessor.CallbackAsync(db, audit, ResolveGitHubClient(scopes), gateId, time, lost.Token,
+                    LeaseGuard(db, job.Id, token, time, lost));
             } else if (job.Type == JobType.ParseScanReport) {
                 var scanId = JsonElement.Parse(job.Payload).GetProperty("scanId").GetGuid();
                 await ScanReportStore.ParseQueuedAsync(db, scanId, time.GetUtcNow(), lost.Token);
@@ -383,6 +391,27 @@ public static class DeploymentProcessor {
         var now = time.GetUtcNow();
         deployment.Start(now);
         var environment = await db.Environments.SingleAsync(item => item.Id == deployment.EnvironmentId, cancellationToken);
+        if (environment.Target.IsGitHub) {
+            // GitHub runs the deployment; AegisOps answers the waiting workflow run (docs/github-deployment-gate.md).
+            // The deployment stays Deploying until GitHub acknowledges the approval (GitHubGateProcessor.CallbackAsync).
+            var gate = await db.GitHubDeploymentGates.SingleOrDefaultAsync(item => item.DeploymentId == deployment.Id, cancellationToken);
+            if (gate is null) {
+                const string reason = "No GitHub workflow run is waiting for this deployment; github targets are released only by the GitHub App deployment protection rule.";
+                deployment.Fail(reason, time.GetUtcNow());
+                await AddEventAsync(db, deployment.Id, DeploymentEventType.Failed, reason, time, cancellationToken);
+                audit.Write(AuditEvent.Record(time.GetUtcNow(), "System", null, GitHubGateProcessor.ActorDisplay, "deployment.failed", "Deployment", deployment.Id, "Failed", deployment.CorrelationId));
+                return;
+            }
+
+            await AddEventAsync(db, deployment.Id, DeploymentEventType.DeployStarted,
+                $"Releasing to GitHub: approving workflow run {gate.RunUrl}.", time, cancellationToken);
+            if (gate.Decide(GitHubDeploymentGate.Approved, null, now)) {
+                db.Jobs.Add(Job.Enqueue(JobType.GitHubGateCallback, AegisOpsDbContext.GitHubGatePayload(gate.Id, deployment.CorrelationId), now,
+                    deployment.CorrelationId));
+            }
+            return;
+        }
+
         if (string.Equals(environment.Target.Type, "docker", StringComparison.OrdinalIgnoreCase)) {
             var artifact = await db.Artifacts.SingleAsync(item => item.Id == deployment.ArtifactId, cancellationToken);
             var project = await db.Projects.AsNoTracking().SingleAsync(item => item.Id == deployment.ProjectId, cancellationToken);
@@ -481,6 +510,12 @@ public static class DeploymentProcessor {
         }
 
         return new(values, null);
+    }
+
+    private static GitHubAppClient ResolveGitHubClient(IServiceScopeFactory scopes) {
+        using var scope = scopes.CreateScope();
+        return scope.ServiceProvider.GetService<GitHubAppClient>()
+            ?? throw new InvalidOperationException("GitHub App is not configured on the Worker (GitHubApp:Enabled, AppId and PrivateKey).");
     }
 
     private static EnvironmentSecretProtector ResolveSecretProtector(IServiceScopeFactory scopes) {

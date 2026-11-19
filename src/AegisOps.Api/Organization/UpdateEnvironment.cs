@@ -161,9 +161,11 @@ public static class UpdateEnvironment {
                     ));
                 } else if (type == "noop") {
                     environment.Retarget(DeploymentTarget.Noop(allowApiKeyProduction));
+                } else if (type == DeploymentTarget.GitHubType) {
+                    environment.Retarget(DeploymentTarget.GitHub(allowApiKeyProduction));
                 } else {
                     return Results.Problem(
-                        title: "Target type must be noop or docker.",
+                        title: "Target type must be noop, docker or github.",
                         statusCode: StatusCodes.Status400BadRequest
                     );
                 }

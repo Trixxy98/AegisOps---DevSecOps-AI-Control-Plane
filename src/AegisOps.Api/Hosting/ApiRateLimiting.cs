@@ -74,8 +74,11 @@ public static class ApiRateLimiting {
 
     /// <summary><c>api</c> and <c>hubs</c> have separate buckets so a busy API client cannot starve realtime updates
     /// (and a reconnect loop cannot starve the API); everything else (health, metrics) is not limited.</summary>
+    /// <remarks>GitHub webhooks get their own bucket (per client IP) so a sign-in flood through the same tunnel or proxy
+    /// address cannot starve GitHub's deliveries, which GitHub does not retry automatically.</remarks>
     private static string? LimitedScope(PathString path) =>
-        path.StartsWithSegments("/api") ? "api" : path.StartsWithSegments("/hubs") ? "hubs" : null;
+        path.StartsWithSegments("/api/v1/integrations/github") ? "github"
+        : path.StartsWithSegments("/api") ? "api" : path.StartsWithSegments("/hubs") ? "hubs" : null;
 
     private static string ClientAddress(HttpContext http) => http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 

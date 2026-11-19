@@ -9,10 +9,21 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Added
 
+- GitHub deployment protection rule (roadmap v1.2 item 1, [docs/github-deployment-gate.md](docs/github-deployment-gate.md)):
+  a GitHub App asks AegisOps to approve or reject a GitHub Actions job that targets a protected environment.
+  New anonymous, HMAC-verified webhook `POST /api/v1/integrations/github/webhook` (idempotent on
+  `X-GitHub-Delivery`, 1 MiB cap, own rate-limit bucket); new job types `GitHubGateEvaluate` and
+  `GitHubGateCallback`; new deployment target type `github` ("GitHub runs the deployment; AegisOps decides");
+  new table `deploy.github_deployment_gates` (migration `GitHubDeploymentGates`); `GitHubApp__*` settings for api
+  and worker (off by default, validated at startup); deployments show a GitHub badge and a link to the workflow run.
+
 - Production profile can run the published release images: `AEGISOPS_IMAGE_PREFIX` and `AEGISOPS_IMAGE_TAG`
   (docs/deploy-production.md §5).
 
 ### Changed
+
+- `GET /deployments` and `GET /deployments/{id}` include `source` (`AegisOps`/`GitHub`) and the GitHub run link;
+  requesting or rolling back a deployment to a `github` environment answers 409.
 
 - README shortened, with light/dark screenshots of the new UI; local development details moved to
   `docs/local-development.md`. The old demo GIF and screenshots were removed (re-record with

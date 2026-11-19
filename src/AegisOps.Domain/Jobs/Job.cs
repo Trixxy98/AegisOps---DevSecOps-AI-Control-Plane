@@ -12,6 +12,10 @@ public enum JobType {
     ExecuteDeployment = 2,
     ParseScanReport = 3,
     SendNotification = 4,
+    /// <summary>Maps a GitHub deployment protection rule request to a project, environment and artifact.</summary>
+    GitHubGateEvaluate = 5,
+    /// <summary>Posts AegisOps' decision to GitHub's review endpoint (retried with backoff, never posted twice).</summary>
+    GitHubGateCallback = 6,
 }
 
 public sealed class Job {

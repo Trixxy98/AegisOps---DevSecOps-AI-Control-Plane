@@ -25,6 +25,8 @@ using AegisOps.Application.Observability;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using AegisOps.Api.Hosting;
+using AegisOps.Api.Integrations;
+using AegisOps.Infrastructure.GitHub;
 
 // One-shot operator commands (`migrate`, `bootstrap-admin`) run instead of the web host.
 if (AdminCommands.IsCommand(args)) {
@@ -50,6 +52,9 @@ builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
 builder.Services.AddSingleton<TeamWebhookSecretProtector>();
 builder.Services.AddSingleton<EnvironmentSecretProtector>();
 builder.Services.AddSingleton<AiContentProtector>();
+// GitHub deployment protection rule (docs/github-deployment-gate.md): validated here so a bad secret fails at startup.
+builder.Services.AddSingleton(GitHubAppSettings.Load(builder.Configuration, requireWebhookSecret: true, requirePrivateKey: false));
+builder.Services.AddSingleton<GitHubWebhookRejectionThrottle>();
 builder.Services.AddSingleton<IBlockedPatternMatcher>(_ => new AiBlockedPatterns());
 builder.Services.AddSingleton<ISensitiveDataDetector, RegexSensitiveDataDetector>();
 builder.Services.AddSingleton<IAiRateLimiter>(services => new RedisAiRateLimiter(
@@ -119,6 +124,8 @@ app.MapPost("/api/v1/auth/login", Login.Handle).RequireRateLimiting(ApiRateLimit
 app.MapPost("/api/v1/auth/refresh", Refresh.Handle).RequireRateLimiting(ApiRateLimiting.AuthPolicy);
 app.MapPost("/api/v1/auth/logout", Logout.Handle).RequireAuthorization();
 app.MapGet("/api/v1/auth/me", CurrentUser.Handle).RequireAuthorization();
+// Anonymous by design: the X-Hub-Signature-256 HMAC is verified in the handler before the body is parsed (docs/17).
+app.MapPost("/api/v1/integrations/github/webhook", GitHubWebhook.Handle);
 app.MapGet("/api/v1/system/dependencies", SystemDependencyHealth.Handle).RequireAuthorization();
 app.MapPost("/api/v1/auth/change-password", ChangePassword.Handle).RequireAuthorization();
 app.MapPost("/api/v1/ai/chat", AiEndpoints.Chat).RequireAuthorization(Permissions.AiChat);

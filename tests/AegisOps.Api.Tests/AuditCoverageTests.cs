@@ -8,6 +8,9 @@ using System.Text.RegularExpressions;
 using AegisOps.Api.Ai;
 using AegisOps.Api.Deploy;
 using AegisOps.Api.Identity;
+using AegisOps.Api.Integrations;
+using AegisOps.Infrastructure.GitHub;
+using System.Security.Cryptography;
 using AegisOps.Api.Jobs;
 using AegisOps.Api.Organization;
 using AegisOps.Application.Audit;
@@ -121,6 +124,7 @@ public sealed partial class AuditCoverageTests {
         new("POST", "/api/v1/deployments/{id:guid}/cancel", "deployment.cancelled", nameof(DeploymentRequestApprovalCancelAndRollbackAreAudited)),
         new("POST", "/api/v1/deployments/{id:guid}/rollback", "deployment.requested", nameof(DeploymentRequestApprovalCancelAndRollbackAreAudited)),
         new("POST", "/api/v1/admin/jobs/{id:guid}/retry", "job.retried", nameof(DeadLetteredJobRetryIsAudited)),
+        new("POST", "/api/v1/integrations/github/webhook", "github.webhook_received", nameof(GitHubWebhookReceiptAndRejectionAreAudited)),
     ];
 
     /// <summary>Security-sensitive and Worker actions that are not one route (docs/09, docs/17 §6).</summary>
@@ -139,6 +143,9 @@ public sealed partial class AuditCoverageTests {
         new("EVENT", "job retry attributed to the authenticated admin", "job.retried", nameof(DeadLetteredJobRetryIsAttributedToTheAdmin)),
         new("EVENT", "API-key actor recorded as ApiKey", "artifact.created", nameof(ApiKeyActionsAreAttributedToTheApiKeyActorType)),
         new("EVENT", "first Admin created by the bootstrap-admin command", "user.bootstrapped", nameof(BootstrapAdminIsAuditedAsSystemWithoutThePassword)),
+        new("EVENT", "GitHub webhook with a bad signature (throttled)", "github.webhook_rejected", nameof(GitHubWebhookReceiptAndRejectionAreAudited)),
+        new("EVENT", "Worker: GitHub request cannot be mapped", "github.gate_unmapped", nameof(GitHubGateWorkerStepsAreAudited)),
+        new("EVENT", "Worker: decision reported to GitHub", "github.gate_reported", nameof(GitHubGateWorkerStepsAreAudited)),
     ];
 
     // ---------- Guard tests ----------
@@ -964,6 +971,89 @@ public sealed partial class AuditCoverageTests {
         var executed = await host.WorkerAsync((db, audit) => DeploymentProcessor.ExecuteAsync(db, audit, deploymentId, TimeProvider.System, Token));
 
         AssertSingleAudit(executed, "deployment.failed", "System", null, "docker-executor", "Deployment", deploymentId, "Failed");
+    }
+
+    // ---------- GitHub deployment protection rule ----------
+
+    private const string GitHubSecret = "audit-coverage-github-secret-0123456789";
+
+    private static GitHubAppSettings GitHubSettings(RSA? key = null) {
+        var values = new Dictionary<string, string?> {
+            ["GitHubApp:Enabled"] = "true",
+            ["GitHubApp:WebhookSecret"] = GitHubSecret,
+        };
+        if (key is not null) {
+            values["GitHubApp:AppId"] = "1";
+            values["GitHubApp:PrivateKeyBase64"] = Convert.ToBase64String(Encoding.UTF8.GetBytes(key.ExportRSAPrivateKeyPem()));
+        }
+        return GitHubAppSettings.Load(new ConfigurationBuilder().AddInMemoryCollection(values).Build(), requireWebhookSecret: true, requirePrivateKey: key is not null);
+    }
+
+    private static Action<HttpContext> GitHubDelivery(string body, string signature, string delivery) => http => {
+        http.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(body));
+        http.Request.Headers["X-Hub-Signature-256"] = signature;
+        http.Request.Headers["X-GitHub-Event"] = "deployment_protection_rule";
+        http.Request.Headers["X-GitHub-Delivery"] = delivery;
+    };
+
+    private const string GitHubPayload = """
+        {"action":"requested","environment":"Staging","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "deployment_callback_url":"https://api.github.com/repos/acme/circuit/actions/runs/77/deployment_protection_rule",
+         "repository":{"full_name":"acme/circuit","html_url":"https://github.com/acme/circuit"},"installation":{"id":5}}
+        """;
+
+    [Fact]
+    public async Task GitHubWebhookReceiptAndRejectionAreAudited() {
+        await using var host = await AuditHost.StartAsync();
+        using var settings = GitHubSettings();
+        var throttle = new GitHubWebhookRejectionThrottle(TimeProvider.System);
+        Task<Call> DeliverAsync(string signature, string delivery) => host.CallAsync((services, http) => GitHubWebhook.Handle(http, settings, Db(services),
+            Audit(services), TimeProvider.System, throttle, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance), GitHubDelivery(GitHubPayload, signature, delivery));
+
+        var signature = GitHubWebhookSignature.Compute(Encoding.UTF8.GetBytes(GitHubSecret), Encoding.UTF8.GetBytes(GitHubPayload));
+        var accepted = await DeliverAsync(signature, "audit-delivery-1");
+        Assert.Equal(StatusCodes.Status202Accepted, accepted.Status);
+        var gateId = await host.WithDbAsync(db => db.GitHubDeploymentGates.Select(gate => gate.Id).SingleAsync(Token));
+        var row = AssertSingleAudit(accepted.Rows, "github.webhook_received", "System", null, "github-app", "GitHubDeploymentGate", gateId, "Accepted");
+        Assert.DoesNotContain("installation", row.ActorDisplay + row.Action + row.Outcome, StringComparison.Ordinal);
+
+        // A replay writes nothing; a bad signature is audited as an anonymous denial without any payload content.
+        Assert.Empty((await DeliverAsync(signature, "audit-delivery-1")).Rows);
+        var rejected = await DeliverAsync("sha256=" + new string('0', 64), "audit-delivery-2");
+        Assert.Equal(StatusCodes.Status401Unauthorized, rejected.Status);
+        AssertSingleAudit(rejected.Rows, "github.webhook_rejected", "Anonymous", null, "anonymous", "Endpoint", null, "Denied");
+    }
+
+    [Fact]
+    public async Task GitHubGateWorkerStepsAreAudited() {
+        await using var host = await AuditHost.StartAsync();
+        using var key = RSA.Create(2048);
+        using var settings = GitHubSettings(key);
+        var throttle = new GitHubWebhookRejectionThrottle(TimeProvider.System);
+        var signature = GitHubWebhookSignature.Compute(Encoding.UTF8.GetBytes(GitHubSecret), Encoding.UTF8.GetBytes(GitHubPayload));
+        Assert.Equal(StatusCodes.Status202Accepted, (await host.CallAsync((services, http) => GitHubWebhook.Handle(http, settings, Db(services), Audit(services),
+            TimeProvider.System, throttle, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance), GitHubDelivery(GitHubPayload, signature, "audit-delivery-3"))).Status);
+        var gateId = await host.WithDbAsync(db => db.GitHubDeploymentGates.Select(gate => gate.Id).SingleAsync(Token));
+
+        // No project uses acme/circuit: the request is rejected with an explanation.
+        var mapped = await host.WorkerAsync((db, audit) => GitHubGateProcessor.EvaluateAsync(db, audit, gateId, TimeProvider.System, Token));
+        AssertSingleAudit(mapped, "github.gate_unmapped", "System", null, "github-app", "GitHubDeploymentGate", gateId, "Rejected");
+
+        using var github = new GitHubReviewStub();
+        using var http = new HttpClient(github, disposeHandler: false);
+        var client = new GitHubAppClient(settings, () => http, TimeProvider.System);
+        var reported = await host.WorkerAsync((db, audit) => GitHubGateProcessor.CallbackAsync(db, audit, client, gateId, TimeProvider.System, Token));
+        AssertSingleAudit(reported, "github.gate_reported", "System", null, "github-app", "GitHubDeploymentGate", gateId, "Rejected");
+    }
+
+    /// <summary>Stands in for api.github.com (installation token, then 204 for the review). Never reaches the network.</summary>
+    private sealed class GitHubReviewStub : HttpMessageHandler {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(request.RequestUri!.AbsolutePath.EndsWith("/access_tokens", StringComparison.Ordinal)
+                ? new HttpResponseMessage(HttpStatusCode.Created) {
+                    Content = new StringContent("""{"token":"ghs_audit","expires_at":"2099-01-01T00:00:00Z"}""", Encoding.UTF8, "application/json"),
+                }
+                : new HttpResponseMessage(HttpStatusCode.NoContent));
     }
 
     // ---------- Jobs ----------

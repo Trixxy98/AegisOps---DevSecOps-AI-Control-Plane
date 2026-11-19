@@ -99,3 +99,29 @@ public sealed class AuditEventConfiguration : IEntityTypeConfiguration<AuditEven
         builder.HasIndex(item => item.Timestamp);
     }
 }
+
+public sealed class GitHubDeploymentGateConfiguration : IEntityTypeConfiguration<GitHubDeploymentGate> {
+    public void Configure(EntityTypeBuilder<GitHubDeploymentGate> builder) {
+        builder.ToTable("github_deployment_gates", "deploy");
+        builder.HasKey(item => item.Id);
+        builder.Property(item => item.DeliveryId).HasMaxLength(64).IsRequired();
+        builder.Property(item => item.RepositoryFullName).HasMaxLength(300).IsRequired();
+        builder.Property(item => item.EnvironmentName).HasMaxLength(255).IsRequired();
+        builder.Property(item => item.CommitSha).HasMaxLength(64).IsRequired();
+        builder.Property(item => item.Ref).HasMaxLength(255);
+        builder.Property(item => item.CallbackUrl).HasMaxLength(500).IsRequired();
+        builder.Property(item => item.RunUrl).HasMaxLength(500).IsRequired();
+        builder.Property(item => item.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+        builder.Property(item => item.Decision).HasMaxLength(16);
+        builder.Property(item => item.DecisionComment).HasMaxLength(GitHubDeploymentGate.MaxCommentLength);
+        builder.Property(item => item.CorrelationId).HasMaxLength(64).IsRequired();
+        builder.Ignore(item => item.Owner);
+        builder.Ignore(item => item.Repository);
+        builder.Ignore(item => item.IsSettled);
+        // A redelivered webhook (same X-GitHub-Delivery) must never create a second gate.
+        builder.HasIndex(item => item.DeliveryId).IsUnique();
+        builder.HasIndex(item => item.DeploymentId).IsUnique();
+        builder.HasOne<Deployment>().WithMany().HasForeignKey(item => item.DeploymentId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<Project>().WithMany().HasForeignKey(item => item.ProjectId).OnDelete(DeleteBehavior.Cascade);
+    }
+}

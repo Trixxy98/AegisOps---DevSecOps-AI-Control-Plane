@@ -136,6 +136,18 @@ public sealed class RateLimitingTests {
     }
 
     [Fact]
+    public async Task GitHubWebhooksHaveTheirOwnBucketSoAnonymousFloodsDoNotStarveThem() {
+        await using var host = await LimitHost.StartAsync(Limits(global: 1));
+        // Exhaust the anonymous API bucket of this address (as a sign-in flood through the same tunnel would).
+        Assert.Equal(HttpStatusCode.Unauthorized, (await host.SendAsync(HttpMethod.Get, "/api/v1/ping", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await host.SendAsync(HttpMethod.Get, "/api/v1/ping", null)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.Accepted, (await host.SendAsync(HttpMethod.Post, "/api/v1/integrations/github/webhook", null)).StatusCode);
+        // The webhook bucket is still limited on its own.
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await host.SendAsync(HttpMethod.Post, "/api/v1/integrations/github/webhook", null)).StatusCode);
+    }
+
+    [Fact]
     public void DefaultsAndInvalidSettings() {
         var empty = new ConfigurationBuilder().Build();
         Assert.Equal(new ApiRateLimiting.TokenBucketSettings(300, 50, 10),
@@ -227,6 +239,7 @@ public sealed class RateLimitingTests {
             app.MapPost("/hubs/ops/negotiate", () => Results.Ok()).RequireAuthorization();
             app.MapPost("/api/v1/auth/refresh", () => Results.Ok()).RequireRateLimiting(ApiRateLimiting.AuthPolicy);
             app.MapGet("/api/v1/ping", () => Results.Ok()).RequireAuthorization();
+            app.MapPost("/api/v1/integrations/github/webhook", () => Results.Accepted());
             app.MapPost("/api/v1/artifacts/{id:guid}/scans", (Guid id) => Results.Accepted())
                 .RequireAuthorization()
                 .RequireRateLimiting(ApiRateLimiting.UploadsPolicy);

@@ -131,7 +131,24 @@ const deployments = [
     approvalsReceived: 1,
     requestedAt: at(12, "09:14"),
   },
-  { id: guid(51), status: "Deploying", approvalsRequired: 0, approvalsReceived: 0, requestedAt: at(12, "08:52") },
+  {
+    id: guid(51),
+    status: "Deploying",
+    approvalsRequired: 0,
+    approvalsReceived: 0,
+    requestedAt: at(12, "08:52"),
+    // Requested by the GitHub App deployment protection rule (docs/github-deployment-gate.md).
+    source: "GitHub",
+    gitHubRunUrl: "https://github.com/acme/circuit-service/actions/runs/4812",
+    gitHub: {
+      repository: "acme/circuit-service",
+      environment: "staging",
+      runUrl: "https://github.com/acme/circuit-service/actions/runs/4812",
+      status: "DecisionPending",
+      decision: "approved",
+      reportedAt: null,
+    },
+  },
   { id: guid(52), status: "Succeeded", approvalsRequired: 0, approvalsReceived: 0, requestedAt: at(11, "17:05") },
   {
     id: guid(53),

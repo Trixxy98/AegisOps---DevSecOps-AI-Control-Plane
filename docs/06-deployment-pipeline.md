@@ -113,6 +113,8 @@ See [11 Database design](11-database-design.md#jobs). Key semantics:
 | `ParseScanReport` | `{ scanId, reportPath }` | `ParseScanReportJobHandler` (large reports parsed async) | 3 |
 | `RunSecurityScan` | `{ artifactId, scanner }` | `RunSecurityScanJobHandler` (worker-run scanners) | 4 (optional) |
 | `SendNotification` | `{ kind, recipients, deploymentId }` | `SendNotificationJobHandler` (log/webhook) | 5 |
+| `GitHubGateEvaluate` | `{ gateId, correlationId }` | `GitHubGateProcessor.EvaluateAsync`: maps a GitHub protection-rule request to project/environment/artifact and creates the deployment, or decides "rejected" | v1.2 |
+| `GitHubGateCallback` | `{ gateId, correlationId }` | `GitHubGateProcessor.CallbackAsync`: posts the decision to GitHub once (retried with backoff), then finishes a released deployment | v1.2 |
 
 ### Worker hosting
 
@@ -183,6 +185,18 @@ under the lease check and then publishes a `DeploymentUpdates` hint, so the API'
 is injectable (`DeploymentStepExecutor`) for tests. Evidence is SQLite-backed
 `DeploymentStepStreamingTests` with a fake executor and fake Redis multiplexer; it has
 not been re-run against live PostgreSQL, Redis, SignalR or Docker.
+
+### `github` target (v1.2, [GitHub deployment gate](github-deployment-gate.md))
+
+"GitHub runs the deployment; AegisOps decides." Deployments of a `github` environment are created only by the GitHub
+App deployment protection rule (manual requests and rollbacks answer 409). At execution, after the usual policy
+re-check, the Worker records `DeployStarted` ("Releasing to GitHub …"), decides "approved" on the gate row and queues
+a `GitHubGateCallback` job; nothing is executed locally. The deployment stays `Deploying` until GitHub accepts the
+review, then becomes `Succeeded` ("Released to GitHub …") and the environment's current artifact is updated. A final
+refusal by GitHub (e.g. 422 for a cancelled run) fails the deployment. Every other end of a gated deployment
+(`Denied`, `Rejected`, `Cancelled`, `Failed`) queues a "rejected" callback with the failed rules: this is done in
+`AegisOpsDbContext.SaveChangesAsync`, in the same transaction as the transition, whichever path (Worker or API) made
+it. The first decision wins, so a gate never receives two contradicting reviews.
 
 ### `NoopDeploymentExecutor` (Phase 1)
 

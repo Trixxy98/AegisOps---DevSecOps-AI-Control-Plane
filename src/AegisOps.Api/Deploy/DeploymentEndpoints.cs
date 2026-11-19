@@ -58,6 +58,10 @@ public static class DeploymentEndpoints {
             return denied;
         }
 
+        if (environment.Target.IsGitHub) {
+            return GitHubTargetConflict();
+        }
+
         var replay = await IdempotencyRequests.ReplayAsync(http, principal, idempotency,
             IdempotencyRequests.DeploymentIdentity("request", request));
         if (replay is not null) {
@@ -112,6 +116,10 @@ public static class DeploymentEndpoints {
         var denied = await AuthorizeTargetAsync(actor, users, db, source.ProjectId, environment, cancellationToken);
         if (denied is not null) {
             return denied;
+        }
+
+        if (environment.Target.IsGitHub) {
+            return GitHubTargetConflict();
         }
 
         if (source.Status != DeploymentStatus.Succeeded) {
@@ -170,7 +178,13 @@ public static class DeploymentEndpoints {
             query = query.Where(item => item.Status == parsed);
         }
 
-        var items = await query.OrderByDescending(item => item.RequestedAt).Take(100).Select(item => new {
+        var rows = await query.OrderByDescending(item => item.RequestedAt).Take(100).ToListAsync(http.RequestAborted);
+        var ids = rows.Select(item => item.Id).ToList();
+        var gates = await db.GitHubDeploymentGates.AsNoTracking()
+            .Where(gate => gate.DeploymentId != null && ids.Contains(gate.DeploymentId.Value))
+            .Select(gate => new { DeploymentId = gate.DeploymentId!.Value, gate.RunUrl })
+            .ToDictionaryAsync(gate => gate.DeploymentId, gate => gate.RunUrl, http.RequestAborted);
+        var items = rows.Select(item => new {
             item.Id,
             item.ProjectId,
             item.EnvironmentId,
@@ -180,7 +194,10 @@ public static class DeploymentEndpoints {
             item.ApprovalsReceived,
             item.RequestedAt,
             item.FailureReason,
-        }).ToListAsync(http.RequestAborted);
+            // "GitHub" when the GitHub App deployment protection rule requested it (docs/github-deployment-gate.md).
+            source = gates.ContainsKey(item.Id) ? "GitHub" : "AegisOps",
+            gitHubRunUrl = gates.GetValueOrDefault(item.Id),
+        }).ToList();
         return Results.Ok(items);
     }
 
@@ -216,6 +233,17 @@ public static class DeploymentEndpoints {
             return Results.Problem(title: "Deployment was not found.", statusCode: StatusCodes.Status404NotFound);
         }
 
+        var gate = await db.GitHubDeploymentGates.AsNoTracking()
+            .Where(row => row.DeploymentId == item.Id)
+            .Select(row => new {
+                repository = row.RepositoryFullName,
+                environment = row.EnvironmentName,
+                row.RunUrl,
+                status = row.Status.ToString(),
+                row.Decision,
+                row.ReportedAt,
+            })
+            .SingleOrDefaultAsync(http.RequestAborted);
         return Results.Ok(new {
             item.Id,
             item.ProjectId,
@@ -231,6 +259,8 @@ public static class DeploymentEndpoints {
             item.Reason,
             item.PreviousArtifactId,
             item.PolicyEvaluationId,
+            source = gate is null ? "AegisOps" : "GitHub",
+            gitHub = gate,
         });
     }
 
@@ -398,6 +428,11 @@ public static class DeploymentEndpoints {
 
         return null;
     }
+
+    private static IResult GitHubTargetConflict() => Results.Problem(
+        title: "This environment is released by GitHub.",
+        detail: "Its target type is github: a GitHub Actions job that targets the environment asks AegisOps for a decision. Re-run the workflow instead.",
+        statusCode: StatusCodes.Status409Conflict);
 
     private static async Task AuditDeniedAsync(AegisOpsDbContext db, IAuditWriter audit, TimeProvider time, ActorResult actor, Deployment deployment, string action, CancellationToken token) {
         audit.Write(AuditEvent.Record(time.GetUtcNow(), actor.Type, actor.UserId ?? actor.ApiKeyId, actor.Display,
