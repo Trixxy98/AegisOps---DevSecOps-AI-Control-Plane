@@ -34,6 +34,9 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Fixed
 
+- The web container no longer exits when it starts before the API (after a Docker or host restart): nginx
+  resolves `api` through Docker's DNS per request and answers 502 until the API is up, instead of failing with
+  `host not found in upstream "api"` at startup.
 - Build with .NET SDK 10.0.404: `JsonElement.Parse` replaces `JsonDocument.Parse(...).RootElement` (analyzer
   CA2026, an undisposed document), which failed every CI run on the newer SDK.
 
