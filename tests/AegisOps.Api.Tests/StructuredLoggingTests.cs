@@ -258,7 +258,7 @@ public sealed partial class StructuredLoggingTests {
 
         public LoggedEvent[] Events() =>
             Text().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(line => new LoggedEvent(JsonDocument.Parse(line).RootElement.Clone())).ToArray();
+                .Select(line => new LoggedEvent(JsonElement.Parse(line))).ToArray();
     }
 
     private sealed record LoggedEvent(JsonElement Root) {

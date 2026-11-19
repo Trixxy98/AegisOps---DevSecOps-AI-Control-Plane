@@ -149,7 +149,8 @@ ESLint, Playwright) from failing the build: they never reach the nginx image, an
 
 For each of api, worker and web: build the linux/amd64 image locally and scan it with Trivy (CRITICAL with a fix
 fails the job, nothing is pushed), then build and push a multi-arch manifest (linux/amd64 + linux/arm64, QEMU for
-the arm64 runtime stage) to GHCR as `:<tag>` and `:latest`; finally create the GitHub Release. A multi-platform build
+the arm64 runtime stage) to GHCR as `:<tag>` and `:latest` (a pre-release tag such as `v1.2.0-rc.1` is pushed only as `:<tag>` and
+the GitHub Release is marked as a pre-release); finally create the GitHub Release. A multi-platform build
 cannot be `load`ed into the runner's Docker, so the arm64 variant is not scanned separately. The Dockerfiles run
 their SDK/Node build stage on `$BUILDPLATFORM` (the framework-dependent .NET publish and the static SPA are
 architecture-neutral), so only the small runtime stages are emulated.

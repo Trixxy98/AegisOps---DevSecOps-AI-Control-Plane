@@ -229,7 +229,7 @@ public sealed class EnvironmentVariableTests {
         foreach (var reader in new[] { host.Member, host.Security, host.Admin }) {
             var raw = await host.SendRawAsync(reader, HttpMethod.Get, null, null, HttpStatusCode.OK);
             Assert.DoesNotContain(SecretValue, raw, StringComparison.Ordinal);
-            var list = JsonDocument.Parse(raw).RootElement;
+            var list = JsonElement.Parse(raw);
             Assert.Equal(["ConnectionStrings__Main", "DB_PASSWORD"], list.EnumerateArray().Select(item => item.GetProperty("name").GetString()));
             Assert.Equal(JsonValueKind.Null, list[1].GetProperty("value").ValueKind);
             Assert.True(list[1].GetProperty("isSecret").GetBoolean());
@@ -266,7 +266,7 @@ public sealed class EnvironmentVariableTests {
         await using var host = await Host.CreateAsync(secretsEnabled: false);
 
         var raw = await host.SendRawAsync(host.Owner, HttpMethod.Put, "DB_PASSWORD", new { value = SecretValue, isSecret = true }, HttpStatusCode.Conflict);
-        Assert.Equal("Secret storage is not configured", JsonDocument.Parse(raw).RootElement.GetProperty("title").GetString()!.TrimEnd('.'));
+        Assert.Equal("Secret storage is not configured", JsonElement.Parse(raw).GetProperty("title").GetString()!.TrimEnd('.'));
         Assert.DoesNotContain(SecretValue, raw, StringComparison.Ordinal);
         await host.PutAsync(host.Owner, "PLAIN", "value", false, HttpStatusCode.Created);
         await using var db = host.Store.Context();
@@ -422,7 +422,7 @@ public sealed class EnvironmentVariableTests {
         }
 
         public async Task<JsonElement> PutAsync(Guid user, string name, string value, bool isSecret, HttpStatusCode expected) =>
-            JsonDocument.Parse(await SendRawAsync(user, HttpMethod.Put, name, new { value, isSecret }, expected)).RootElement.Clone();
+            JsonElement.Parse(await SendRawAsync(user, HttpMethod.Put, name, new { value, isSecret }, expected));
 
         public async ValueTask DisposeAsync() {
             _client.Dispose();

@@ -304,7 +304,7 @@ public sealed class DevelopmentSeedTests : IAsyncLifetime {
     }
 
     private static void AssertJson(string expected, string actual) =>
-        Assert.True(JsonElement.DeepEquals(JsonDocument.Parse(expected).RootElement, JsonDocument.Parse(actual).RootElement),
+        Assert.True(JsonElement.DeepEquals(JsonElement.Parse(expected), JsonElement.Parse(actual)),
             $"Expected {expected} but was {actual}");
 
     private sealed class SqliteModelCustomizer(ModelCustomizerDependencies dependencies) : ModelCustomizer(dependencies) {

@@ -263,7 +263,7 @@ public static class DeploymentEndpoints {
             decision = evaluation.Decision.ToString(),
             evaluation.ApprovalsRequired,
             evaluation.EvaluatedAt,
-            ruleResults = JsonDocument.Parse(evaluation.RuleResults).RootElement.Clone(),
+            ruleResults = JsonElement.Parse(evaluation.RuleResults),
         });
     }
 

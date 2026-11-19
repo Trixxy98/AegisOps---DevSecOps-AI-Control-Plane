@@ -25,7 +25,7 @@ relevant document here and end by updating it if the design changed.
 | Write tests | [16 Testing strategy](16-testing-strategy.md) |
 | Secure the platform itself | [17 Security hardening](17-security-hardening.md) |
 | Know where files go and how to name things | [18 Repository structure & conventions](18-repository-structure-and-conventions.md) |
-| Know what to build next | [19 Roadmap](19-roadmap.md) |
+| Know what to build next | [19 Roadmap](19-roadmap.md) · [v1.1](roadmap-v1.1.md) · [v1.2](roadmap-v1.2.md) |
 | Look up a term | [20 Glossary](20-glossary.md) |
 
 ## Document conventions

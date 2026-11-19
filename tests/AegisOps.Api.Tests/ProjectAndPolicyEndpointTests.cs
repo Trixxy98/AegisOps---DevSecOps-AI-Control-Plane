@@ -304,7 +304,7 @@ public sealed class ProjectAndPolicyEndpointTests {
         var (_, admin) = await host.CreateUserAsync("admin@example.test", "Admin");
 
         static CreatePolicyRequest Request(string parameters) => new("Branches", null, "Global", null, ["Production"],
-            [new CreatePolicyRuleRequest("AllowedBranches", "Deny", 0, JsonDocument.Parse(parameters).RootElement.Clone())]);
+            [new CreatePolicyRuleRequest("AllowedBranches", "Deny", 0, JsonElement.Parse(parameters))]);
 
         foreach (var (parameters, message) in new[] {
             ("""{"patterns":[]}""", "patterns"),

@@ -104,7 +104,7 @@ public static class TeamWebhookSettingsEndpoints {
         var jobIdsByEvent = new Dictionary<Guid, Guid>();
         foreach (var job in jobs) {
             try {
-                var eventId = JsonDocument.Parse(job.Payload).RootElement.GetProperty("eventId").GetGuid();
+                var eventId = JsonElement.Parse(job.Payload).GetProperty("eventId").GetGuid();
                 if (eventIds.Contains(eventId) && !jobIdsByEvent.ContainsKey(eventId)) jobIdsByEvent[eventId] = job.Id;
             } catch (JsonException) { }
         }

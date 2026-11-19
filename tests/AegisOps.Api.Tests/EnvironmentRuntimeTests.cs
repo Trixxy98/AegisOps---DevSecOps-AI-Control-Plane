@@ -253,7 +253,7 @@ public sealed class EnvironmentRuntimeTests {
         await host.RefreshAsync(Now.AddSeconds(-5), () => client);
 
         var raw = await host.GetRawAsync(host.Member, host.Store.Docker.Id, HttpStatusCode.OK);
-        var body = JsonDocument.Parse(raw).RootElement;
+        var body = JsonElement.Parse(raw);
 
         Assert.True(body.GetProperty("inspectionAvailable").GetBoolean());
         Assert.False(body.GetProperty("stale").GetBoolean());
@@ -513,7 +513,7 @@ public sealed class EnvironmentRuntimeTests {
         }
 
         public async Task<JsonElement> GetAsync(Guid user, Guid environmentId, HttpStatusCode expected) =>
-            JsonDocument.Parse(await GetRawAsync(user, environmentId, expected)).RootElement.Clone();
+            JsonElement.Parse(await GetRawAsync(user, environmentId, expected));
 
         public async ValueTask DisposeAsync() {
             _client.Dispose();
