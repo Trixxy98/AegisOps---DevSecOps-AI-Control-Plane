@@ -309,10 +309,13 @@ test("production policy can add and configure the weekend deployment window", as
       { days: ["Fri"], from: "00:00", to: "17:59:59.9999999" },
     ],
   };
-  await page
-    .getByLabel("Production baseline Deployment window parameters")
+  // Times with seconds and fractions are entered through the JSON escape hatch.
+  const windowRule = page.getByRole("listitem", { name: "Deployment window" });
+  await windowRule.getByRole("button", { name: "Advanced: edit JSON" }).click();
+  await windowRule
+    .getByLabel("Deployment window rule 3 parameters JSON")
     .fill(JSON.stringify(windowParameters, null, 2));
-  await page.getByRole("button", { name: "Save Deployment window parameters" }).click();
+  await windowRule.getByRole("button", { name: "Save Deployment window rule 3" }).click();
 
   await expect.poll(() => writes.length).toBe(2);
   expect(writes[0]).toMatchObject({

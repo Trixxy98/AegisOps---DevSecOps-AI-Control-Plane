@@ -59,6 +59,9 @@ public static class RolePermissions {
         ],
     };
 
+    /// <summary>The global role names (docs/09).</summary>
+    public static IReadOnlyCollection<string> Roles => Map.Keys;
+
     public static IReadOnlyList<string> For(IEnumerable<string> roles) {
         var granted = new HashSet<string>(StringComparer.Ordinal);
         foreach (var role in roles) {

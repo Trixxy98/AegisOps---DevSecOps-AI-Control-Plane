@@ -78,6 +78,30 @@ for (const theme of ["light", "dark"] as const) {
     await open(page, "Policies");
     await expect(page.getByRole("heading", { name: /Production baseline v4/ })).toBeVisible();
     await check(page, theme, 7, "policies");
+    // Editing: a dirty deployment window rejected by the API's save-time validation (Problem Details on the rule),
+    // e.g. a server whose time zone database lacks the zone the browser offered.
+    await page.route("**/api/v1/policies/*", (route) =>
+      route.request().method() === "PUT"
+        ? route.fulfill({
+            status: 400,
+            contentType: "application/problem+json",
+            body: JSON.stringify({
+              title: 'DeploymentWindow rule 5: "timezone" must be an IANA time zone such as Asia/Kuala_Lumpur or UTC.',
+              status: 400,
+            }),
+          })
+        : route.fallback(),
+    );
+    const windowRule = page.getByRole("listitem", { name: "Deployment window", exact: true });
+    await windowRule.getByLabel("Time zone").selectOption("Europe/London");
+    await windowRule
+      .getByRole("group", { name: "Window 2", exact: true })
+      .getByRole("checkbox", { name: "Sat" })
+      .check();
+    await windowRule.getByRole("button", { name: "Save Deployment window rule 5" }).click();
+    await expect(windowRule.getByRole("alert")).toBeVisible();
+    await windowRule.scrollIntoViewIfNeeded();
+    await check(page, theme, 7, "policies-editing");
 
     await open(page, "AI Governance");
     await expect(page.getByRole("cell", { name: "SensitiveData", exact: true })).toBeVisible();
@@ -110,13 +134,22 @@ test("narrow windows collapse the sidebar without horizontal scrolling", async (
   await mockSession(page, permissions, currentUser);
   await mockWorkspace(page);
   await signIn(page);
-  for (const label of ["Overview", "Projects", "Deployments", "Findings", "AI Governance", "Administration"]) {
+  for (const label of [
+    "Overview",
+    "Projects",
+    "Deployments",
+    "Findings",
+    "Policies",
+    "AI Governance",
+    "Administration",
+  ]) {
     await page
       .getByRole("navigation", { name: "Main navigation" })
       .getByRole("button", { name: label, exact: true })
       .click();
     await expect(page.getByRole("heading", { level: 1, name: label })).toBeVisible();
     if (label === "Projects") await page.getByRole("button", { name: /Circuit service/ }).click();
+    if (label === "Policies") await expect(page.getByRole("heading", { name: /Production baseline v4/ })).toBeVisible();
     await page.waitForLoadState("networkidle");
     const width = await page.evaluate(() => (document.scrollingElement ?? document.documentElement).scrollWidth);
     expect(width, `${label} overflows at 768px`).toBeLessThanOrEqual(768);

@@ -329,7 +329,11 @@ public static class PolicyEngine {
             return (false, "Deployment window is not configured.", 0);
         }
 
-        var zone = TimeZoneInfo.FindSystemTimeZoneById(string.IsNullOrWhiteSpace(body.Timezone) ? "Asia/Kuala_Lumpur" : body.Timezone);
+        // Fail closed on a time zone this host cannot resolve (rules saved before save-time validation existed).
+        if (!TimeZoneInfo.TryFindSystemTimeZoneById(string.IsNullOrWhiteSpace(body.Timezone) ? PolicyRuleParameters.DefaultTimezone : body.Timezone, out var zone)) {
+            return (false, "Deployment window time zone is invalid.", 0);
+        }
+
         var local = TimeZoneInfo.ConvertTime(now, zone);
         var day = local.DayOfWeek switch {
             DayOfWeek.Monday => "Mon",

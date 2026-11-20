@@ -149,7 +149,10 @@ public static class CreatePolicy {
                     ? null
                     : item.Parameters.Value.GetRawText();
 
-                BranchGlob.ValidateRuleParameters(type, parameters);
+                if (PolicyRuleProblems.Validate(type, item.Order, parameters) is { } invalid) {
+                    return invalid;
+                }
+
                 rules.Add(PolicyRule.Create(policy.Id, type, effect, item.Order, parameters));
             }
 
