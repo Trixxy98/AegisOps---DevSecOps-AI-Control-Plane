@@ -200,7 +200,10 @@ publishes only the webhook path (every other path answers 404 from the internet)
 GitHub's signed `ping` was accepted (204) while unsigned and wrongly signed requests got 401; a manual Production
 run was held by GitHub, AegisOps evaluated *Require approval (2)*, two approvers approved in AegisOps, the Worker
 answered GitHub's review endpoint (204) and the `deploy-production` job ran. The run summary shows
-*AegisOps Gate — passed* with the comment above.
+*AegisOps Gate — passed* with the comment above. A second Production run from the `demo/vulnerable` branch
+(an artifact with 11 open Critical findings) was denied without any human step: GitHub showed *AegisOps Gate —
+failed* with "AegisOps denied this deployment by policy. 11 Critical finding(s) exceed limit 0" and the failed
+rule `MaxFindings [Deny] (Global baseline v1)`, and the `deploy-production` job did not run.
 
 ## 7. Security notes
 

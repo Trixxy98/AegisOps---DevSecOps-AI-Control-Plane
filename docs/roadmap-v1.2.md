@@ -29,7 +29,8 @@ change the data-residency model and need a design discussion first), and a hash-
 commit → artifact), the `github` target type, approved/rejected callbacks with retries, the
 `deploy.github_deployment_gates` table (migration `GitHubDeploymentGates`), a GitHub badge and run link in the UI,
 and the guide [github-deployment-gate.md](github-deployment-gate.md). Verified with xUnit (stubbed GitHub, runtime
-RSA key) and Playwright (mocked API). **Verified live on 2026-11-20:** GitHub App *AegisOps Gate* on `Trixxy98/aegisops-circuit-service`, reached through a named Cloudflare Tunnel that publishes only the webhook path; signed ping 204, unsigned/wrong signature 401; a Production run held by GitHub, *Require approval (2)* in AegisOps, two approvals, review callback 204 and the `deploy-production` job ran (*AegisOps Gate — passed*). The Deny path is covered by tests; the PostgreSQL-gated job loop with the new job types runs only when `AEGISOPS_TEST_POSTGRES` is set.
+RSA key) and Playwright (mocked API). **Verified live on 2026-11-20:** GitHub App *AegisOps Gate* on `Trixxy98/aegisops-circuit-service`, reached through a named Cloudflare Tunnel that publishes only the webhook path; signed ping 204, unsigned/wrong signature 401; a Production run held by GitHub, *Require approval (2)* in AegisOps, two approvals, review callback 204 and the `deploy-production` job ran (*AegisOps Gate — passed*); a run with 11 open Critical findings was rejected on
+GitHub with the failed rule (*AegisOps Gate — failed*, `MaxFindings [Deny]`); the PostgreSQL-gated job loop with the new job types runs only when `AEGISOPS_TEST_POSTGRES` is set.
 repository, reached through a Cloudflare Tunnel, approving one run (Allow), one after an AegisOps approval
 (RequireApproval) and rejecting one (Deny), observed on the GitHub run page and in the AegisOps timeline and audit
 log; the PostgreSQL-gated job loop has not been run with the new job types against a real database.
