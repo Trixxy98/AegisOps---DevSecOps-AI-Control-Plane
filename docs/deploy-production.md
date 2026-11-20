@@ -87,12 +87,12 @@ alias aegis='docker compose -f docker-compose.yml -f deploy/docker-compose.prod.
 
 ```bash
 AEGISOPS_IMAGE_PREFIX=ghcr.io/trixxy98/
-AEGISOPS_IMAGE_TAG=v1.1.0            # a release tag, never "latest"
+AEGISOPS_IMAGE_TAG=v1.2.0            # a release tag, never "latest"
 ```
 
 Then run `aegis pull api worker web` instead of `aegis build`, and add `--no-build` to `aegis up -d` (section 7) so
 Compose never replaces them with a local build. Keep the checkout on the same tag as the images
-(`git checkout v1.1.0`): the Compose files and scripts come from the checkout.
+(`git checkout v1.2.0`): the Compose files and scripts come from the checkout.
 
 **Option B, build from source** (without the two variables above):
 

@@ -33,7 +33,7 @@ services:
   # Images: by default they are built from this checkout and tagged aegisops-*:local. To run the published,
   # Trivy-scanned multi-arch release images instead, set in .env:
   #   AEGISOPS_IMAGE_PREFIX=ghcr.io/trixxy98/
-  #   AEGISOPS_IMAGE_TAG=v1.1.0
+  #   AEGISOPS_IMAGE_TAG=v1.2.0
   # then `docker compose ... pull` and start with `up -d --no-build`.
   api:
     image: ${AEGISOPS_IMAGE_PREFIX:-}aegisops-api:${AEGISOPS_IMAGE_TAG:-local}

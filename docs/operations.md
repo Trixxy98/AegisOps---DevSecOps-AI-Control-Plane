@@ -226,7 +226,7 @@ separate, empty machine with the saved `.env` is even better: it also proves you
 cd /opt/aegisops
 scripts/backup.sh --tls                         # 1. always back up first; note the folder name
 git fetch --tags
-git checkout v1.1.0                             # 2. the release tag you want (or: git pull on your branch)
+git checkout v1.2.0                             # 2. the release tag you want (or: git pull on your branch)
 less CHANGELOG.md                               # 3. read the changes since your version, especially "Security" and upgrade notes
 scripts/gen-secrets.sh --upgrade                # 4. adds newly required keys to .env (prints only key names)
 aegis build                                     # 5. build the new images ...
@@ -235,10 +235,10 @@ aegis up -d                                     # 7. start
 aegis exec web wget -qO- http://api:8080/health/ready   # 8. {"status":"Healthy",...}
 ```
 
-Instead of building (step 5) you can use the release images from GHCR: `docker pull
-ghcr.io/<owner>/aegisops-api:v1.1.0` (and `-worker`, `-web`), `docker tag` them as `aegisops-api:v1.1.0` etc., and
-set `AEGISOPS_IMAGE_TAG=v1.1.0` in `.env`; the production file uses `aegisops-<name>:${AEGISOPS_IMAGE_TAG}` for api,
-worker, web and migrate. Check the release notes for the architectures that were published.
+Instead of building (step 5) you can run the published release images (amd64 and arm64, Trivy-gated): set
+`AEGISOPS_IMAGE_PREFIX=ghcr.io/trixxy98/` and `AEGISOPS_IMAGE_TAG=v1.2.0` in `.env`, then `pull api worker web`
+and start with `up -d --no-build` ([deploy-production §5](deploy-production.md#5-build-and-prepare-the-database)).
+Keep the checkout on the same tag as the images.
 
 Then sign in, look at the dashboard and the newest deployments, and watch `aegis logs -f api worker` for a few
 minutes.
