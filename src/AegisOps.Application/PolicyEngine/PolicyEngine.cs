@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using AegisOps.Application.Observability;
 using System.Text.RegularExpressions;
@@ -146,12 +147,12 @@ public static class PolicyEngine {
                 return Record(new EvaluationResult(PolicyDecision.Allow, required, null, results));
             }
 
-            return Record(new EvaluationResult(
-                PolicyDecision.RequireApproval,
-                required,
-                $"{required} approval(s) required.",
-                results
-            ));
+            // Every approval re-evaluates the policies, so the timeline shows progress instead of repeating the total.
+            var message = context.SatisfiedApprovals > 0
+                ? string.Create(CultureInfo.InvariantCulture,
+                    $"{context.SatisfiedApprovals} of {required} approval(s) received; {required - context.SatisfiedApprovals} more required.")
+                : string.Create(CultureInfo.InvariantCulture, $"{required} approval(s) required.");
+            return Record(new EvaluationResult(PolicyDecision.RequireApproval, required, message, results));
         }
 
         return Record(new EvaluationResult(PolicyDecision.Allow, 0, null, results));

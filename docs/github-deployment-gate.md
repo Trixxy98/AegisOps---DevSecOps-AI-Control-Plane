@@ -84,7 +84,8 @@ repository belongs to an organisation).
 Then:
 
 1. **Create GitHub App.** Note the **App ID** on the *General* page.
-2. **Private keys → Generate a private key.** A `.pem` file downloads. Keep it out of every repository.
+2. **Credentials → Key pairs → generate a private key** (left menu; older GitHub pages showed *Private keys* at the
+   bottom of *General*). A `.pem` file downloads. Keep it out of every repository and delete it once it is in `.env`.
 3. **Install App** (left menu) → your account → *Only select repositories* → pick the repository → Install.
 
 ## 3. Configure AegisOps
@@ -183,9 +184,25 @@ Any other HTTPS endpoint (the production TLS profile, a reverse proxy) works the
       - run: echo "Deploy ${{ github.sha }} here (GitHub runs the deployment)."
 ```
 
-When the job starts, GitHub shows *Waiting* on the run page; the AegisOps decision appears there with its comment.
+When the job starts, GitHub shows *Waiting* on the run page ("production waiting for AegisOps Gate"); the decision
+appears under **Deployment protection rules** on the run's summary, e.g. *AegisOps Gate — passed: AegisOps approved
+this deployment after 2 approval(s). Policies: Production baseline v4, Global baseline v1.*
 
-## 6. Security notes
+The workflow file of the **branch you run** is used, so every branch you want to gate needs the new job. Pushing a
+workflow change also starts a normal run: if that run registers with `deploy-to: Staging` and the self-hosted
+runner is online, AegisOps deploys to Staging. Add `[skip ci]` to the commit message when you only change the
+workflow.
+
+## 6. Verified live
+
+On 2026-11-20 with a GitHub App installed on `Trixxy98/aegisops-circuit-service`, a named Cloudflare Tunnel that
+publishes only the webhook path (every other path answers 404 from the internet) and AegisOps on a laptop:
+GitHub's signed `ping` was accepted (204) while unsigned and wrongly signed requests got 401; a manual Production
+run was held by GitHub, AegisOps evaluated *Require approval (2)*, two approvers approved in AegisOps, the Worker
+answered GitHub's review endpoint (204) and the `deploy-production` job ran. The run summary shows
+*AegisOps Gate — passed* with the comment above.
+
+## 7. Security notes
 
 - The webhook is anonymous at the HTTP level: the **HMAC-SHA256 signature** (`X-Hub-Signature-256`) over the raw
   body is checked with a constant-time comparison before anything is parsed. Bodies over 1 MiB are refused (413).
@@ -202,7 +219,7 @@ When the job starts, GitHub shows *Waiting* on the run page; the AegisOps decisi
   install the App on as few repositories as possible, and rotate it (generate a new key, update `.env`, delete the
   old key on GitHub) if it leaks.
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Check |
 | --- | --- |

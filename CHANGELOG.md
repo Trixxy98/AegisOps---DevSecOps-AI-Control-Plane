@@ -45,6 +45,10 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Fixed
 
+- The web image serves `index.html` with `Cache-Control: no-cache` (hashed `/assets/` files for a year), so a
+  browser picks up a new release without a hard reload; security headers are unchanged.
+- Re-evaluation after an approval records progress ("1 of 2 approval(s) received; 1 more required.") instead of
+  repeating "2 approval(s) required.".
 - The web container no longer exits when it starts before the API (after a Docker or host restart): nginx
   resolves `api` through Docker's DNS per request and answers 502 until the API is up, instead of failing with
   `host not found in upstream "api"` at startup.
