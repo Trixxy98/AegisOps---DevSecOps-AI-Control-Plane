@@ -18,6 +18,8 @@ reach an environment, runs the deployment, and governs how people use AI models,
   Semgrep and Trivy results (SARIF); findings are normalised and tracked.
 - **Gates every deployment with policies.** Each request is evaluated to *Allow*, *Require approval* or *Deny*,
   with a rule-by-rule explanation. Production can require two approvals from people other than the requester.
+- **Plugs into GitHub's own deployment approvals.** As a GitHub App protection rule, AegisOps approves or rejects
+  a workflow's `environment: production` job with the failed rules shown on the run page.
 - **Deploys and rolls back Docker containers** through a Worker with leased jobs, health checks and encrypted
   per-environment secrets. Timelines and approval requests update live.
 - **Governs AI use.** A gateway in front of a local LLM (Ollama) applies model allow-lists, sensitive-data
@@ -53,6 +55,7 @@ team, three projects and policies. Details, the optional local AI model and moni
 | --- | --- |
 | [User manual](docs/user-manual.md) | Concepts in plain words, installation and hands-on tutorials |
 | [Connect your repository](docs/connect-your-repository.md) | Onboard your own app with GitHub Actions |
+| [GitHub deployment gate](docs/github-deployment-gate.md) | Let GitHub ask AegisOps before a deploy job runs |
 | [Deploy to production](docs/deploy-production.md) | One server, HTTPS, first admin, upgrades |
 | [Operations guide](docs/operations.md) | Backups and restore, key rotation, monitoring, sizing |
 | [Design documents](docs/README.md) | Architecture, policy engine, AI gateway, API, security model and ADRs |
