@@ -179,8 +179,8 @@ const evaluation = {
   decision: "RequireApproval",
   ruleResults: [
     { type: "RequireTestsPassed", passed: true, message: "Tests passed in CI run 4812." },
-    { type: "RequireFreshScans", passed: true, message: "Gitleaks, Trivy and Semgrep ran within 7 days." },
-    { type: "MaxSeverity", passed: true, message: "No open Critical findings." },
+    { type: "RequireScan", passed: true, message: "Required scans are present." },
+    { type: "MaxFindings", passed: true, message: "Critical findings are within the limit of 0." },
     { type: "RequireApprovals", passed: false, message: "1 of 2 approvals received." },
   ],
 };
@@ -308,11 +308,12 @@ const findings = [
   },
 ];
 
+// Rule types and parameter shapes match the policy engine (docs/05 §4) and GET /api/v1/policies/rule-types.
 const policies = [
   {
     id: guid(90),
     name: "Production baseline",
-    description: "Tests pass, no open Critical findings and two approvals.",
+    description: "Tests pass, no open Critical findings, two approvals and a weekday window.",
     scope: "Global",
     scopeId: null,
     isEnabled: true,
@@ -322,11 +323,11 @@ const policies = [
       { id: guid(91), type: "RequireTestsPassed", effect: "Deny", order: 0, isEnabled: true, parameters: {} },
       {
         id: guid(92),
-        type: "MaxSeverity",
+        type: "MaxFindings",
         effect: "Deny",
         order: 1,
         isEnabled: true,
-        parameters: { maxSeverity: "High" },
+        parameters: { scanner: null, severity: "Critical", max: 0, includeUnknown: false },
       },
       {
         id: guid(93),
@@ -334,14 +335,45 @@ const policies = [
         effect: "RequireApproval",
         order: 2,
         isEnabled: true,
-        parameters: { count: 2 },
+        parameters: { count: 2, roles: ["Approver", "Security"] },
+      },
+      {
+        id: guid(96),
+        type: "AllowedBranches",
+        effect: "Deny",
+        order: 3,
+        isEnabled: true,
+        parameters: { patterns: ["main", "refs/tags/v*"] },
+      },
+      {
+        id: guid(97),
+        type: "DeploymentWindow",
+        effect: "Deny",
+        order: 4,
+        isEnabled: true,
+        parameters: {
+          timezone: "Asia/Kuala_Lumpur",
+          allowed: [
+            { days: ["Mon", "Tue", "Wed", "Thu"], from: "09:00", to: "18:00" },
+            { days: ["Fri"], from: "09:00", to: "15:00" },
+          ],
+        },
+      },
+      { id: guid(98), type: "RequireImageDigest", effect: "Deny", order: 5, isEnabled: true, parameters: {} },
+      {
+        id: guid(99),
+        type: "RequirePriorEnvironment",
+        effect: "Deny",
+        order: 6,
+        isEnabled: true,
+        parameters: { tier: "Staging", status: "Succeeded", maxAgeHours: 720 },
       },
     ],
   },
   {
     id: guid(94),
     name: "Staging gate",
-    description: "Fresh Gitleaks, Trivy and Semgrep scans before Staging.",
+    description: "Fresh Gitleaks, Trivy and Semgrep scans before Staging; warn above 10 High findings.",
     scope: "Global",
     scopeId: null,
     isEnabled: true,
@@ -350,22 +382,86 @@ const policies = [
     rules: [
       {
         id: guid(95),
-        type: "RequireFreshScans",
+        type: "RequireScan",
         effect: "Deny",
         order: 0,
         isEnabled: true,
-        parameters: { scanners: ["Gitleaks", "Trivy", "Semgrep"], maxAgeDays: 7 },
+        parameters: { scanners: ["Gitleaks", "Trivy", "Semgrep"], maxAgeHours: 168 },
+      },
+      {
+        id: guid(89),
+        type: "MaxFindings",
+        effect: "Warn",
+        order: 1,
+        isEnabled: true,
+        parameters: { severity: "High", max: 10 },
+      },
+    ],
+  },
+  // A team policy with a rule saved before typed forms existed: "maxAgeDays" is not a RequireScan field, so the UI
+  // opens the JSON editor with a notice instead of dropping it.
+  {
+    id: guid(87),
+    name: "Network team – extra",
+    description: "Semgrep Medium findings need an approval.",
+    scope: "Team",
+    scopeId: guid(1),
+    isEnabled: true,
+    appliesToTiers: ["Production"],
+    version: 1,
+    rules: [
+      {
+        id: guid(88),
+        type: "MaxFindings",
+        effect: "RequireApproval",
+        order: 0,
+        isEnabled: true,
+        parameters: { scanner: "Semgrep", severity: "Medium", max: 0, includeUnknown: false },
+      },
+      {
+        id: guid(79),
+        type: "RequireScan",
+        effect: "Deny",
+        order: 1,
+        isEnabled: true,
+        parameters: { scanners: ["Semgrep"], maxAgeDays: 7 },
       },
     ],
   },
 ];
 
+// Same order and defaults as PolicyPhase1Endpoints.RuleTypes.
 const ruleTypes = [
-  { type: "DeploymentWindow", effect: "Deny", parameters: { timezone: "Asia/Kuala_Lumpur", allowed: [] } },
-  { type: "MaxSeverity", effect: "Deny", parameters: { maxSeverity: "High" } },
-  { type: "RequireApprovals", effect: "RequireApproval", parameters: { count: 1 } },
-  { type: "RequireFreshScans", effect: "Deny", parameters: { maxAgeDays: 7 } },
   { type: "RequireTestsPassed", effect: "Deny", parameters: {} },
+  {
+    type: "RequireApprovals",
+    effect: "RequireApproval",
+    parameters: { count: 1, roles: ["Approver", "Security", "Admin"] },
+  },
+  { type: "AllowedBranches", effect: "Deny", parameters: { patterns: ["main"] } },
+  { type: "RequireImageDigest", effect: "Deny", parameters: {} },
+  {
+    type: "RequirePriorEnvironment",
+    effect: "Deny",
+    parameters: { tier: "Staging", status: "Succeeded", maxAgeHours: 720 },
+  },
+  {
+    type: "DeploymentWindow",
+    effect: "Deny",
+    parameters: {
+      timezone: "Asia/Kuala_Lumpur",
+      allowed: [
+        { days: ["Mon", "Tue", "Wed", "Thu"], from: "09:00", to: "18:00" },
+        { days: ["Fri"], from: "09:00", to: "15:00" },
+      ],
+    },
+  },
+  {
+    type: "RequireScan",
+    effect: "Deny",
+    parameters: { scanners: ["Gitleaks", "Trivy", "Semgrep"], maxAgeHours: 168 },
+  },
+  { type: "MaxFindings", effect: "Deny", parameters: { severity: "Critical", max: 0 } },
 ];
 
 const aiRequests = [

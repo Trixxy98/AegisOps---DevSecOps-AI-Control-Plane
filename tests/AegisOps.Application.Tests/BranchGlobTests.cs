@@ -30,7 +30,7 @@ public sealed class BranchGlobTests {
     [InlineData("feature/[x]?{1}\\d")]
     public void Valid_globs_pass_validation(string glob) {
         Assert.Null(BranchGlob.Validate(glob));
-        BranchGlob.ValidateRuleParameters(PolicyRuleType.AllowedBranches, $$"""{"patterns":[{{System.Text.Json.JsonSerializer.Serialize(glob)}}]}""");
+        Assert.Null(PolicyRuleParameters.Validate(PolicyRuleType.AllowedBranches, $$"""{"patterns":[{{System.Text.Json.JsonSerializer.Serialize(glob)}}]}"""));
     }
 
     [Theory]
@@ -43,17 +43,17 @@ public sealed class BranchGlobTests {
     [InlineData("""{"patterns":["\t"]}""")]
     [InlineData("""{"patterns":["ma\u0007in"]}""")]
     public void Invalid_branch_rules_are_rejected(string parameters) {
-        Assert.Throws<ArgumentException>(() => BranchGlob.ValidateRuleParameters(PolicyRuleType.AllowedBranches, parameters));
+        Assert.NotNull(PolicyRuleParameters.Validate(PolicyRuleType.AllowedBranches, parameters));
     }
 
     [Fact]
-    public void Too_many_or_too_long_globs_are_rejected_and_other_rule_types_are_not_checked() {
+    public void Too_many_or_too_long_globs_are_rejected() {
         Assert.NotNull(BranchGlob.Validate(new string('a', BranchGlob.MaxPatternLength + 1)));
         Assert.Null(BranchGlob.Validate(new string('a', BranchGlob.MaxPatternLength)));
         var many = string.Join(",", Enumerable.Repeat("\"main\"", BranchGlob.MaxPatterns + 1));
-        Assert.Throws<ArgumentException>(() => BranchGlob.ValidateRuleParameters(PolicyRuleType.AllowedBranches, $$"""{"patterns":[{{many}}]}"""));
-        BranchGlob.ValidateRuleParameters(PolicyRuleType.RequireTestsPassed, "{}");
-        BranchGlob.ValidateRuleParameters(PolicyRuleType.RequireApprovals, """{"count":2}""");
+        Assert.Equal("patterns", PolicyRuleParameters.Validate(PolicyRuleType.AllowedBranches, $$"""{"patterns":[{{many}}]}""")?.Field);
+        Assert.Null(PolicyRuleParameters.Validate(PolicyRuleType.RequireTestsPassed, "{}"));
+        Assert.Null(PolicyRuleParameters.Validate(PolicyRuleType.RequireApprovals, """{"count":2}"""));
     }
 
     [Fact]

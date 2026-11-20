@@ -148,12 +148,12 @@ Rules and guard rails: [09](09-identity-and-authorization.md) §3 "User lifecycl
 | Method | Path | Purpose | Auth |
 | --- | --- | --- | --- |
 | GET | `/policies` | List (`?scope=&scopeId=&tier=`) | `policies:read` |
-| POST | `/policies` | Create `{ name, description, scope, scopeId?, appliesToTiers[], rules[] }` | `policies:write` (+ scope handler) |
+| POST | `/policies` | Create `{ name, description, scope, scopeId?, appliesToTiers[], rules[] }`; rule parameters are validated per type ([05 §4](05-policy-engine.md#parameter-reference-and-validation)), 400 names the rule and field (`ruleType`, `ruleOrder`, `field`) | `policies:write` (+ scope handler) |
 | GET | `/policies/{id}` | Detail with rules | `policies:read` |
-| PUT | `/policies/{id}` | Replace metadata + rules (version++) | `policies:write` |
+| PUT | `/policies/{id}` | Replace metadata + rules (version++); same rule validation as POST, nothing stored on 400 | `policies:write` |
 | PATCH | `/policies/{id}` | `{ isEnabled }` | `policies:write` |
 | DELETE | `/policies/{id}` | Soft-delete (disable + archive) | `policies:write` |
-| GET | `/policies/rule-types` | Rule type catalogue with JSON schema of parameters (drives the UI editor) | `policies:read` |
+| GET | `/policies/rule-types` | Rule type catalogue: one valid default `parameters` object per type (the UI's "Add rule" templates) | `policies:read` |
 | POST | `/policies/simulate` | `{ artifactId, environmentId, at? }` → dry-run evaluation without creating a deployment; `at` (ISO 8601, default now) evaluates time-based rules such as `DeploymentWindow` at that instant and is echoed as `evaluatedAt` | `policies:read` |
 
 ### 2.8 AI gateway

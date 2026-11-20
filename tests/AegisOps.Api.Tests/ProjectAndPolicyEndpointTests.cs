@@ -336,6 +336,71 @@ public sealed class ProjectAndPolicyEndpointTests {
             (await db.PolicyRules.AsNoTracking().SingleAsync(rule => rule.PolicyId == policy.Id, Token)).Parameters, StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task PolicySaveValidatesEveryRuleTypeAndKeepsTheStoredRulesOnRejection() {
+        await using var host = await OrgHost.StartAsync();
+        var (_, admin) = await host.CreateUserAsync("admin@example.test", "Admin");
+
+        // Every catalogue template (the UI's "Add rule" defaults) is valid as saved.
+        using var catalogue = await host.SendAsync(HttpMethod.Get, "/api/v1/policies/rule-types", admin);
+        var templates = (await catalogue.Content.ReadFromJsonAsync<JsonElement>(Token)).EnumerateArray()
+            .Select((item, index) => new CreatePolicyRuleRequest(item.GetProperty("type").GetString()!, item.GetProperty("effect").GetString()!,
+                index, item.GetProperty("parameters").Clone()))
+            .ToArray();
+        using var created = await host.SendAsync(HttpMethod.Post, "/api/v1/policies", admin,
+            new CreatePolicyRequest("Every rule", null, "Global", null, ["Production"], templates));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var policy = (await created.Content.ReadFromJsonAsync<PolicyResponse>(Token))!;
+        Assert.Equal(8, policy.Rules.Count);
+        var stored = await host.WithDbAsync(db => db.PolicyRules.AsNoTracking().Where(rule => rule.PolicyId == policy.Id)
+            .OrderBy(rule => rule.Order).Select(rule => rule.Parameters).ToListAsync(Token));
+
+        foreach (var (type, parameters, field, message) in new[] {
+            ("RequireApprovals", """{"count":11}""", "count", "from 1 to 10"),
+            ("RequireApprovals", """{"count":2,"roles":["Developer"]}""", "roles[0]", "Admin, Approver, Security"),
+            ("MaxFindings", """{"severity":"Critical","max":-1}""", "max", "from 0 to 10000"),
+            ("MaxFindings", """{"severity":"Severe","max":0}""", "severity", "Critical, High, Medium, Low, Info"),
+            ("RequireScan", """{"scanners":["Trivy","Snyk"]}""", "scanners[1]", "Gitleaks, Trivy, Semgrep"),
+            ("RequireScan", """{"scanners":["Trivy"],"maxAgeDays":7}""", "maxAgeDays", "not a RequireScan parameter"),
+            ("DeploymentWindow", """{"timezone":"Mars/Base","allowed":[{"days":["Mon"],"from":"09:00","to":"18:00"}]}""", "timezone", "IANA"),
+            ("DeploymentWindow", """{"timezone":"UTC","allowed":[{"days":["Mon"],"from":"18:00","to":"09:00"}]}""", "allowed[0].to", "later than"),
+            ("RequirePriorEnvironment", """{"tier":"QA"}""", "tier", "Development, Staging, Production"),
+            ("AllowedBranches", """{"patterns":["main",""]}""", "patterns[1]", "must not be empty"),
+            ("RequireImageDigest", """{"algorithm":"sha256"}""", "algorithm", "takes no parameters"),
+        }) {
+            var rules = templates.Select(rule => rule.Type == type
+                ? rule with { Parameters = JsonElement.Parse(parameters) }
+                : rule).ToArray();
+            var position = Array.FindIndex(rules, rule => rule.Type == type) + 1;
+            using var response = await host.SendAsync(HttpMethod.Put, $"/api/v1/policies/{policy.Id}", admin,
+                new CreatePolicyRequest("Every rule", null, "Global", null, ["Production"], rules));
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+            var problem = await response.Content.ReadFromJsonAsync<JsonElement>(Token);
+            var title = problem.GetProperty("title").GetString()!;
+            Assert.StartsWith($"{type} rule {position}: ", title, StringComparison.Ordinal);
+            Assert.Contains(message, title, StringComparison.Ordinal);
+            Assert.Equal(type, problem.GetProperty("ruleType").GetString());
+            Assert.Equal(position - 1, problem.GetProperty("ruleOrder").GetInt32());
+            Assert.Equal(field, problem.GetProperty("field").GetString());
+        }
+
+        await host.WithDbAsync(async db => {
+            var after = await db.PolicyRules.AsNoTracking().Where(rule => rule.PolicyId == policy.Id)
+                .OrderBy(rule => rule.Order).Select(rule => rule.Parameters).ToListAsync(Token);
+            Assert.Equal(stored, after);
+            Assert.Equal(1, (await db.Policies.AsNoTracking().SingleAsync(item => item.Id == policy.Id, Token)).Version);
+        });
+
+        // A valid edit through the same endpoint is accepted.
+        var edited = templates.Select(rule => rule.Type == "MaxFindings"
+            ? rule with { Parameters = JsonElement.Parse("""{"scanner":"Trivy","severity":"High","max":3,"includeUnknown":true}""") }
+            : rule).ToArray();
+        using var saved = await host.SendAsync(HttpMethod.Put, $"/api/v1/policies/{policy.Id}", admin,
+            new CreatePolicyRequest("Every rule", null, "Global", null, ["Production"], edited));
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+    }
+
     private sealed class OrgHost : IAsyncDisposable {
         private static readonly JwtOptions Jwt = new() {
             Issuer = "aegisops-tests",

@@ -72,17 +72,50 @@ A rule that **passes** contributes nothing. A rule that **fails** contributes it
 | `RequireTestsPassed` | `{}` | `Artifact.TestStatus == Passed` and `BuildStatus == Passed` | All tiers, `Deny` |
 | `RequireScan` | `{ "scanners": ["Gitleaks","Trivy","Semgrep"], "maxAgeHours": 168 }` | A `Completed` scan exists for each listed scanner, not older than `maxAgeHours` | Staging+, `Deny` |
 | `MaxFindings` | `{ "scanner": "Trivy" \| null, "severity": "Critical", "max": 0, "includeUnknown": false }` | Count of open findings with severity ≥ `severity` (for the scanner, or all) ≤ `max` | Prod: Critical=0 `Deny`, High≤3 `RequireApproval` |
-| `RequireApprovals` | `{ "count": 2, "roles": ["Approver","Security","Admin"], "distinctTeams": false }` | `count` approvals from users with any listed role; requester excluded | Production |
+| `RequireApprovals` | `{ "count": 2, "roles": ["Approver","Security","Admin"] }` | `count` approvals from users with any listed role (any approver when `roles` is omitted); requester excluded | Production |
 | `AllowedBranches` | `{ "patterns": ["main", "release/*", "refs/tags/v*"] }` | `Artifact.Branch` matches any glob (`*` = any characters, everything else literal, case-sensitive; NonBacktracking regex with a 100 ms timeout). Saved rules need 1–50 non-empty globs, at most 255 characters, no control characters (400 otherwise) | Production from `main` only |
 | `DeploymentWindow` | `{ "timezone": "Asia/Kuala_Lumpur", "allowed": [{ "days": ["Mon","Tue","Wed","Thu"], "from": "09:00", "to": "18:00" }, { "days": ["Fri"], "from": "09:00", "to": "15:00" }] }` | `Now` in an allowed window | No Friday-evening production deploys |
 | `RequireImageDigest` | `{}` | `Artifact.ImageDigest` present (`sha256:…`) | Production immutability |
 | `RequirePriorEnvironment` | `{ "tier": "Staging", "status": "Succeeded", "maxAgeHours": 720 }` | Same artifact has a `Succeeded` deployment in the given tier | Production must be preceded by Staging |
 
-### Parameter validation
+### Parameter reference and validation
 
-Each rule type has a matching C# record (`MaxFindingsParameters`, …) with a FluentValidation
-validator. Invalid parameters are rejected at policy-edit time (HTTP 400), so evaluation
-never sees malformed rules. Unknown `Type` values are rejected.
+`PolicyRuleParameters.Validate` (Application) checks every rule when a policy is created (`POST /api/v1/policies`)
+or replaced (`PUT /api/v1/policies/{id}`, which is also how the UI saves one rule). A bad value is rejected with
+400 Problem Details whose `title` names the rule and the field, e.g.
+`RequireApprovals rule 3: "count" must be a whole number from 1 to 10.`, plus the extensions `ruleType`,
+`ruleOrder` and `field` (a JSON path such as `allowed[1].to`). Nothing is stored when any rule is invalid.
+Property names are case-insensitive like the engine's deserializer; **unknown properties are rejected** (a typo
+such as `maxAgeDays` would otherwise be ignored and silently disable the age check). Optional properties may be
+omitted or `null` to get the engine default.
+
+| Type | Field | Type / allowed values | Required | Default when omitted |
+| --- | --- | --- | --- | --- |
+| `RequireTestsPassed`, `RequireImageDigest` | — | no properties (`{}`) | — | — |
+| `RequireScan` | `scanners` | non-empty list of `Gitleaks`, `Trivy`, `Semgrep`, no repeats | yes | — |
+| | `maxAgeHours` | whole number 1–8760 (one year) | no | no age limit |
+| `MaxFindings` | `severity` | `Critical`, `High`, `Medium`, `Low`, `Info` (counts that severity and higher) | no | `Critical` |
+| | `max` | whole number 0–10000 | no | `0` |
+| | `scanner` | `Gitleaks`, `Trivy`, `Semgrep`, or `null` for all scanners | no | all scanners |
+| | `includeUnknown` | `true` / `false` (also count Unknown-severity findings) | no | `false` |
+| `RequireApprovals` | `count` | whole number 1–10 (not `null`) | no | `1` |
+| | `roles` | list of `Admin`, `Approver`, `Security` (the roles holding `deployments:approve`; exact case), no repeats | no | anyone allowed to approve |
+| `AllowedBranches` | `patterns` | 1–50 globs, each non-empty, ≤ 255 characters, no control characters | yes | — |
+| `DeploymentWindow` | `timezone` | IANA (or Windows) zone this host can resolve, e.g. `Asia/Kuala_Lumpur`, `UTC` | no | `Asia/Kuala_Lumpur` |
+| | `allowed` | 1–50 windows `{ "days", "from", "to" }`, no other fields | yes | — |
+| | `allowed[i].days` | non-empty list of `Mon`…`Sun`, no repeats | yes | — |
+| | `allowed[i].from`, `.to` | time of day `HH:mm` (seconds/fractions allowed, e.g. `23:59:59.9999999`), `00:00` ≤ t < `24:00`, `to` later than `from`; a window cannot cross midnight (use two) | yes | — |
+| `RequirePriorEnvironment` | `tier` | `Development`, `Staging`, `Production` | yes | — |
+| | `status` | `Succeeded` only (the engine records successful prior deployments) | no | `Succeeded` |
+| | `maxAgeHours` | whole number 1–8760 | no | no age limit |
+
+Validation runs **only on write**. Rules stored before it existed still load and evaluate, failing closed:
+an empty branch list, a missing window, or a time zone the host cannot resolve make the rule fail ("Deployment
+window time zone is invalid."). Re-saving such a policy requires fixing the rule first. Unknown `Type` values
+are rejected. `GET /api/v1/policies/rule-types` returns one valid template per type (the UI's "Add rule" defaults).
+
+The web UI edits these with typed forms (`src/AegisOps.Web/src/policyRules.ts` mirrors this table); parameters it
+cannot represent open in an "Advanced: edit JSON" editor with a notice instead of being dropped.
 
 ## 5. Evaluation algorithm
 
@@ -116,8 +149,8 @@ Evaluate(ctx):
 Notes:
 
 - `RequireApprovals` sets the quorum; a failing `RequireApproval`-effect rule (e.g. High
-  findings > 3) forces at least 1 approval. Roles default to `Approver, Security, Admin` if
-  none listed.
+  findings > 3) forces at least 1 approval. Without `roles`, anyone holding `deployments:approve`
+  (Admin, Security, Approver) may approve.
 - The same `Evaluate` runs at three points: on request, after each approval (to check
   quorum), and immediately before execution (time-sensitive rules).
 - Evaluation is idempotent and side-effect free; the handler persists results.
@@ -193,8 +226,8 @@ Production, artifact never deployed to Staging. `RequirePriorEnvironment` fails 
 
 ## 9. Extensibility
 
-Adding a rule type = one class implementing `IRuleEvaluator` + parameters record +
-validator + tests + a UI form section. The registry is discovered via DI
+Adding a rule type = an engine case + parameters record + a `PolicyRuleParameters` validation
+case + a `rule-types` template + tests + a UI form section (`policyRules.ts`, `Policies.tsx`). The registry is discovered via DI
 (`IEnumerable<IRuleEvaluator>` keyed by `PolicyRuleType`). Candidates for V2:
 `RequireSbom`, `MaxArtifactAge`, `RequireChangeTicket`, `RequireSignedImage` (cosign).
 

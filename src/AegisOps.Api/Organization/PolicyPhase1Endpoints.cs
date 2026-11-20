@@ -86,7 +86,10 @@ public static class PolicyPhase1Endpoints {
                 var parameters = item.Parameters is null || item.Parameters.Value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
                     ? null
                     : item.Parameters.Value.GetRawText();
-                BranchGlob.ValidateRuleParameters(type, parameters);
+                if (PolicyRuleProblems.Validate(type, item.Order, parameters) is { } invalid) {
+                    return invalid;
+                }
+
                 rules.Add(PolicyRule.Create(policy.Id, type, effect, item.Order, parameters));
             }
 

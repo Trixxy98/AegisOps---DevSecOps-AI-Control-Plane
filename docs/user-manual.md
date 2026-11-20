@@ -211,9 +211,35 @@ and every step is recorded.
 ### Tutorial 4 — Change a rule
 
 1. Sign in as **admin** → **Policies** → `Production baseline`.
-2. Change the approvals rule from `2` to `1`, save, and see the **version number** increase.
-3. Open **Audit log**: there is a `policy.updated` entry with your name.
-4. Change it back to `2`.
+2. In the **Require approvals** rule, change **Approvals required** from `2` to `1`. The sentence under the rule
+   title updates ("Require 1 approval from …") and *Unsaved changes* appears; **Save** and **Cancel** are enabled
+   only while something changed.
+3. Choose **Save** and see the **version number** increase.
+4. Open **Audit log**: there is a `policy.updated` entry with your name.
+5. Change it back to `2`.
+
+**How rules are edited.** Every rule shows one plain-language sentence of what it does with its current values,
+for example *Deny if there are more than 0 open Critical findings from any scanner.* Rules with settings have a
+form instead of raw JSON:
+
+| Rule | Form fields |
+| --- | --- |
+| Require tests passed, Require image digest | None; only the explanation |
+| Require scan | Scanners (Gitleaks, Trivy, Semgrep) and maximum scan age in hours (empty = any age) |
+| Max findings | Severity (counts that severity and higher), maximum allowed, one scanner or any, and whether Unknown-severity findings count |
+| Require approvals | Number of approvals (1–10) and which roles may approve (none ticked = anyone allowed to approve) |
+| Allowed branches | A list of branch names or globs (`*` matches anything); add and remove rows |
+| Deployment window | Time zone, then one row per window: days, from and until (a window cannot cross midnight; use two rows) |
+| Require prior environment | The tier the same artifact must have succeeded in first, and within how many hours (empty = any time) |
+
+The form checks obvious mistakes as you type; the server checks every value again when you save and, if one is
+wrong, the rule shows the reason and the field (for example *RequireApprovals rule 3: "count" must be a whole
+number from 1 to 10*). Your edit stays on screen so you can fix it. The exact ranges are in
+[05 Policy engine §4](05-policy-engine.md#4-rule-catalogue-v1).
+
+**Advanced: edit JSON** opens the rule's parameters as JSON for anything the form does not cover; **Back to form**
+returns. If a stored rule has fields the form does not know (for example one saved by a script before forms
+existed), the rule opens straight in the JSON editor with a notice, so nothing is dropped silently.
 
 **What you learned:** rules are data you can change, and every change is versioned and audited. A deployment
 always remembers the policy version it was judged by.

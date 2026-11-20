@@ -17,10 +17,23 @@ Conventional Commit history (`git log --no-merges`).
   new table `deploy.github_deployment_gates` (migration `GitHubDeploymentGates`); `GitHubApp__*` settings for api
   and worker (off by default, validated at startup); deployments show a GitHub badge and a link to the workflow run.
 
+- Typed policy rule forms (roadmap v1.2 item 5): the Policies page edits each rule type with fields instead of raw
+  JSON (counts, severities, scanners, approver roles, branch-glob rows, deployment-window rows with an IANA time
+  zone), explains every rule in one sentence with its current values, has per-rule Save/Cancel, shows Problem
+  Details on the rule, and keeps an "Advanced: edit JSON" editor that opens with a notice for parameters the form
+  cannot represent.
+
 - Production profile can run the published release images: `AEGISOPS_IMAGE_PREFIX` and `AEGISOPS_IMAGE_TAG`
   (docs/deploy-production.md §5).
 
 ### Changed
+
+- Policy create and replace validate the parameters of every rule type, not only `AllowedBranches`
+  (docs/05 §4): ranges (`count` 1–10, `max` 0–10000, `maxAgeHours` 1–8760, up to 50 windows), known scanners,
+  severities, tiers, days and approver roles (`Admin`, `Approver`, `Security`), valid window times with `to` after
+  `from`, a resolvable time zone, and no unknown properties (e.g. `maxAgeDays`, `distinctTeams`). A 400 Problem
+  Details names the rule and field (`ruleType`, `ruleOrder`, `field` extensions) and nothing is stored. Rules
+  already stored are not re-validated; re-saving a policy with such a rule needs the rule fixed first.
 
 - `GET /deployments` and `GET /deployments/{id}` include `source` (`AegisOps`/`GitHub`) and the GitHub run link;
   requesting or rolling back a deployment to a `github` environment answers 409.
@@ -45,6 +58,10 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Fixed
 
+- A deployment-window rule whose stored time zone the host cannot resolve now fails closed ("Deployment window
+  time zone is invalid.") instead of throwing during evaluation.
+- Playwright fixtures use the real rule types and parameter shapes (`MaxFindings`, `RequireScan`, `maxAgeHours`)
+  instead of `MaxSeverity`/`RequireFreshScans`/`maxAgeDays`.
 - The web image serves `index.html` with `Cache-Control: no-cache` (hashed `/assets/` files for a year), so a
   browser picks up a new release without a hard reload; security headers are unchanged.
 - Re-evaluation after an approval records progress ("1 of 2 approval(s) received; 1 more required.") instead of
