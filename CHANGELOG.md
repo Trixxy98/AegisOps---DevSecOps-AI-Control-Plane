@@ -58,6 +58,8 @@ Conventional Commit history (`git log --no-merges`).
 
 ### Fixed
 
+- CI drops Semgrep results suppressed with a justified `# nosemgrep: <rule>` comment before the SARIF upload,
+  so code scanning no longer reopens reviewed findings (alerts #34 and #35, the constant nginx API upstream).
 - A deployment-window rule whose stored time zone the host cannot resolve now fails closed ("Deployment window
   time zone is invalid.") instead of throwing during evaluation.
 - Playwright fixtures use the real rule types and parameter shapes (`MaxFindings`, `RequireScan`, `maxAgeHours`)

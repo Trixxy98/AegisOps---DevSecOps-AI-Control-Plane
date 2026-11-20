@@ -138,6 +138,11 @@ jobs:
             --metrics=off \
             --sarif \
             --output security-reports/semgrep.sarif
+          # Code scanning ignores SARIF suppressions and would reopen findings already reviewed with a justified
+          # `# nosemgrep: <rule>` comment in the source, so drop those results before upload.
+          jq '(.runs[].results) |= map(select((.suppressions // []) | length == 0))' \
+            security-reports/semgrep.sarif > security-reports/semgrep.filtered && \
+            mv security-reports/semgrep.filtered security-reports/semgrep.sarif
 
       - name: Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
