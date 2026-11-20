@@ -7,6 +7,12 @@ Conventional Commit history (`git log --no-merges`).
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-11-20
+
+Connected to the tools teams already use: GitHub deployment protection rules backed by AegisOps policies
+(verified live with approve and deny), typed policy forms with per-type validation, a redesigned UI with light and
+dark themes, and fixes for restarts, caching and the newer .NET SDK.
+
 ### Added
 
 - GitHub deployment protection rule (roadmap v1.2 item 1, [docs/github-deployment-gate.md](docs/github-deployment-gate.md)):
