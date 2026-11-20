@@ -40,6 +40,13 @@ public sealed class PolicyEngineTests {
     }
 
     [Fact]
+    public void Re_evaluation_after_an_approval_reports_progress() {
+        var rules = new[] { Policy(Rule(PolicyRuleType.RequireApprovals, RuleEffect.RequireApproval, """{"count":2}""")) };
+        Assert.Equal("2 approval(s) required.", Engine.Evaluate(Context(approvals: 0), rules).Message);
+        Assert.Equal("1 of 2 approval(s) received; 1 more required.", Engine.Evaluate(Context(approvals: 1), rules).Message);
+    }
+
+    [Fact]
     public void Friday_evening_window_denies() {
         var fridayEvening = new DateTimeOffset(2026, 10, 9, 9, 30, 0, TimeSpan.Zero);
         var result = Engine.Evaluate(
