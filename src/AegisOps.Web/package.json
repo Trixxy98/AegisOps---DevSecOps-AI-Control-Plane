@@ -15,7 +15,7 @@
     "format:check": "prettier . --check"
   },
   "dependencies": {
-    "@microsoft/signalr": "^10.0.11",
+    "@microsoft/signalr": "^11.0.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
